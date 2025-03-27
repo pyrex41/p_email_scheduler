@@ -214,7 +214,8 @@ async def resample_contacts(
     org_id: int, 
     sample_size: int = 10,
     state: Optional[str] = None,
-    special_rules_only: bool = False
+    special_rules_only: bool = False,
+    contact_search: Optional[str] = None
 ):
     """Resample contacts from existing data"""
     try:
@@ -226,30 +227,43 @@ async def resample_contacts(
             
         df = org_data_store[org_id]
         
-        # Apply state filtering
-        filtered_df = df.copy()
-        if special_rules_only:
-            filtered_df = filtered_df[filtered_df['state'].isin(SPECIAL_RULE_STATES)]
-        elif state and state.strip():  # Only filter if state is explicitly selected
-            filtered_df = filtered_df[filtered_df['state'] == state]
+        # Apply contact search if provided
+        if contact_search and contact_search.strip():
+            search_term = contact_search.strip()
+            # Search by email (case insensitive) or by contact ID
+            filtered_df = df[(df['email'].str.lower() == search_term.lower()) | 
+                             (df['contact_id'].astype(str) == search_term)]
             
-        # Get unique contacts with their states
-        unique_contacts = filtered_df.groupby('contact_id').first().reset_index()
-        
-        if len(unique_contacts) == 0:
-            return JSONResponse(
-                status_code=404,
-                content={"error": "No contacts found matching the state filter criteria."}
-            )
-        
-        # Sample contacts ensuring good state distribution
-        sample_ids = sample_contacts_from_states(unique_contacts, sample_size, state if state and state.strip() else None)
-        
-        # Filter dataframe to only include sampled contacts
-        sample_df = filtered_df[filtered_df['contact_id'].isin(sample_ids)]
+            if len(filtered_df) == 0:
+                return JSONResponse(
+                    status_code=404,
+                    content={"error": f"No contact found with email or ID: {search_term}"}
+                )
+        else:
+            # Apply state filtering
+            filtered_df = df.copy()
+            if special_rules_only:
+                filtered_df = filtered_df[filtered_df['state'].isin(SPECIAL_RULE_STATES)]
+            elif state and state.strip():  # Only filter if state is explicitly selected
+                filtered_df = filtered_df[filtered_df['state'] == state]
+                
+            # Get unique contacts with their states
+            unique_contacts = filtered_df.groupby('contact_id').first().reset_index()
+            
+            if len(unique_contacts) == 0:
+                return JSONResponse(
+                    status_code=404,
+                    content={"error": "No contacts found matching the state filter criteria."}
+                )
+            
+            # Sample contacts ensuring good state distribution
+            sample_ids = sample_contacts_from_states(unique_contacts, sample_size, state if state and state.strip() else None)
+            
+            # Filter dataframe to only include sampled contacts
+            filtered_df = filtered_df[filtered_df['contact_id'].isin(sample_ids)]
         
         # Convert DataFrame to list of dicts, handling NaN values
-        sample_data = sample_df.replace({pd.NA: None}).to_dict('records')
+        sample_data = filtered_df.replace({pd.NA: None}).to_dict('records')
         
         # Group data by contact
         contacts_data = {}
@@ -286,8 +300,9 @@ async def resample_contacts(
             
         return {
             "contacts": contacts_data,
-            "total_contacts": len(unique_contacts),
-            "sample_size": len(sample_ids)
+            "total_contacts": len(df.groupby('contact_id')),
+            "sample_size": len(contacts_data),
+            "contact_search": contact_search if contact_search else ""
         }
         
     except Exception as e:
@@ -302,7 +317,8 @@ async def check_schedules(
     org_id: int = Form(...),
     sample_size: int = Form(10),
     state: Optional[str] = Form(default=None),
-    special_rules_only: bool = Form(default=False)
+    special_rules_only: bool = Form(default=False),
+    contact_search: Optional[str] = Form(default=None)
 ):
     """Process organization's contacts and display sample results"""
     try:
@@ -353,33 +369,49 @@ async def check_schedules(
         # Clean up temp file
         os.unlink(tmp.name)
         
-        # Apply state filtering
-        filtered_df = df.copy()
-        if special_rules_only:
-            filtered_df = filtered_df[filtered_df['state'].isin(SPECIAL_RULE_STATES)]
-        elif state and state.strip():  # Only filter if state is explicitly selected
-            filtered_df = filtered_df[filtered_df['state'] == state]
+        # Apply contact search if provided
+        if contact_search and contact_search.strip():
+            search_term = contact_search.strip()
+            # Search by email (case insensitive) or by contact ID
+            filtered_df = df[(df['email'].str.lower() == search_term.lower()) | 
+                             (df['contact_id'].astype(str) == search_term)]
             
-        # Get unique contacts with their states
-        unique_contacts = filtered_df.groupby('contact_id').first().reset_index()
-        
-        if len(unique_contacts) == 0:
-            return templates.TemplateResponse(
-                "error.html",
-                {
-                    "request": request,
-                    "error": "No contacts found matching the state filter criteria."
-                }
-            )
-        
-        # Sample contacts ensuring good state distribution
-        sample_ids = sample_contacts_from_states(unique_contacts, sample_size, state if state and state.strip() else None)
-        
-        # Filter dataframe to only include sampled contacts
-        sample_df = filtered_df[filtered_df['contact_id'].isin(sample_ids)]
+            if len(filtered_df) == 0:
+                return templates.TemplateResponse(
+                    "error.html",
+                    {
+                        "request": request,
+                        "error": f"No contact found with email or ID: {search_term}"
+                    }
+                )
+        else:
+            # Apply state filtering
+            filtered_df = df.copy()
+            if special_rules_only:
+                filtered_df = filtered_df[filtered_df['state'].isin(SPECIAL_RULE_STATES)]
+            elif state and state.strip():  # Only filter if state is explicitly selected
+                filtered_df = filtered_df[filtered_df['state'] == state]
+                
+            # Get unique contacts with their states
+            unique_contacts = filtered_df.groupby('contact_id').first().reset_index()
+            
+            if len(unique_contacts) == 0:
+                return templates.TemplateResponse(
+                    "error.html",
+                    {
+                        "request": request,
+                        "error": "No contacts found matching the state filter criteria."
+                    }
+                )
+            
+            # Sample contacts ensuring good state distribution
+            sample_ids = sample_contacts_from_states(unique_contacts, sample_size, state if state and state.strip() else None)
+            
+            # Filter dataframe to only include sampled contacts
+            filtered_df = filtered_df[filtered_df['contact_id'].isin(sample_ids)]
         
         # Convert DataFrame to list of dicts for template
-        sample_data = sample_df.to_dict('records')
+        sample_data = filtered_df.to_dict('records')
         
         # Group data by contact
         contacts_data = {}
@@ -421,13 +453,14 @@ async def check_schedules(
                 "org_name": org['name'],
                 "org_id": org_id,
                 "contacts": contacts_data,
-                "total_contacts": len(unique_contacts),
-                "sample_size": sample_size,
+                "total_contacts": len(df.groupby('contact_id')),
+                "sample_size": len(contacts_data),
                 "sample_sizes": [5, 10, 25, 50, 100],
                 "selected_state": state if state and state.strip() else None,
                 "special_rules_only": special_rules_only,
                 "all_states": ALL_STATES,
-                "special_rule_states": SPECIAL_RULE_STATES
+                "special_rule_states": SPECIAL_RULE_STATES,
+                "contact_search": contact_search if contact_search else ""
             }
         )
         

@@ -10,6 +10,9 @@
         {% elif special_rules_only %}
         (Showing only states with special rules)
         {% endif %}
+        {% if contact_search %}
+        (Searching for: {{ contact_search }})
+        {% endif %}
         <form action="/check" method="post" class="d-inline ms-3">
             <input type="hidden" name="org_id" value="{{ org_id }}">
             <input type="hidden" name="state" value="{{ selected_state }}">
@@ -25,6 +28,34 @@
             Resample Contacts
         </button>
     </p>
+    
+    <!-- Contact search form -->
+    <form action="/check" method="post" class="row g-3 align-items-end mb-4">
+        <input type="hidden" name="org_id" value="{{ org_id }}">
+        <input type="hidden" name="sample_size" value="{{ sample_size }}">
+        <input type="hidden" name="state" value="{{ selected_state }}">
+        <input type="hidden" name="special_rules_only" value="{{ 'true' if special_rules_only else 'false' }}">
+        <div class="col-md-8">
+            <label for="contact_search" class="form-label">Search by Email or Contact ID</label>
+            <input type="text" class="form-control" id="contact_search" name="contact_search" value="{{ contact_search }}" placeholder="Enter email address or contact ID">
+        </div>
+        <div class="col-md-4">
+            <button type="submit" class="btn btn-primary">Search</button>
+            {% if contact_search %}
+            <a href="/check" class="btn btn-secondary ms-2" onclick="event.preventDefault(); document.getElementById('reset-form').submit();">Clear Search</a>
+            {% endif %}
+        </div>
+    </form>
+    
+    <!-- Hidden form for resetting search -->
+    {% if contact_search %}
+    <form id="reset-form" action="/check" method="post">
+        <input type="hidden" name="org_id" value="{{ org_id }}">
+        <input type="hidden" name="sample_size" value="{{ sample_size }}">
+        <input type="hidden" name="state" value="{{ selected_state }}">
+        <input type="hidden" name="special_rules_only" value="{{ 'true' if special_rules_only else 'false' }}">
+    </form>
+    {% endif %}
 </div>
 
 <div id="contacts-container">
@@ -132,6 +163,7 @@
                                     <th>Status</th>
                                     <th>Default Date</th>
                                     <th>Reason</th>
+                                    <th>Link</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -190,6 +222,11 @@
                                         <span class="text-success">Normal schedule</span>
                                         {% endif %}
                                     </td>
+                                    <td>
+                                        {% if email.link and email.skipped != 'Yes' %}
+                                        <a href="{{ email.link }}" target="_blank" class="btn btn-sm btn-primary">View</a>
+                                        {% endif %}
+                                    </td>
                                 </tr>
                                 {% endfor %}
                             </tbody>
@@ -214,6 +251,7 @@ async function resampleContacts() {
     const sampleSize = document.querySelector('select[name="sample_size"]').value;
     const state = '{{ selected_state or "" }}';  // Handle null/None case
     const specialRulesOnly = {{ 'true' if special_rules_only else 'false' }};
+    const contactSearch = '{{ contact_search or "" }}';
     
     // Show loading state
     button.disabled = true;
@@ -226,6 +264,9 @@ async function resampleContacts() {
             url += `&state=${state}`;
         }
         url += `&special_rules_only=${specialRulesOnly}`;
+        if (contactSearch) {
+            url += `&contact_search=${encodeURIComponent(contactSearch)}`;
+        }
         
         const response = await fetch(url, {
             method: 'POST'
@@ -245,59 +286,24 @@ async function resampleContacts() {
                                   stateInfo.has_effective_date_rule || 
                                   stateInfo.has_year_round_enrollment;
             
-            // Function to get rule description
-            function getBirthdayRuleDesc(state) {
-                if (state === "CA") return "60-day exclusion period: 30 days before and 30 days after birthday.";
-                if (state === "ID") return "63-day exclusion period: Starting on birthday and ending 63 days after.";
-                if (state === "IL") return "45-day exclusion period: Starting on birthday and ending 45 days after.";
-                if (state === "KY") return "60-day exclusion period: Starting on birthday and ending 60 days after.";
-                if (state === "LA") return "93-day exclusion period: 30 days before and 63 days after birthday.";
-                if (state === "MD") return "31-day exclusion period: Starting on birthday and ending 31 days after.";
-                if (state === "NV") return "60-day exclusion period: Starting on first day of birth month.";
-                if (state === "OK") return "60-day exclusion period: Starting on birthday and ending 60 days after.";
-                if (state === "OR") return "31-day exclusion period: Starting on birthday and ending 31 days after.";
-                return "";
-            }
+            // Get birthday rule description based on state
+            let birthdayRuleDesc = "";
+            if (contactData.contact_info.state === "CA") birthdayRuleDesc = "60-day exclusion period: 30 days before and 30 days after birthday.";
+            else if (contactData.contact_info.state === "ID") birthdayRuleDesc = "63-day exclusion period: Starting on birthday and ending 63 days after.";
+            else if (contactData.contact_info.state === "IL") birthdayRuleDesc = "45-day exclusion period: Starting on birthday and ending 45 days after.";
+            else if (contactData.contact_info.state === "KY") birthdayRuleDesc = "60-day exclusion period: Starting on birthday and ending 60 days after.";
+            else if (contactData.contact_info.state === "LA") birthdayRuleDesc = "93-day exclusion period: 30 days before and 63 days after birthday.";
+            else if (contactData.contact_info.state === "MD") birthdayRuleDesc = "31-day exclusion period: Starting on birthday and ending 31 days after.";
+            else if (contactData.contact_info.state === "NV") birthdayRuleDesc = "60-day exclusion period: Starting on first day of birth month.";
+            else if (contactData.contact_info.state === "OK") birthdayRuleDesc = "60-day exclusion period: Starting on birthday and ending 60 days after.";
+            else if (contactData.contact_info.state === "OR") birthdayRuleDesc = "31-day exclusion period: Starting on birthday and ending 31 days after.";
             
-            function getEffectiveDateRuleDesc(state) {
-                if (state === "MO") return "63-day exclusion period: 30 days before and 33 days after the policy anniversary.";
-                return "";
-            }
+            // Get effective date rule description
+            let effectiveDateRuleDesc = "";
+            if (contactData.contact_info.state === "MO") effectiveDateRuleDesc = "63-day exclusion period: 30 days before and 33 days after the policy anniversary.";
             
-            // Function to calculate default date
-            function getDefaultDate(emailType, emailDate, birthDate, effectiveDate) {
-                if (!emailDate) return "N/A";
-                
-                if (emailType === "birthday" && birthDate) {
-                    const dateParts = emailDate.split('-');
-                    const birthParts = birthDate.split('-');
-                    const currentYear = dateParts[0];
-                    const defaultDate = `${currentYear}-${birthParts[1]}-${birthParts[2]}`;
-                    
-                    // Adjust if email date is before default date
-                    if (emailDate < defaultDate) {
-                        return `${parseInt(currentYear) - 1}-${birthParts[1]}-${birthParts[2]}`;
-                    }
-                    return defaultDate;
-                }
-                
-                if (emailType === "effective_date" && effectiveDate) {
-                    const dateParts = emailDate.split('-');
-                    const effectiveParts = effectiveDate.split('-');
-                    const currentYear = dateParts[0];
-                    const defaultDate = `${currentYear}-${effectiveParts[1]}-${effectiveParts[2]}`;
-                    
-                    // Adjust if email date is before default date
-                    if (emailDate < defaultDate) {
-                        return `${parseInt(currentYear) - 1}-${effectiveParts[1]}-${effectiveParts[2]}`;
-                    }
-                    return defaultDate;
-                }
-                
-                return "N/A";
-            }
-                
-            html += `
+            // Build card HTML
+            let cardHTML = `
                 <div class="card contact-card">
                     <div class="card-header">
                         <h5 class="card-title mb-0">
@@ -337,14 +343,14 @@ async function resampleContacts() {
                                         ${stateInfo.has_birthday_rule ? `
                                         <div class="mb-2">
                                             <strong class="text-primary">Birthday Rule</strong>
-                                            <p class="mb-0 small">${getBirthdayRuleDesc(contactData.contact_info.state)}</p>
+                                            <p class="mb-0 small">${birthdayRuleDesc}</p>
                                         </div>
                                         ` : ''}
                                         
                                         ${stateInfo.has_effective_date_rule ? `
                                         <div class="mb-2">
                                             <strong class="text-success">Effective Date Rule</strong>
-                                            <p class="mb-0 small">${getEffectiveDateRuleDesc(contactData.contact_info.state)}</p>
+                                            <p class="mb-0 small">${effectiveDateRuleDesc}</p>
                                         </div>
                                         ` : ''}
                                         
@@ -373,48 +379,84 @@ async function resampleContacts() {
                                                 <th>Status</th>
                                                 <th>Default Date</th>
                                                 <th>Reason</th>
+                                                <th>Link</th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            ${contactData.emails.map(email => {
-                                                const badgeType = email.type === 'birthday' ? 'primary' : 
-                                                                email.type === 'effective_date' ? 'success' :
-                                                                email.type === 'aep' ? 'info' : 
-                                                                email.type === 'post_window' ? 'warning' : 'secondary';
-                                                const emailTypeLabel = email.type === 'birthday' ? 'Birthday' : 
-                                                                    email.type === 'effective_date' ? 'Effective Date' :
-                                                                    email.type === 'aep' ? 'AEP' : 
-                                                                    email.type === 'post_window' ? 'Post Window' : email.type;
-                                                
-                                                const defaultDate = getDefaultDate(
-                                                    email.type, 
-                                                    email.date, 
-                                                    contactData.contact_info.birth_date, 
-                                                    contactData.contact_info.effective_date
-                                                );
-                                                
-                                                return `
-                                                <tr ${email.skipped === 'Yes' ? 'class="table-danger"' : ''}>
-                                                    <td>
-                                                        <span class="badge bg-${badgeType}">${emailTypeLabel}</span>
-                                                    </td>
-                                                    <td>${email.date}</td>
-                                                    <td>
-                                                        ${email.skipped === 'Yes' 
-                                                            ? '<span class="badge bg-danger">Skipped</span>' 
-                                                            : '<span class="badge bg-success">Scheduled</span>'}
-                                                    </td>
-                                                    <td>${defaultDate}</td>
-                                                    <td>
-                                                        ${email.reason 
-                                                            ? `<span class="text-danger">${email.reason}</span>` 
-                                                            : email.skipped === 'Yes' 
-                                                                ? '<span class="text-danger">Unknown</span>' 
-                                                                : '<span class="text-success">Normal schedule</span>'}
-                                                    </td>
-                                                </tr>
-                                                `;
-                                            }).join('')}
+            `;
+            
+            // Add email rows
+            for (const email of contactData.emails) {
+                let defaultDate = "N/A";
+                
+                // Calculate default date for birthday emails
+                if (email.type === "birthday" && contactData.contact_info.birth_date) {
+                    const emailParts = email.date.split('-');
+                    const birthParts = contactData.contact_info.birth_date.split('-');
+                    const emailYear = emailParts[0];
+                    const calculatedDate = `${emailYear}-${birthParts[1]}-${birthParts[2]}`;
+                    
+                    if (email.date < calculatedDate) {
+                        defaultDate = `${parseInt(emailYear) - 1}-${birthParts[1]}-${birthParts[2]}`;
+                    } else {
+                        defaultDate = calculatedDate;
+                    }
+                }
+                
+                // Calculate default date for effective date emails
+                if (email.type === "effective_date" && contactData.contact_info.effective_date) {
+                    const emailParts = email.date.split('-');
+                    const effectiveParts = contactData.contact_info.effective_date.split('-');
+                    const emailYear = emailParts[0];
+                    const calculatedDate = `${emailYear}-${effectiveParts[1]}-${effectiveParts[2]}`;
+                    
+                    if (email.date < calculatedDate) {
+                        defaultDate = `${parseInt(emailYear) - 1}-${effectiveParts[1]}-${effectiveParts[2]}`;
+                    } else {
+                        defaultDate = calculatedDate;
+                    }
+                }
+                
+                // Determine badge type and label based on email type
+                let badgeType = "secondary";
+                let emailTypeLabel = email.type;
+                
+                if (email.type === "birthday") {
+                    badgeType = "primary";
+                    emailTypeLabel = "Birthday";
+                } else if (email.type === "effective_date") {
+                    badgeType = "success";
+                    emailTypeLabel = "Effective Date";
+                } else if (email.type === "aep") {
+                    badgeType = "info";
+                    emailTypeLabel = "AEP";
+                } else if (email.type === "post_window") {
+                    badgeType = "warning";
+                    emailTypeLabel = "Post Window";
+                }
+                
+                const isSkipped = email.skipped === 'Yes';
+                
+                // Add row HTML
+                cardHTML += `
+                    <tr ${isSkipped ? 'class="table-danger"' : ''}>
+                        <td><span class="badge bg-${badgeType}">${emailTypeLabel}</span></td>
+                        <td>${email.date}</td>
+                        <td>${isSkipped ? '<span class="badge bg-danger">Skipped</span>' : '<span class="badge bg-success">Scheduled</span>'}</td>
+                        <td>${defaultDate}</td>
+                        <td>${email.reason 
+                                ? `<span class="text-danger">${email.reason}</span>` 
+                                : (isSkipped 
+                                    ? '<span class="text-danger">Unknown</span>' 
+                                    : '<span class="text-success">Normal schedule</span>')}
+                        </td>
+                        <td>${(!isSkipped && email.link) ? `<a href="${email.link}" target="_blank" class="btn btn-sm btn-primary">View</a>` : ''}</td>
+                    </tr>
+                `;
+            }
+            
+            // Close HTML tags
+            cardHTML += `
                                         </tbody>
                                     </table>
                                 </div>
@@ -423,13 +465,15 @@ async function resampleContacts() {
                     </div>
                 </div>
             `;
+            
+            html += cardHTML;
         }
         
-        // Update the container
+        // Update the DOM
         container.innerHTML = html;
         
     } catch (error) {
-        console.error('Error:', error);
+        console.error('Error resampling contacts:', error);
         alert('Failed to resample contacts. Please try again.');
     } finally {
         // Reset loading state
