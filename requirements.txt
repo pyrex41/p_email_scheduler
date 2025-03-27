@@ -25,3 +25,5 @@ starkbank-ecdsa==2.2.0
 typing-extensions==4.12.2
 tzdata==2025.1
 yarl==1.18.3
+fastapi
+uvicorn
