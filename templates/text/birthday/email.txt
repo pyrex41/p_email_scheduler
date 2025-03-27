@@ -1,0 +1,20 @@
+Dear {{ first_name }},
+
+Happy birthday month! As your Medicare insurance specialists, we want to ensure you're getting the most from your coverage during this special time.
+
+Your birthday month is a perfect opportunity for a comprehensive review of your Medicare coverage. Here's what we'll cover:
+{% for benefit in review_benefits %}
+- {{ benefit }}
+{% endfor %}
+
+{{ call_to_action }}
+Call us at {{ signature_phone | phone }} to schedule your review.
+
+Best regards,
+{{ signature_name }}
+
+--
+{{ company_name }}
+Phone: {{ phone | phone }}
+Website: {{ website }}
+{% if contact.id %}Contact ID: {{ contact.id }}{% endif %} 

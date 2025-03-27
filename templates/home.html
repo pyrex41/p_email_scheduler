@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Check Email Schedules</h5>
+            </div>
+            <div class="card-body">
+                <form action="/check" method="post" id="scheduleForm">
+                    <div class="mb-3">
+                        <label for="org_id" class="form-label">Organization ID</label>
+                        <input type="number" class="form-control" id="org_id" name="org_id" value="37" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="sample_size" class="form-label">Sample Size</label>
+                        <select class="form-select" id="sample_size" name="sample_size">
+                            {% for size in sample_sizes %}
+                            <option value="{{ size }}" {% if size == 10 %}selected{% endif %}>{{ size }} contacts</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">State Filter</label>
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="radio" name="filter_type" id="filter_none" value="none" checked>
+                            <label class="form-check-label" for="filter_none">
+                                Show all states
+                            </label>
+                        </div>
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="radio" name="filter_type" id="filter_state" value="state">
+                            <label class="form-check-label" for="filter_state">
+                                Filter by specific state
+                            </label>
+                        </div>
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="radio" name="filter_type" id="filter_special" value="special">
+                            <label class="form-check-label" for="filter_special">
+                                Show only states with special rules
+                            </label>
+                        </div>
+                        <select class="form-select mt-2" id="state" name="state" disabled>
+                            <option value="">Select a state...</option>
+                            {% for state in all_states %}
+                            <option value="{{ state }}">
+                                {{ state }}
+                                {% if state in special_rule_states %}
+                                    (Special Rules:
+                                    {% if state_rules[state].has_birthday_rule %}Birthday{% endif %}
+                                    {% if state_rules[state].has_effective_date_rule %}Effective Date{% endif %}
+                                    {% if state_rules[state].has_year_round_enrollment %}Year-Round{% endif %}
+                                    )
+                                {% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                        <input type="hidden" name="special_rules_only" id="special_rules_only" value="false">
+                    </div>
+                    <button type="submit" class="btn btn-primary" id="submitBtn">
+                        <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                        Check Schedules
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.getElementById('scheduleForm').addEventListener('submit', function(e) {
+    // Show loading spinner
+    const button = document.getElementById('submitBtn');
+    const spinner = button.querySelector('.spinner-border');
+    button.disabled = true;
+    spinner.classList.remove('d-none');
+    
+    // Handle state filtering
+    const filterType = document.querySelector('input[name="filter_type"]:checked').value;
+    const stateSelect = document.getElementById('state');
+    const specialRulesOnly = document.getElementById('special_rules_only');
+    
+    if (filterType === 'none') {
+        stateSelect.value = '';
+        specialRulesOnly.value = 'false';
+    } else if (filterType === 'special') {
+        stateSelect.value = '';
+        specialRulesOnly.value = 'true';
+    } else if (filterType === 'state') {
+        specialRulesOnly.value = 'false';
+        if (!stateSelect.value) {
+            e.preventDefault();
+            alert('Please select a state');
+            button.disabled = false;
+            spinner.classList.add('d-none');
+            return;
+        }
+    }
+});
+
+// Handle radio button changes
+document.querySelectorAll('input[name="filter_type"]').forEach(radio => {
+    radio.addEventListener('change', function() {
+        const stateSelect = document.getElementById('state');
+        if (this.value === 'state') {
+            stateSelect.disabled = false;
+            stateSelect.required = true;
+        } else {
+            stateSelect.disabled = true;
+            stateSelect.required = false;
+            stateSelect.value = '';
+        }
+    });
+});
+
+// Initialize state select state
+document.getElementById('state').disabled = true;
+</script>
+{% endblock %} 

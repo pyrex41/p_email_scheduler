@@ -1,0 +1,11 @@
+subject: "Annual Enrollment Period Update from {{ company_name }}"
+variables:
+  greeting: "Dear {{ first_name }},"
+  signature_name: "Your Medicare Specialist"
+  signature_phone: "1-800-MEDICARE"
+  call_to_action: "Schedule Your AEP Review Today"
+  aep_benefits:
+    - "Review your current coverage"
+    - "Compare new plan options for 2024"
+    - "Check for cost savings"
+    - "Update your information" 

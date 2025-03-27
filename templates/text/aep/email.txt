@@ -1,0 +1,20 @@
+{{ greeting }}
+
+The Annual Enrollment Period (AEP) is approaching, and we want to help you make the most of this important time. From {{ aep_start | date }} to {{ aep_end | date }}, you'll have the opportunity to review and adjust your Medicare coverage.
+
+Here's what we'll cover in your AEP review:
+{% for benefit in aep_benefits %}
+- {{ benefit }}
+{% endfor %}
+
+{{ call_to_action }}
+Call us at {{ signature_phone | phone }} to schedule your review.
+
+Best regards,
+{{ signature_name }}
+
+--
+{{ company_name }}
+Phone: {{ phone | phone }}
+Website: {{ website }}
+{% if contact.id %}Contact ID: {{ contact.id }}{% endif %} 
