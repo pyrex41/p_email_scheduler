@@ -1,0 +1,278 @@
+[
+  {
+    "contact_id": "101",
+    "emails": [
+      {
+        "type": "birthday",
+        "date": "2024-12-01"
+      },
+      {
+        "type": "effective_date",
+        "date": "2024-11-20"
+      },
+      {
+        "type": "aep",
+        "date": "2024-08-18"
+      },
+      {
+        "type": "post_window",
+        "date": "2024-01-15",
+        "reason": "Post-window email"
+      }
+    ],
+    "skipped": []
+  },
+  {
+    "contact_id": "102",
+    "emails": [
+      {
+        "type": "birthday",
+        "date": "2024-01-01"
+      },
+      {
+        "type": "effective_date",
+        "date": "2024-12-21"
+      },
+      {
+        "type": "aep",
+        "date": "2024-08-25"
+      },
+      {
+        "type": "post_window",
+        "date": "2024-03-19",
+        "reason": "Post-window email"
+      }
+    ],
+    "skipped": []
+  },
+  {
+    "contact_id": "103",
+    "emails": [
+      {
+        "type": "effective_date",
+        "date": "2023-12-02"
+      },
+      {
+        "type": "birthday",
+        "date": "2024-12-17"
+      },
+      {
+        "type": "aep",
+        "date": "2024-09-01"
+      },
+      {
+        "type": "post_window",
+        "date": "2024-01-31",
+        "reason": "Post-window email"
+      }
+    ],
+    "skipped": []
+  },
+  {
+    "contact_id": "201",
+    "emails": [
+      {
+        "type": "birthday",
+        "date": "2024-06-01"
+      },
+      {
+        "type": "effective_date",
+        "date": "2024-05-21"
+      },
+      {
+        "type": "aep",
+        "date": "2024-08-18"
+      }
+    ],
+    "skipped": [
+      {
+        "type": "post_window",
+        "reason": "No valid post-window dates found"
+      }
+    ]
+  },
+  {
+    "contact_id": "202",
+    "emails": [
+      {
+        "type": "birthday",
+        "date": "2024-06-01"
+      },
+      {
+        "type": "effective_date",
+        "date": "2024-05-21"
+      },
+      {
+        "type": "aep",
+        "date": "2024-08-25"
+      },
+      {
+        "type": "post_window",
+        "date": "2024-07-31",
+        "reason": "Post-window email"
+      }
+    ],
+    "skipped": []
+  },
+  {
+    "contact_id": "301",
+    "emails": [
+      {
+        "type": "birthday",
+        "date": "2024-03-01"
+      },
+      {
+        "type": "effective_date",
+        "date": "2024-02-19"
+      },
+      {
+        "type": "aep",
+        "date": "2024-08-18"
+      },
+      {
+        "type": "post_window",
+        "date": "2024-04-30",
+        "reason": "Post-window email"
+      }
+    ],
+    "skipped": []
+  },
+  {
+    "contact_id": "401",
+    "emails": [],
+    "skipped": [
+      {
+        "type": "birthday",
+        "reason": "Year-round enrollment state"
+      },
+      {
+        "type": "effective_date",
+        "reason": "Year-round enrollment state"
+      },
+      {
+        "type": "aep",
+        "reason": "Year-round enrollment state"
+      },
+      {
+        "type": "post_window",
+        "reason": "Year-round enrollment state"
+      }
+    ]
+  },
+  {
+    "contact_id": "501",
+    "emails": [
+      {
+        "type": "birthday",
+        "date": "2024-08-16"
+      },
+      {
+        "type": "effective_date",
+        "date": "2024-07-21"
+      },
+      {
+        "type": "post_window",
+        "date": "2024-09-30",
+        "reason": "Post-window email"
+      }
+    ],
+    "skipped": [
+      {
+        "type": "aep",
+        "reason": "Within exclusion period"
+      }
+    ]
+  },
+  {
+    "contact_id": "502",
+    "emails": [
+      {
+        "type": "birthday",
+        "date": "2024-10-01"
+      },
+      {
+        "type": "effective_date",
+        "date": "2024-09-20"
+      },
+      {
+        "type": "aep",
+        "date": "2024-08-25"
+      },
+      {
+        "type": "post_window",
+        "date": "2024-11-15",
+        "reason": "Post-window email"
+      }
+    ],
+    "skipped": []
+  },
+  {
+    "contact_id": "601",
+    "emails": [
+      {
+        "type": "birthday",
+        "date": "2024-04-01"
+      },
+      {
+        "type": "effective_date",
+        "date": "2024-01-16"
+      },
+      {
+        "type": "aep",
+        "date": "2024-08-18"
+      },
+      {
+        "type": "post_window",
+        "date": "2024-05-16",
+        "reason": "Post-window email"
+      }
+    ],
+    "skipped": []
+  },
+  {
+    "contact_id": "701",
+    "emails": [
+      {
+        "type": "birthday",
+        "date": "2024-02-14"
+      },
+      {
+        "type": "effective_date",
+        "date": "2024-01-31"
+      },
+      {
+        "type": "aep",
+        "date": "2024-08-18"
+      },
+      {
+        "type": "post_window",
+        "date": "2024-03-30",
+        "reason": "Post-window email"
+      }
+    ],
+    "skipped": []
+  },
+  {
+    "contact_id": "702",
+    "emails": [
+      {
+        "type": "birthday",
+        "date": "2024-02-14"
+      },
+      {
+        "type": "effective_date",
+        "date": "2024-01-31"
+      },
+      {
+        "type": "aep",
+        "date": "2024-08-25"
+      },
+      {
+        "type": "post_window",
+        "date": "2024-03-31",
+        "reason": "Post-window email"
+      }
+    ],
+    "skipped": []
+  }
+]

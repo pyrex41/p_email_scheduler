@@ -1,0 +1,8 @@
+[paths]
+main_db = /path/to/main.db
+org_db_dir = /path/to/org_dbs/
+output_dir = /path/to/output/
+
+[logging]
+level = info
+# Options: debug, info, warning, error

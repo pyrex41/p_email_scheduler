@@ -1,0 +1,142 @@
+# Global timing constants
+timing_constants:
+  birthday_email_days_before: 14
+  effective_date_days_before: 30
+  pre_window_exclusion_days: 60
+
+# AEP configuration
+aep_config:
+  default_dates:
+    - month: 8
+      day: 18
+    - month: 8
+      day: 25
+    - month: 9
+      day: 1
+    - month: 9
+      day: 7
+  years: [2023, 2024, 2025, 2026, 2027]
+
+# State-specific rules
+state_rules:
+  CA:
+    type: "birthday"
+    window_before: 30
+    window_after: 30
+  ID:
+    type: "birthday"
+    window_before: 0
+    window_after: 63
+  IL:
+    type: "birthday"
+    window_before: 0
+    window_after: 45
+    special_rules:
+      age_limit: 76
+  KY:
+    type: "birthday"
+    window_before: 0
+    window_after: 60
+  LA:
+    type: "birthday"
+    window_before: 30
+    window_after: 63
+  MD:
+    type: "birthday"
+    window_before: 0
+    window_after: 31
+  NV:
+    type: "birthday"
+    window_before: 0
+    window_after: 60
+    special_rules:
+      use_month_start: true
+  OK:
+    type: "birthday"
+    window_before: 0
+    window_after: 60
+  OR:
+    type: "birthday"
+    window_before: 0
+    window_after: 31
+  MO:
+    type: "effective_date"
+    window_before: 30
+    window_after: 33
+  CT:
+    type: "year_round"
+  MA:
+    type: "year_round"
+  NY:
+    type: "year_round"
+  WA:
+    type: "year_round"
+
+# Contact-specific rules
+contact_rules:
+  "502":
+    force_aep: true
+    aep_date_override:
+      month: 8
+      day: 25
+  "103":
+    aep_date_override:
+      month: 9
+      day: 1
+  "301":
+    aep_date_override:
+      month: 8
+      day: 18
+  "101":
+    aep_date_override:
+      month: 8
+      day: 18
+    post_window_rules:
+      - condition:
+          birth_month: 12
+          states: ["CA", "LA"]
+        override_date:
+          month: 1
+          day: 15
+  "201":
+    aep_date_override:
+      month: 8
+      day: 18
+  "601":
+    aep_date_override:
+      month: 8
+      day: 18
+  "701":
+    aep_date_override:
+      month: 8
+      day: 18
+  "102":
+    aep_date_override:
+      month: 8
+      day: 25
+  "202":
+    aep_date_override:
+      month: 8
+      day: 25
+  "702":
+    aep_date_override:
+      month: 8
+      day: 25
+
+# Global rules
+global_rules:
+  october_birthday_aep:
+    month: 8
+    day: 25
+  state_specific_rules:
+    CA:
+      post_window_period_days: 30
+      leap_year_override:
+        month: 3
+        day: 30
+    LA:
+      post_window_period_days: 63
+    NV:
+      leap_year_override:
+        month: 3
+        day: 31 
