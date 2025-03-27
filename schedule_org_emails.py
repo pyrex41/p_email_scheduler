@@ -205,6 +205,19 @@ class SimpleEmailScheduler(EmailScheduler):
                     # Birthday emails are 14 days before the birthday
                     email_date = birthday - timedelta(days=14)
                     if email_date >= self.current_date and email_date <= self.end_date:
+                        # Check for IL age exception before scheduling birthday email
+                        if state == "IL" and contact.get('birth_date'):
+                            # Calculate age at the time of the birthday
+                            birth_date = datetime.strptime(contact['birth_date'], "%Y-%m-%d").date()
+                            age_at_birthday = birthday.year - birth_date.year
+                            # Skip birthday emails for IL residents 76+ years old
+                            if age_at_birthday >= 76:
+                                result["skipped"].append({
+                                    "type": EMAIL_TYPE_BIRTHDAY,
+                                    "reason": "Illinois resident over 76 years old"
+                                })
+                                break
+                                
                         if not is_date_excluded(email_date, exclusions):
                             result["emails"].append({
                                 "type": EMAIL_TYPE_BIRTHDAY,
@@ -280,6 +293,22 @@ class SimpleEmailScheduler(EmailScheduler):
             
             # Force post-window emails for each state in BIRTHDAY_RULE_STATES
             if not post_window_scheduled and state in BIRTHDAY_RULE_STATES and birthday:
+                # For IL residents, check age before applying birthday window rules
+                if state == "IL" and contact.get('birth_date'):
+                    # Calculate age
+                    birth_date = datetime.strptime(contact['birth_date'], "%Y-%m-%d").date()
+                    age = self.current_date.year - birth_date.year
+                    if self.current_date.month < birth_date.month or (self.current_date.month == birth_date.month and self.current_date.day < birth_date.day):
+                        age -= 1
+                        
+                    # Skip post-window email for IL residents 76+ years old
+                    if age >= 76:
+                        result["skipped"].append({
+                            "type": EMAIL_TYPE_POST_WINDOW,
+                            "reason": "Illinois resident over 76 years old"
+                        })
+                        return result
+                
                 # Schedule post-window email 1 day after the biggest birthday rule window
                 window_after = BIRTHDAY_RULE_STATES[state]["window_after"]
                 
