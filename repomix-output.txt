@@ -59,6 +59,7 @@ run_with_uv.sh
 schedule_org_emails.py
 send_scheduled_emails.py
 sendgrid_client.py
+timeline_data_helper.py
 
 ================================================================
 Files
@@ -444,8 +445,10 @@ async def simulate_emails(data: SimulationRequest):
         # Calculate exclusion periods
         exclusion_periods = calculate_exclusion_periods(rule_windows, start_date, end_date)
         
-        # Calculate post-window dates
-        post_window_dates = calculate_post_window_dates(rule_windows, end_date)
+        # Calculate post-window dates - only for states with specific rules
+        post_window_dates = []
+        if rule_windows and (data.state in BIRTHDAY_RULE_STATES or data.state in EFFECTIVE_DATE_RULE_STATES):
+            post_window_dates = calculate_post_window_dates(rule_windows, end_date)
         
         # Schedule emails
         scheduled_emails = []
@@ -472,12 +475,14 @@ async def simulate_emails(data: SimulationRequest):
             for birthday in birthdays:
                 email_date = calculate_birthday_email_date(birthday, birthday.year)
                 
-                # Only include if within date range and not excluded
+                # Only include if within date range
                 if start_date <= email_date <= end_date:
-                    # Check for birthday rule state special handling
+                    # For birthday emails, states without specific birthday rules 
+                    # (not in BIRTHDAY_RULE_STATES) should always get emails
                     bypass_exclusion = data.state not in BIRTHDAY_RULE_STATES
                     
-                    # If not in exclusion period or bypasses exclusion
+                    # States without rule windows will have empty exclusion_periods list,
+                    # so is_date_excluded will return False
                     if bypass_exclusion or not is_date_excluded(email_date, exclusion_periods):
                         scheduled_emails.append({
                             "type": "birthday",
@@ -490,12 +495,14 @@ async def simulate_emails(data: SimulationRequest):
             for eff_date in effective_dates:
                 email_date = calculate_effective_date_email(eff_date, start_date)
                 
-                # Only include if within date range and not excluded
+                # Only include if within date range
                 if start_date <= email_date <= end_date:
-                    # Check for effective date rule state special handling
+                    # For effective date emails, states with effective date rules (like Missouri)
+                    # should always get these emails
                     bypass_exclusion = data.state in EFFECTIVE_DATE_RULE_STATES
                     
-                    # If not in exclusion period or bypasses exclusion
+                    # States without rule windows will have empty exclusion_periods list,
+                    # so is_date_excluded will return False
                     if bypass_exclusion or not is_date_excluded(email_date, exclusion_periods):
                         scheduled_emails.append({
                             "type": "effective_date",
@@ -509,7 +516,9 @@ async def simulate_emails(data: SimulationRequest):
             contact_index = 12345 % len(aep_dates)  # Use dummy contact ID
             aep_date = aep_dates[contact_index]
             
-            # Check if not in exclusion period
+            # States without rule windows should always get AEP emails
+            # States without rule windows will have empty exclusion_periods list,
+            # so is_date_excluded will return False
             if not is_date_excluded(aep_date, exclusion_periods):
                 scheduled_emails.append({
                     "type": "aep",
@@ -1548,23 +1557,11 @@ def calculate_rule_windows(contact, birthdays, effective_dates, current_date, en
                 logger.debug(f"Effective date rule window for {state} contact: {rule_window_start} to {rule_window_end}")
                 rule_windows.append((rule_window_start, rule_window_end, "effective_date", state))
     
-    # For states without specific rules, create a default window
+    # For states without specific rules, return an empty list (no rule windows)
+    # This is a key change - no default 60-day window for states without specific rules
     if not rule_windows and state not in YEAR_ROUND_ENROLLMENT_STATES:
-        # Default 60-day window for birthday-based rules
-        if birthdays:
-            for birthday in birthdays:
-                rule_window_start = birthday - timedelta(days=30)
-                rule_window_end = birthday + timedelta(days=30)
-                if rule_window_start <= end_date and rule_window_end >= current_date:
-                    rule_windows.append((rule_window_start, rule_window_end, "birthday", state))
-        
-        # Default 60-day window for effective date-based rules
-        if effective_dates:
-            for eff_date in effective_dates:
-                rule_window_start = eff_date - timedelta(days=30)
-                rule_window_end = eff_date + timedelta(days=30)
-                if rule_window_start <= end_date and rule_window_end >= current_date:
-                    rule_windows.append((rule_window_start, rule_window_end, "effective_date", state))
+        logger.debug(f"Contact {contact['id']} is in state {state} with no specific rule windows defined")
+        return []  # Return empty list for states like Kansas with no specific rules
     
     return rule_windows
 
@@ -1885,6 +1882,11 @@ def is_date_excluded(date_obj, exclusions):
     Returns:
         Boolean indicating if the date is excluded
     """
+    # If exclusions list is empty (which will happen for states without rule windows like Kansas),
+    # always return False - no exclusions apply
+    if not exclusions:
+        return False
+        
     for exclusion in exclusions:
         if exclusion.start <= date_obj <= exclusion.end_date:
             return True
@@ -3521,6 +3523,11 @@ def is_date_excluded(date_obj, exclusions, email_type=None, state=None):
     Returns:
         True if date is excluded, False otherwise
     """
+    # If exclusion list is empty (for states without rule windows like Kansas), 
+    # always return False - no exclusions apply
+    if not exclusions:
+        return False
+        
     # Special bypass rules:
     # 1. For birthday emails in non-special rule states, bypass exclusion checks
     if email_type == "birthday" and state and state not in BIRTHDAY_RULE_STATES:
@@ -3591,22 +3598,10 @@ class SimpleEmailScheduler(EmailScheduler):
             # Calculate rule windows and exclusion periods
             rule_windows = calculate_rule_windows(contact, [], [], self.current_date, self.end_date)
             
-            # Skip contacts with no rule windows
-            if not rule_windows:
-                result["skipped"].append({
-                    "type": "all",
-                    "reason": "No applicable rule windows"
-                })
-                return result
-            
-            # Get latest window end date for post-window calculations
-            latest_window_end = max(end for _, end, _, _ in rule_windows)
-            
-            # Calculate exclusion periods
-            exclusion_periods = calculate_exclusion_periods(rule_windows, self.current_date, self.end_date)
-            
             # Get state and check if it's year-round
             state = contact.get('state', 'CA')
+            
+            # Skip only if it's a year-round enrollment state
             if state in YEAR_ROUND_ENROLLMENT_STATES:
                 # Skip all emails for year-round enrollment states
                 for email_type in [EMAIL_TYPE_BIRTHDAY, EMAIL_TYPE_EFFECTIVE_DATE, EMAIL_TYPE_AEP, EMAIL_TYPE_POST_WINDOW]:
@@ -3615,6 +3610,14 @@ class SimpleEmailScheduler(EmailScheduler):
                         "reason": "Year-round enrollment state"
                     })
                 return result
+            
+            # Get latest window end date for post-window calculations (if there are any rule windows)
+            latest_window_end = None
+            if rule_windows:
+                latest_window_end = max(end for _, end, _, _ in rule_windows)
+            
+            # Calculate exclusion periods
+            exclusion_periods = calculate_exclusion_periods(rule_windows, self.current_date, self.end_date)
             
             # Process birthdays
             birthday_scheduled = False
@@ -4303,7 +4306,9 @@ async def process_contacts_async(contacts: List[Dict[str, Any]], current_date: d
             contact = contacts[i]
             state = contact.get('state', 'CA')
             
-            # Check if state has specific post-window rules
+            # Post-window emails should only be scheduled for states with specific rules
+            # This is already handled by the calculate_rule_windows function which will
+            # return an empty list for states without specific rules
             if state in BIRTHDAY_RULE_STATES or state in EFFECTIVE_DATE_RULE_STATES:
                 has_post_window = any(email.get('type') == EMAIL_TYPE_POST_WINDOW for email in result.get('emails', []))
                 
@@ -4328,6 +4333,15 @@ async def process_contacts_async(contacts: List[Dict[str, Any]], current_date: d
                                     "date": str(post_date),
                                     "reason": f"Post-window email based on {state} state rules"
                                 })
+            else:
+                # For states without specific rules, ensure there are no post-window emails
+                # and add a skip reason if needed
+                has_skip_reason = any(skip.get('type') == EMAIL_TYPE_POST_WINDOW for skip in result.get('skipped', []))
+                if not has_skip_reason:
+                    result.setdefault('skipped', []).append({
+                        "type": EMAIL_TYPE_POST_WINDOW,
+                        "reason": f"No post-window emails for state {state} - no rule windows"
+                    })
     
     return results
 
@@ -4360,6 +4374,44 @@ def process_contacts_sync(contacts: List[Dict[str, Any]], current_date: date,
             # Ensure contact_id is included
             if not result.get('contact_id'):
                 result['contact_id'] = contact_id
+            
+            # Apply the same post-window email logic as in the async processor
+            state = contact.get('state', 'CA')
+            
+            # Post-window emails should only be scheduled for states with specific rules
+            if state in BIRTHDAY_RULE_STATES or state in EFFECTIVE_DATE_RULE_STATES:
+                has_post_window = any(email.get('type') == EMAIL_TYPE_POST_WINDOW for email in result.get('emails', []))
+                
+                if not has_post_window:
+                    # Calculate post-window date based on state rules
+                    window_after = None
+                    if state in BIRTHDAY_RULE_STATES:
+                        window_after = BIRTHDAY_RULE_STATES[state]["window_after"]
+                    elif state in EFFECTIVE_DATE_RULE_STATES:
+                        window_after = EFFECTIVE_DATE_RULE_STATES[state]["window_after"]
+                        
+                    if window_after is not None:
+                        # Find the latest rule window end date
+                        rule_windows = calculate_rule_windows(contact, [], [], current_date, end_date)
+                        if rule_windows:
+                            latest_window_end = max(end for _, end, _, _ in rule_windows)
+                            post_date = latest_window_end + timedelta(days=window_after + 1)
+                            
+                            if current_date <= post_date <= end_date:
+                                result['emails'].append({
+                                    "type": EMAIL_TYPE_POST_WINDOW,
+                                    "date": str(post_date),
+                                    "reason": f"Post-window email based on {state} state rules"
+                                })
+            else:
+                # For states without specific rules, ensure there are no post-window emails
+                # and add a skip reason if needed
+                has_skip_reason = any(skip.get('type') == EMAIL_TYPE_POST_WINDOW for skip in result.get('skipped', []))
+                if not has_skip_reason:
+                    result.setdefault('skipped', []).append({
+                        "type": EMAIL_TYPE_POST_WINDOW,
+                        "reason": f"No post-window emails for state {state} - no rule windows"
+                    })
                 
             # Add to results
             results.append(result)
@@ -4830,6 +4882,358 @@ def send_email(
     """
     client = SendGridClient(dry_run=dry_run)
     return client.send_email(to_email, subject, content, html_content, dry_run)
+
+================
+File: timeline_data_helper.py
+================
+#!/usr/bin/env python
+"""
+Timeline Data Helper - Preprocesses CSV data for the email timeline visualization.
+
+This script reads the output from schedule_org_emails.py, computes exclusion windows, 
+and generates a modified CSV file that includes all necessary timeline visualization data.
+
+Usage:
+    python timeline_data_helper.py --input-csv scheduled_emails.csv --output-csv timeline_data.csv [options]
+    
+    Options:
+        --input-csv FILE          Input CSV file with scheduled emails (required)
+        --output-csv FILE         Output CSV file for timeline visualization (required)
+        --contact-id INT          Filter by specific contact ID (optional)
+        --include-exclusions      Include calculated exclusion windows (default: True)
+"""
+
+import argparse
+import csv
+from datetime import date, datetime, timedelta
+import json
+import sys
+import os
+
+
+# Constants from email_scheduler_common.py
+BIRTHDAY_RULE_STATES = {
+    "CA": {"window_before": 30, "window_after": 30},  # 60-day period starting 30 days before birthday
+    "ID": {"window_before": 0, "window_after": 63},   # 63-day period starting on birthday
+    "IL": {"window_before": 0, "window_after": 45},   # 45-day period starting on birthday
+    "KY": {"window_before": 0, "window_after": 60},   # 60-day period following birthday
+    "LA": {"window_before": 30, "window_after": 63},  # 93-day period starting 30 days before birthday
+    "MD": {"window_before": 0, "window_after": 31},   # 31-day period starting on birthday
+    "NV": {"window_before": 0, "window_after": 60},   # 60-day period starting first day of birth month
+    "OK": {"window_before": 0, "window_after": 60},   # 60-day period starting on birthday
+    "OR": {"window_before": 0, "window_after": 31}    # 31-day period starting on birthday
+}
+
+EFFECTIVE_DATE_RULE_STATES = {
+    "MO": {"window_before": 30, "window_after": 33}   # 63-day period starting 30 days before anniversary
+}
+
+PRE_WINDOW_EXCLUSION_DAYS = 60
+
+def parse_date(date_str):
+    """Parse a date string in various formats to a datetime object"""
+    if not date_str or date_str.strip() == '':
+        return None
+        
+    # Try different formats
+    formats = ['%Y-%m-%d', '%m/%d/%Y', '%m-%d-%Y']
+    
+    for fmt in formats:
+        try:
+            return datetime.strptime(date_str, fmt).date()
+        except ValueError:
+            continue
+    
+    print(f"Warning: Could not parse date '{date_str}'")
+    return None
+
+def calculate_rule_windows(contact):
+    """Calculate rule windows based on contact's state and dates"""
+    windows = []
+    state = contact['state']
+    
+    # Parse birth date and effective date
+    birth_date = parse_date(contact['birth_date'])
+    effective_date = parse_date(contact['effective_date'])
+    
+    if not birth_date and not effective_date:
+        return windows
+    
+    # Get current date and end date (2 years from now)
+    current_date = date.today()
+    end_date = current_date + timedelta(days=365 * 2)
+    
+    # Calculate birthdays in our date range
+    birthdays = []
+    if birth_date:
+        for year in range(current_date.year, end_date.year + 1):
+            try:
+                birthday = date(year, birth_date.month, birth_date.day)
+                if birthday >= current_date - timedelta(days=365) and birthday <= end_date:
+                    birthdays.append(birthday)
+            except ValueError:
+                # Handle Feb 29 in non-leap years
+                if birth_date.month == 2 and birth_date.day == 29 and not is_leap_year(year):
+                    birthday = date(year, 2, 28)
+                    if birthday >= current_date - timedelta(days=365) and birthday <= end_date:
+                        birthdays.append(birthday)
+    
+    # Calculate effective dates in our date range
+    effective_dates = []
+    if effective_date:
+        for year in range(current_date.year, end_date.year + 1):
+            try:
+                eff_date = date(year, effective_date.month, effective_date.day)
+                if eff_date >= current_date - timedelta(days=365) and eff_date <= end_date:
+                    effective_dates.append(eff_date)
+            except ValueError:
+                # Handle Feb 29 in non-leap years
+                if effective_date.month == 2 and effective_date.day == 29 and not is_leap_year(year):
+                    eff_date = date(year, 2, 28)
+                    if eff_date >= current_date - timedelta(days=365) and eff_date <= end_date:
+                        effective_dates.append(eff_date)
+    
+    # Process birthday rule states
+    if state in BIRTHDAY_RULE_STATES:
+        window_before = BIRTHDAY_RULE_STATES[state]["window_before"]
+        window_after = BIRTHDAY_RULE_STATES[state]["window_after"]
+        
+        for bd in birthdays:
+            # Special handling for Nevada (first day of birth month)
+            if state == "NV":
+                bd = date(bd.year, bd.month, 1)
+            
+            # Calculate rule window
+            window_start = bd - timedelta(days=window_before)
+            window_end = bd + timedelta(days=window_after)
+            
+            windows.append({
+                "type": "birthday",
+                "start_date": window_start.isoformat(),
+                "end_date": window_end.isoformat(),
+                "description": f"{state} birthday rule window ({window_before} days before, {window_after} days after)"
+            })
+    
+    # Process effective date rule states
+    if state in EFFECTIVE_DATE_RULE_STATES:
+        window_before = EFFECTIVE_DATE_RULE_STATES[state]["window_before"]
+        window_after = EFFECTIVE_DATE_RULE_STATES[state]["window_after"]
+        
+        for ed in effective_dates:
+            # Calculate rule window
+            window_start = ed - timedelta(days=window_before)
+            window_end = ed + timedelta(days=window_after)
+            
+            windows.append({
+                "type": "effective_date",
+                "start_date": window_start.isoformat(),
+                "end_date": window_end.isoformat(),
+                "description": f"{state} effective date rule window ({window_before} days before, {window_after} days after)"
+            })
+    
+    return windows
+
+def calculate_exclusion_periods(rule_windows):
+    """Calculate exclusion periods from rule windows"""
+    exclusions = []
+    
+    for window in rule_windows:
+        # Parse dates
+        window_start = parse_date(window["start_date"])
+        window_end = parse_date(window["end_date"])
+        
+        # Calculate extended exclusion (PRE_WINDOW_EXCLUSION_DAYS before window to window end)
+        exclusion_start = window_start - timedelta(days=PRE_WINDOW_EXCLUSION_DAYS)
+        exclusion_end = window_end
+        
+        exclusions.append({
+            "type": "exclusion",
+            "start_date": exclusion_start.isoformat(),
+            "end_date": exclusion_end.isoformat(),
+            "description": f"Exclusion period for {window['type']} rule window"
+        })
+    
+    return exclusions
+
+def is_leap_year(year):
+    """Check if a year is a leap year"""
+    if year % 400 == 0:
+        return True
+    if year % 100 == 0:
+        return False
+    return year % 4 == 0
+
+def read_csv(file_path):
+    """Read CSV file and return as list of dictionaries"""
+    data = []
+    
+    with open(file_path, 'r') as csv_file:
+        reader = csv.DictReader(csv_file)
+        for row in reader:
+            data.append(row)
+    
+    return data
+
+def write_csv(data, file_path):
+    """Write list of dictionaries to CSV file"""
+    if not data:
+        print("No data to write to CSV")
+        return
+    
+    # Get fieldnames from first row
+    fieldnames = list(data[0].keys())
+    
+    with open(file_path, 'w', newline='') as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(data)
+    
+    print(f"Wrote {len(data)} rows to {file_path}")
+
+def process_data(input_csv, output_csv, contact_id=None, include_exclusions=True):
+    """Process data and write to output CSV"""
+    # Read input CSV
+    data = read_csv(input_csv)
+    print(f"Read {len(data)} rows from {input_csv}")
+    
+    # Filter by contact_id if specified
+    if contact_id:
+        data = [row for row in data if row['contact_id'] == str(contact_id)]
+        print(f"Filtered to {len(data)} rows for contact {contact_id}")
+    
+    # Group by contact
+    contacts = {}
+    for row in data:
+        contact_id = row['contact_id']
+        
+        if contact_id not in contacts:
+            contacts[contact_id] = {
+                'org_id': row['org_id'],
+                'contact_id': contact_id,
+                'email': row['email'],
+                'first_name': row['first_name'],
+                'last_name': row['last_name'],
+                'state': row['state'],
+                'birth_date': row['birth_date'],
+                'effective_date': row['effective_date'],
+                'emails': []
+            }
+        
+        # Add email to contact if it's an email type
+        if 'email_type' in row and row['email_type']:
+            email_type = row['email_type'].lower()
+            if '(skipped)' in email_type:
+                email_type = email_type.replace(' (skipped)', '')
+                skipped = 'Yes'
+            else:
+                skipped = row.get('skipped', 'No')
+                
+            contacts[contact_id]['emails'].append({
+                'type': email_type,
+                'date': row.get('email_date', ''),
+                'skipped': skipped,
+                'reason': row.get('reason', ''),
+                'link': row.get('link', '')
+            })
+    
+    # Calculate rule windows and exclusion periods
+    output_data = []
+    
+    for contact_id, contact in contacts.items():
+        rule_windows = calculate_rule_windows(contact)
+        exclusion_periods = []
+        
+        if include_exclusions:
+            exclusion_periods = calculate_exclusion_periods(rule_windows)
+        
+        # Add emails to output data
+        for email in contact['emails']:
+            output_row = {
+                'org_id': contact['org_id'],
+                'contact_id': contact['contact_id'],
+                'email': contact['email'],
+                'first_name': contact['first_name'],
+                'last_name': contact['last_name'],
+                'state': contact['state'],
+                'birth_date': contact['birth_date'],
+                'effective_date': contact['effective_date'],
+                'item_type': email['type'],
+                'date': email['date'],
+                'end_date': '',  # Emails are single-point events
+                'skipped': email['skipped'],
+                'reason': email['reason'],
+                'link': email['link'],
+                'description': f"{email['type'].title()} email" + (" (skipped)" if email['skipped'] == 'Yes' else "")
+            }
+            
+            output_data.append(output_row)
+        
+        # Add rule windows to output data
+        for window in rule_windows:
+            output_row = {
+                'org_id': contact['org_id'],
+                'contact_id': contact['contact_id'],
+                'email': contact['email'],
+                'first_name': contact['first_name'],
+                'last_name': contact['last_name'],
+                'state': contact['state'],
+                'birth_date': contact['birth_date'],
+                'effective_date': contact['effective_date'],
+                'item_type': 'rule_window',
+                'date': window['start_date'],
+                'end_date': window['end_date'],
+                'skipped': 'No',
+                'reason': '',
+                'link': '',
+                'description': window['description']
+            }
+            
+            output_data.append(output_row)
+        
+        # Add exclusion periods to output data
+        for exclusion in exclusion_periods:
+            output_row = {
+                'org_id': contact['org_id'],
+                'contact_id': contact['contact_id'],
+                'email': contact['email'],
+                'first_name': contact['first_name'],
+                'last_name': contact['last_name'],
+                'state': contact['state'],
+                'birth_date': contact['birth_date'],
+                'effective_date': contact['effective_date'],
+                'item_type': 'exclusion',
+                'date': exclusion['start_date'],
+                'end_date': exclusion['end_date'],
+                'skipped': 'No',
+                'reason': '',
+                'link': '',
+                'description': exclusion['description']
+            }
+            
+            output_data.append(output_row)
+    
+    # Write output CSV
+    write_csv(output_data, output_csv)
+
+def main():
+    parser = argparse.ArgumentParser(description="Process email schedule data for timeline visualization")
+    parser.add_argument("--input-csv", required=True, help="Input CSV file with scheduled emails")
+    parser.add_argument("--output-csv", required=True, help="Output CSV file for timeline visualization")
+    parser.add_argument("--contact-id", type=int, help="Filter by specific contact ID")
+    parser.add_argument("--include-exclusions", action="store_true", default=True, help="Include calculated exclusion windows")
+    
+    args = parser.parse_args()
+    
+    # Check that input file exists
+    if not os.path.exists(args.input_csv):
+        print(f"Error: Input file {args.input_csv} does not exist")
+        sys.exit(1)
+    
+    # Process data
+    process_data(args.input_csv, args.output_csv, args.contact_id, args.include_exclusions)
+
+if __name__ == "__main__":
+    main()
 
 
 
