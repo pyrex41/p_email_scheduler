@@ -1,0 +1,387 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <h1 class="mb-4">Email Scheduler Simulator</h1>
+    
+    <div class="row">
+        <div class="col-md-5">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">Contact Information</h5>
+                </div>
+                <div class="card-body">
+                    <form id="simulatorForm" method="post" action="/simulate">
+                        <div class="mb-3">
+                            <label for="state" class="form-label">State</label>
+                            <select class="form-select" id="state" name="state" required>
+                                <option value="" selected disabled>Select a state...</option>
+                                {% for state in all_states %}
+                                <option value="{{ state }}" 
+                                    {% if state in special_rule_states %}data-special="true"{% endif %}
+                                    data-birthday="{% if state in birthday_rule_states %}true{% else %}false{% endif %}"
+                                    data-effective="{% if state in effective_date_rule_states %}true{% else %}false{% endif %}"
+                                    data-yearround="{% if state in year_round_enrollment_states %}true{% else %}false{% endif %}">
+                                    {{ state }}
+                                    {% if state in special_rule_states %}
+                                        (Special Rules)
+                                    {% endif %}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="birth_date" class="form-label">Birth Date</label>
+                            <input type="date" class="form-control" id="birth_date" name="birth_date" required>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="effective_date" class="form-label">Effective Date</label>
+                            <input type="date" class="form-control" id="effective_date" name="effective_date">
+                            <div class="form-text">Policy effective/anniversary date</div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="start_date" class="form-label">Start Date</label>
+                            <input type="date" class="form-control" id="start_date" name="start_date" value="{{ today }}" required>
+                            <div class="form-text">Beginning of scheduling window</div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="end_date" class="form-label">End Date</label>
+                            <input type="date" class="form-control" id="end_date" name="end_date" value="{{ next_year }}" required>
+                            <div class="form-text">End of scheduling window</div>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary" id="calculateBtn">
+                            <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                            Calculate Scheduled Emails
+                        </button>
+                    </form>
+                </div>
+            </div>
+            
+            <div id="stateRules" class="card mt-4 d-none">
+                <div class="card-header bg-info text-white">
+                    <h5 class="card-title mb-0">State Rules</h5>
+                </div>
+                <div class="card-body">
+                    <div id="birthdayRuleInfo" class="d-none">
+                        <h6>Birthday Rule</h6>
+                        <div id="birthdayRuleDetails"></div>
+                    </div>
+                    
+                    <div id="effectiveDateRuleInfo" class="d-none">
+                        <h6>Effective Date Rule</h6>
+                        <div id="effectiveDateRuleDetails"></div>
+                    </div>
+                    
+                    <div id="yearRoundInfo" class="d-none">
+                        <div class="alert alert-warning">
+                            <strong>Year-Round Enrollment State</strong>
+                            <p>No AEP or post-window emails are sent in this state.</p>
+                        </div>
+                    </div>
+                    
+                    <div id="regularRuleInfo" class="d-none">
+                        <div class="alert alert-info">
+                            <strong>Standard Rules</strong>
+                            <p>This state follows the standard email scheduling rules:</p>
+                            <ul class="mb-0">
+                                <li>Birthday emails: 14 days before birthday</li>
+                                <li>Effective date emails: 30 days before anniversary</li>
+                                <li>AEP emails: Distributed across August/September</li>
+                                <li>Post-window emails: Day after exclusion period</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-7 mt-3 mt-md-0">
+            <div id="resultsContainer" class="d-none">
+                <div class="card">
+                    <div class="card-header bg-success text-white">
+                        <h5 class="card-title mb-0">Scheduled Emails</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="emailResults"></div>
+                    </div>
+                </div>
+                
+                <div class="card mt-4">
+                    <div class="card-header bg-secondary text-white">
+                        <h5 class="card-title mb-0">Exclusion Periods</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="exclusionResults"></div>
+                    </div>
+                </div>
+                
+                <div class="card mt-4">
+                    <div class="card-header bg-warning text-dark">
+                        <h5 class="card-title mb-0">Important Dates</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="birthdayResults" class="mb-4">
+                            <h6>Birthdays in Period</h6>
+                            <div id="birthdayDatesList"></div>
+                        </div>
+                        
+                        <div id="effectiveDateResults" class="mb-4">
+                            <h6>Effective Dates in Period</h6>
+                            <div id="effectiveDatesList"></div>
+                        </div>
+                        
+                        <div id="aepDateResults">
+                            <h6>AEP Dates</h6>
+                            <div id="aepDatesList"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Show loading spinner on form submit
+    document.getElementById('simulatorForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const button = document.getElementById('calculateBtn');
+        const spinner = button.querySelector('.spinner-border');
+        button.disabled = true;
+        spinner.classList.remove('d-none');
+        
+        // Collect form data
+        const formData = new FormData(this);
+        
+        // Make API call to calculate scheduled emails
+        fetch('/simulate', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(Object.fromEntries(formData)),
+        })
+        .then(response => response.json())
+        .then(data => {
+            displayResults(data);
+            button.disabled = false;
+            spinner.classList.add('d-none');
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('An error occurred while calculating scheduled emails.');
+            button.disabled = false;
+            spinner.classList.add('d-none');
+        });
+    });
+    
+    // Display state-specific rules when state is selected
+    document.getElementById('state').addEventListener('change', function() {
+        const selectedOption = this.options[this.selectedIndex];
+        const hasBirthdayRule = selectedOption.getAttribute('data-birthday') === 'true';
+        const hasEffectiveDateRule = selectedOption.getAttribute('data-effective') === 'true';
+        const hasYearRoundEnrollment = selectedOption.getAttribute('data-yearround') === 'true';
+        const stateCode = this.value;
+        
+        // Show state rules card
+        document.getElementById('stateRules').classList.remove('d-none');
+        
+        // Reset all rule displays
+        document.getElementById('birthdayRuleInfo').classList.add('d-none');
+        document.getElementById('effectiveDateRuleInfo').classList.add('d-none');
+        document.getElementById('yearRoundInfo').classList.add('d-none');
+        document.getElementById('regularRuleInfo').classList.add('d-none');
+        
+        // Update rule displays based on state
+        if (hasBirthdayRule) {
+            document.getElementById('birthdayRuleInfo').classList.remove('d-none');
+            updateBirthdayRuleInfo(stateCode);
+        }
+        
+        if (hasEffectiveDateRule) {
+            document.getElementById('effectiveDateRuleInfo').classList.remove('d-none');
+            updateEffectiveDateRuleInfo(stateCode);
+        }
+        
+        if (hasYearRoundEnrollment) {
+            document.getElementById('yearRoundInfo').classList.remove('d-none');
+        }
+        
+        if (!hasBirthdayRule && !hasEffectiveDateRule && !hasYearRoundEnrollment) {
+            document.getElementById('regularRuleInfo').classList.remove('d-none');
+        }
+    });
+    
+    // Helper functions for state rule info
+    function updateBirthdayRuleInfo(state) {
+        const birthdayRuleDetails = document.getElementById('birthdayRuleDetails');
+        
+        // Define rule descriptions based on state
+        const birthdayRules = {
+            'CA': '60-day exclusion period: 30 days before and 30 days after birthday.',
+            'ID': '63-day exclusion period: Starting on birthday and ending 63 days after.',
+            'IL': '45-day exclusion period: Starting on birthday and ending 45 days after.',
+            'KY': '60-day exclusion period: Starting on birthday and ending 60 days after.',
+            'LA': '93-day exclusion period: 30 days before and 63 days after birthday.',
+            'MD': '31-day exclusion period: Starting on birthday and ending 31 days after.',
+            'NV': '60-day exclusion period: Starting on first day of birth month.',
+            'OK': '60-day exclusion period: Starting on birthday and ending 60 days after.',
+            'OR': '31-day exclusion period: Starting on birthday and ending 31 days after.'
+        };
+        
+        birthdayRuleDetails.textContent = birthdayRules[state] || 'State has special birthday rules.';
+    }
+    
+    function updateEffectiveDateRuleInfo(state) {
+        const effectiveDateRuleDetails = document.getElementById('effectiveDateRuleDetails');
+        
+        // Define rule descriptions based on state
+        const effectiveDateRules = {
+            'MO': '63-day exclusion period: 30 days before and 33 days after the policy anniversary.',
+        };
+        
+        effectiveDateRuleDetails.textContent = effectiveDateRules[state] || 'State has special effective date rules.';
+    }
+    
+    // Function to display simulation results
+    function displayResults(data) {
+        // Show results container
+        document.getElementById('resultsContainer').classList.remove('d-none');
+        
+        // Display scheduled emails
+        const emailResultsDiv = document.getElementById('emailResults');
+        if (data.emails.length > 0) {
+            let emailsHtml = '<div class="table-responsive"><table class="table table-striped">';
+            emailsHtml += '<thead><tr><th>Type</th><th>Date</th><th>Notes</th></tr></thead><tbody>';
+            
+            data.emails.forEach(email => {
+                const formattedDate = new Date(email.date).toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                });
+                
+                const badgeClass = {
+                    'birthday': 'bg-primary',
+                    'effective_date': 'bg-success',
+                    'aep': 'bg-info',
+                    'post_window': 'bg-warning text-dark'
+                }[email.type] || 'bg-secondary';
+                
+                const typeName = {
+                    'birthday': 'Birthday',
+                    'effective_date': 'Effective Date',
+                    'aep': 'AEP',
+                    'post_window': 'Post-Window'
+                }[email.type] || email.type;
+                
+                emailsHtml += `<tr>
+                    <td><span class="badge ${badgeClass}">${typeName}</span></td>
+                    <td>${formattedDate}</td>
+                    <td>${email.reason || 'Normal scheduling rule'}</td>
+                </tr>`;
+            });
+            
+            emailsHtml += '</tbody></table></div>';
+            emailResultsDiv.innerHTML = emailsHtml;
+        } else {
+            emailResultsDiv.innerHTML = '<div class="alert alert-warning">No emails scheduled for this contact.</div>';
+        }
+        
+        // Display exclusion periods
+        const exclusionResultsDiv = document.getElementById('exclusionResults');
+        if (data.exclusion_periods.length > 0) {
+            let exclusionHtml = '<div class="table-responsive"><table class="table table-striped">';
+            exclusionHtml += '<thead><tr><th>Start Date</th><th>End Date</th><th>Duration</th><th>Type</th></tr></thead><tbody>';
+            
+            data.exclusion_periods.forEach(period => {
+                const startDate = new Date(period.start_date).toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                });
+                
+                const endDate = new Date(period.end_date).toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                });
+                
+                // Calculate duration in days
+                const start = new Date(period.start_date);
+                const end = new Date(period.end_date);
+                const diffTime = Math.abs(end - start);
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; // +1 to include both start and end dates
+                
+                exclusionHtml += `<tr>
+                    <td>${startDate}</td>
+                    <td>${endDate}</td>
+                    <td>${diffDays} days</td>
+                    <td>${period.type || 'Standard'}</td>
+                </tr>`;
+            });
+            
+            exclusionHtml += '</tbody></table></div>';
+            exclusionResultsDiv.innerHTML = exclusionHtml;
+        } else {
+            exclusionResultsDiv.innerHTML = '<div class="alert alert-info">No exclusion periods defined for this contact.</div>';
+        }
+        
+        // Display birthday dates
+        const birthdayDatesDiv = document.getElementById('birthdayDatesList');
+        if (data.birthdays.length > 0) {
+            const birthdaysList = data.birthdays.map(date => {
+                return new Date(date).toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                });
+            }).join('</li><li>');
+            
+            birthdayDatesDiv.innerHTML = `<ul><li>${birthdaysList}</li></ul>`;
+        } else {
+            birthdayDatesDiv.innerHTML = '<p class="text-muted">No birthdays in the selected period.</p>';
+        }
+        
+        // Display effective dates
+        const effectiveDatesDiv = document.getElementById('effectiveDatesList');
+        if (data.effective_dates.length > 0) {
+            const effectiveDatesList = data.effective_dates.map(date => {
+                return new Date(date).toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                });
+            }).join('</li><li>');
+            
+            effectiveDatesDiv.innerHTML = `<ul><li>${effectiveDatesList}</li></ul>`;
+        } else {
+            effectiveDatesDiv.innerHTML = '<p class="text-muted">No effective dates in the selected period.</p>';
+        }
+        
+        // Display AEP dates
+        const aepDatesDiv = document.getElementById('aepDatesList');
+        if (data.aep_dates.length > 0) {
+            const aepDatesList = data.aep_dates.map(date => {
+                return new Date(date).toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                });
+            }).join('</li><li>');
+            
+            aepDatesDiv.innerHTML = `<ul><li>${aepDatesList}</li></ul>`;
+        } else {
+            aepDatesDiv.innerHTML = '<p class="text-muted">No AEP dates in the selected period or not applicable.</p>';
+        }
+    }
+});
+</script>
+{% endblock %}

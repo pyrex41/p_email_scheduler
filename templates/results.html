@@ -191,24 +191,42 @@
                                         {% endif %}
                                     </td>
                                     <td>
-                                        {% if email.type == 'birthday' and contact_data.contact_info.birth_date %}
-                                        {% set birthday_parts = contact_data.contact_info.birth_date.split('-') %}
-                                        {% set current_year = email.date.split('-')[0] %}
-                                        {% set default_date = current_year + '-' + birthday_parts[1] + '-' + birthday_parts[2] %}
-                                        {% if email.date < default_date %}
-                                            {{ (default_date.split('-')[0]|int - 1)|string + '-' + default_date.split('-')[1] + '-' + default_date.split('-')[2] }}
-                                        {% else %}
-                                            {{ default_date }}
-                                        {% endif %}
-                                        {% elif email.type == 'effective_date' and contact_data.contact_info.effective_date %}
-                                        {% set effective_parts = contact_data.contact_info.effective_date.split('-') %}
-                                        {% set current_year = email.date.split('-')[0] %}
-                                        {% set default_date = current_year + '-' + effective_parts[1] + '-' + effective_parts[2] %}
-                                        {% if email.date < default_date %}
-                                            {{ (default_date.split('-')[0]|int - 1)|string + '-' + default_date.split('-')[1] + '-' + default_date.split('-')[2] }}
-                                        {% else %}
-                                            {{ default_date }}
-                                        {% endif %}
+                                        {% if email.type == 'birthday' and contact_data.contact_info.birth_date and '-' in contact_data.contact_info.birth_date %}
+                                            {% set date_str = email.date|string %}
+                                            {% if '-' in date_str %}
+                                                {% set birthday_parts = contact_data.contact_info.birth_date.split('-') %}
+                                                {% set current_year = date_str.split('-')[0] %}
+                                                {% if birthday_parts|length >= 3 %}
+                                                    {% set default_date = current_year + '-' + birthday_parts[1] + '-' + birthday_parts[2] %}
+                                                    {% if email.date < default_date %}
+                                                        {{ (current_year|int - 1)|string + '-' + birthday_parts[1] + '-' + birthday_parts[2] }}
+                                                    {% else %}
+                                                        {{ default_date }}
+                                                    {% endif %}
+                                                {% else %}
+                                                    N/A (birth date format error)
+                                                {% endif %}
+                                            {% else %}
+                                                N/A (email date format error)
+                                            {% endif %}
+                                        {% elif email.type == 'effective_date' and contact_data.contact_info.effective_date and '-' in contact_data.contact_info.effective_date %}
+                                            {% set date_str = email.date|string %}
+                                            {% if '-' in date_str %}
+                                                {% set effective_parts = contact_data.contact_info.effective_date.split('-') %}
+                                                {% set current_year = date_str.split('-')[0] %}
+                                                {% if effective_parts|length >= 3 %}
+                                                    {% set default_date = current_year + '-' + effective_parts[1] + '-' + effective_parts[2] %}
+                                                    {% if email.date < default_date %}
+                                                        {{ (current_year|int - 1)|string + '-' + effective_parts[1] + '-' + effective_parts[2] }}
+                                                    {% else %}
+                                                        {{ default_date }}
+                                                    {% endif %}
+                                                {% else %}
+                                                    N/A (effective date format error)
+                                                {% endif %}
+                                            {% else %}
+                                                N/A (email date format error)
+                                            {% endif %}
                                         {% else %}
                                         N/A
                                         {% endif %}
@@ -387,70 +405,147 @@ async function resampleContacts() {
             
             // Add email rows
             for (const email of contactData.emails) {
-                let defaultDate = "N/A";
-                
-                // Calculate default date for birthday emails
-                if (email.type === "birthday" && contactData.contact_info.birth_date) {
-                    const emailParts = email.date.split('-');
-                    const birthParts = contactData.contact_info.birth_date.split('-');
-                    const emailYear = emailParts[0];
-                    const calculatedDate = `${emailYear}-${birthParts[1]}-${birthParts[2]}`;
+                try {
+                    let defaultDate = "N/A";
                     
-                    if (email.date < calculatedDate) {
-                        defaultDate = `${parseInt(emailYear) - 1}-${birthParts[1]}-${birthParts[2]}`;
-                    } else {
-                        defaultDate = calculatedDate;
-                    }
-                }
-                
-                // Calculate default date for effective date emails
-                if (email.type === "effective_date" && contactData.contact_info.effective_date) {
-                    const emailParts = email.date.split('-');
-                    const effectiveParts = contactData.contact_info.effective_date.split('-');
-                    const emailYear = emailParts[0];
-                    const calculatedDate = `${emailYear}-${effectiveParts[1]}-${effectiveParts[2]}`;
+                    // Convert date to string to handle numeric dates
+                    const dateStr = String(email.date);
                     
-                    if (email.date < calculatedDate) {
-                        defaultDate = `${parseInt(emailYear) - 1}-${effectiveParts[1]}-${effectiveParts[2]}`;
-                    } else {
-                        defaultDate = calculatedDate;
+                    // Calculate default date for birthday emails
+                    if (email.type === "birthday" && contactData.contact_info.birth_date) {
+                        let emailYear;
+                        if (dateStr.includes('-')) {
+                            emailYear = dateStr.split('-')[0];
+                        } else {
+                            // Handle numeric date or different format
+                            const emailDate = new Date(email.date);
+                            emailYear = emailDate.getFullYear().toString();
+                        }
+                        
+                        const birthParts = contactData.contact_info.birth_date.split('-');
+                        const calculatedDate = `${emailYear}-${birthParts[1]}-${birthParts[2]}`;
+                        
+                        if (dateStr < calculatedDate) {
+                            defaultDate = `${parseInt(emailYear) - 1}-${birthParts[1]}-${birthParts[2]}`;
+                        } else {
+                            defaultDate = calculatedDate;
+                        }
                     }
+                    
+                    // Calculate default date for effective date emails
+                    if (email.type === "effective_date" && contactData.contact_info.effective_date) {
+                        let emailYear;
+                        if (dateStr.includes('-')) {
+                            emailYear = dateStr.split('-')[0];
+                        } else {
+                            // Handle numeric date or different format
+                            const emailDate = new Date(email.date);
+                            emailYear = emailDate.getFullYear().toString();
+                        }
+                        
+                        const effectiveParts = contactData.contact_info.effective_date.split('-');
+                        const calculatedDate = `${emailYear}-${effectiveParts[1]}-${effectiveParts[2]}`;
+                        
+                        if (dateStr < calculatedDate) {
+                            defaultDate = `${parseInt(emailYear) - 1}-${effectiveParts[1]}-${effectiveParts[2]}`;
+                        } else {
+                            defaultDate = calculatedDate;
+                        }
+                    }
+                    
+                    // Determine badge type and label based on email type
+                    let badgeType = "secondary";
+                    let emailTypeLabel = email.type;
+                    
+                    if (email.type === "birthday") {
+                        badgeType = "primary";
+                        emailTypeLabel = "Birthday";
+                    } else if (email.type === "effective_date") {
+                        badgeType = "success";
+                        emailTypeLabel = "Effective Date";
+                    } else if (email.type === "aep") {
+                        badgeType = "info";
+                        emailTypeLabel = "AEP";
+                    } else if (email.type === "post_window") {
+                        badgeType = "warning";
+                        emailTypeLabel = "Post Window";
+                    }
+                    
+                    const isSkipped = email.skipped === 'Yes';
+                    
+                    // Add row HTML
+                    cardHTML += `
+                        <tr ${isSkipped ? 'class="table-danger"' : ''}>
+                            <td><span class="badge bg-${badgeType}">${emailTypeLabel}</span></td>
+                            <td>${dateStr}</td>
+                            <td>${isSkipped ? '<span class="badge bg-danger">Skipped</span>' : '<span class="badge bg-success">Scheduled</span>'}</td>
+                            <td>${defaultDate}</td>
+                            <td>${email.reason 
+                                    ? `<span class="text-danger">${email.reason}</span>` 
+                                    : (isSkipped 
+                                        ? '<span class="text-danger">Unknown</span>' 
+                                        : '<span class="text-success">Normal schedule</span>')}
+                            </td>
+                            <td>${(!isSkipped && email.link) ? `<a href="${email.link}" target="_blank" class="btn btn-sm btn-primary">View</a>` : ''}</td>
+                        </tr>
+                    `;
+                } catch (err) {
+                    console.error("Error processing email:", email, err);
+                    // Add a row for the error
+                    cardHTML += `
+                        <tr class="table-danger">
+                            <td><span class="badge bg-danger">Error</span></td>
+                            <td colspan="5">Error processing email data: ${err.message}</td>
+                        </tr>
+                    `;
                 }
-                
-                // Determine badge type and label based on email type
-                let badgeType = "secondary";
-                let emailTypeLabel = email.type;
-                
-                if (email.type === "birthday") {
-                    badgeType = "primary";
-                    emailTypeLabel = "Birthday";
-                } else if (email.type === "effective_date") {
-                    badgeType = "success";
-                    emailTypeLabel = "Effective Date";
-                } else if (email.type === "aep") {
-                    badgeType = "info";
-                    emailTypeLabel = "AEP";
-                } else if (email.type === "post_window") {
-                    badgeType = "warning";
-                    emailTypeLabel = "Post Window";
-                }
-                
-                const isSkipped = email.skipped === 'Yes';
-                
-                // Add row HTML
+            }
+            
+            // DEBUG: Add a message if no emails were found
+            if (contactData.emails.length === 0) {
                 cardHTML += `
-                    <tr ${isSkipped ? 'class="table-danger"' : ''}>
-                        <td><span class="badge bg-${badgeType}">${emailTypeLabel}</span></td>
-                        <td>${email.date}</td>
-                        <td>${isSkipped ? '<span class="badge bg-danger">Skipped</span>' : '<span class="badge bg-success">Scheduled</span>'}</td>
-                        <td>${defaultDate}</td>
-                        <td>${email.reason 
-                                ? `<span class="text-danger">${email.reason}</span>` 
-                                : (isSkipped 
-                                    ? '<span class="text-danger">Unknown</span>' 
-                                    : '<span class="text-success">Normal schedule</span>')}
+                    <tr class="table-warning">
+                        <td colspan="6" class="text-center">
+                            <span class="text-warning">No emails found for this contact.</span>
                         </td>
-                        <td>${(!isSkipped && email.link) ? `<a href="${email.link}" target="_blank" class="btn btn-sm btn-primary">View</a>` : ''}</td>
+                    </tr>
+                `;
+            }
+            
+            // Check if we have any birthday emails in either structure
+            const hasBirthdayEmail = 
+                contactData.emails.some(e => e.type === "birthday" && e.skipped !== 'Yes') || 
+                (contactData.scheduled_emails && contactData.scheduled_emails.birthday && contactData.scheduled_emails.birthday.length > 0);
+                
+            // If no birthday emails are listed but they should be (contact has birth date)
+            if (!hasBirthdayEmail && contactData.contact_info.birth_date) {
+                cardHTML += `
+                    <tr class="table-info">
+                        <td><span class="badge bg-primary">Birthday</span></td>
+                        <td>-</td>
+                        <td><span class="badge bg-danger">Skipped</span></td>
+                        <td>N/A</td>
+                        <td><span class="text-danger">Check birthday calculation</span></td>
+                        <td></td>
+                    </tr>
+                `;
+            }
+            
+            // Check if we have any effective date emails in either structure
+            const hasEffectiveDateEmail =
+                contactData.emails.some(e => e.type === "effective_date" && e.skipped !== 'Yes') ||
+                (contactData.scheduled_emails && contactData.scheduled_emails.effective_date && contactData.scheduled_emails.effective_date.length > 0);
+                
+            // If no effective date emails are listed but they should be (contact has effective date)
+            if (!hasEffectiveDateEmail && contactData.contact_info.effective_date) {
+                cardHTML += `
+                    <tr class="table-info">
+                        <td><span class="badge bg-success">Effective Date</span></td>
+                        <td>-</td>
+                        <td><span class="badge bg-danger">Skipped</span></td>
+                        <td>N/A</td>
+                        <td><span class="text-danger">Check effective date calculation</span></td>
+                        <td></td>
                     </tr>
                 `;
             }

@@ -88,14 +88,14 @@ def calculate_post_window_dates(rule_windows, end_date):
     Calculate post-window dates from rule windows based on business rules
     
     Args:
-        rule_windows: List of tuples (start_date, end_date, rule_type, state, birthday)
+        rule_windows: List of tuples (start_date, end_date, rule_type, state)
         end_date: End date for scheduling window
         
     Returns:
         List of post-window dates
     """
     post_window_dates = []
-    for start, end, rule_type, state, birthday in rule_windows:
+    for start, end, rule_type, state in rule_windows:
         # Add post window date 1 day after the window end
         post_date = end + timedelta(days=1)
         if post_date <= end_date:
@@ -116,9 +116,43 @@ def calculate_post_window_dates(rule_windows, end_date):
             
     return sorted(list(set(post_window_dates)))  # Remove duplicates and sort
 
+def calculate_birthday_email_date(birthday_date, email_year):
+    """Calculate the date to send a birthday email (14 days before birthday)"""
+    return birthday_date - timedelta(days=14)
+
+def calculate_effective_date_email(effective_date, current_date):
+    """Calculate the date to send an effective date email (30 days before)"""
+    return effective_date - timedelta(days=30)
+
 # Helper function to check if a date is within an exclusion period
-def is_date_excluded(date_obj, exclusions):
-    """Check if a date is in an exclusion period"""
+def is_date_excluded(date_obj, exclusions, email_type=None, state=None):
+    """
+    Check if a date is in an exclusion period
+    
+    Args:
+        date_obj: The date to check
+        exclusions: List of exclusion periods
+        email_type: Type of email (to apply special rules)
+        state: State code (to apply special rules)
+        
+    Returns:
+        True if date is excluded, False otherwise
+    """
+    # If exclusion list is empty (for states without rule windows like Kansas), 
+    # always return False - no exclusions apply
+    if not exclusions:
+        return False
+        
+    # Special bypass rules:
+    # 1. For birthday emails in non-special rule states, bypass exclusion checks
+    if email_type == "birthday" and state and state not in BIRTHDAY_RULE_STATES:
+        return False
+        
+    # 2. For effective date emails in special rule states, bypass exclusion checks
+    if email_type == "effective_date" and state and state in EFFECTIVE_DATE_RULE_STATES:
+        return False
+    
+    # Normal exclusion check
     for exclusion in exclusions:
         if exclusion.start <= date_obj <= exclusion.end_date:
             return True
@@ -130,13 +164,30 @@ class SimpleEmailScheduler(EmailScheduler):
         self.current_date = current_date or date.today()
         self.end_date = end_date or (self.current_date + timedelta(days=365))
         self.rule_engine = ContactRuleEngine()
-        self.aep_dates_by_year = self._precompute_aep_dates()
         
         # Validator for scheduled emails
         self.validator = type('MockValidator', (), {
             'validate_scheduled_emails': lambda *args: True,
             'validate_exclusions': lambda *args: True
         })()
+    
+    def _precompute_aep_dates(self):
+        """Precompute AEP dates for the date range"""
+        aep_dates = {}
+        for yr in range(self.current_date.year, self.end_date.year + 1):
+            # Default AEP dates - distribute across August and September
+            dates = []
+            for month in [8, 9]:  # August and September
+                for week in range(4):  # 4 weeks per month
+                    # Calculate date for this week (every Thursday)
+                    week_date = date(yr, month, 1)
+                    while week_date.weekday() != 3:  # 3 = Thursday
+                        week_date += timedelta(days=1)
+                    week_date += timedelta(weeks=week)
+                    if week_date.month == month:  # Only add if still in target month
+                        dates.append(week_date)
+            aep_dates[yr] = dates
+        return aep_dates
     
     def process_contact(self, contact, contact_index=0):
         """Process a single contact to schedule all applicable emails"""
@@ -159,33 +210,13 @@ class SimpleEmailScheduler(EmailScheduler):
                 })
                 return result
             
-            # Process birthdays
-            birthdays = []
-            if contact.get('birth_date'):
-                birthday = datetime.strptime(contact['birth_date'], "%Y-%m-%d").date()
-                
-                # Current year birthday if not already passed
-                if (birthday.month > self.current_date.month or 
-                    (birthday.month == self.current_date.month and birthday.day >= self.current_date.day)):
-                    birthdays.append(date(self.current_date.year, birthday.month, birthday.day))
-                
-                # Add birthdays for next year
-                for yr in range(self.current_date.year + 1, self.end_date.year + 1):
-                    # Handle Feb 29 in non-leap years
-                    if birthday.month == 2 and birthday.day == 29 and not is_leap_year(yr):
-                        birthdays.append(date(yr, 2, 28))
-                    else:
-                        birthdays.append(date(yr, birthday.month, birthday.day))
-            
-            # Process effective dates
-            effective_dates = []
-            if contact.get('effective_date'):
-                effective_date = datetime.strptime(contact['effective_date'], "%Y-%m-%d").date()
-                for yr in range(self.current_date.year, self.end_date.year + 1):
-                    effective_dates.append(date(yr, effective_date.month, effective_date.day))
+            # Calculate rule windows and exclusion periods
+            rule_windows = calculate_rule_windows(contact, [], [], self.current_date, self.end_date)
             
             # Get state and check if it's year-round
             state = contact.get('state', 'CA')
+            
+            # Skip only if it's a year-round enrollment state
             if state in YEAR_ROUND_ENROLLMENT_STATES:
                 # Skip all emails for year-round enrollment states
                 for email_type in [EMAIL_TYPE_BIRTHDAY, EMAIL_TYPE_EFFECTIVE_DATE, EMAIL_TYPE_AEP, EMAIL_TYPE_POST_WINDOW]:
@@ -195,58 +226,180 @@ class SimpleEmailScheduler(EmailScheduler):
                     })
                 return result
             
-            # Calculate rule windows and exclusion periods
-            rule_windows = calculate_rule_windows(contact, birthdays, effective_dates, self.current_date, self.end_date)
-            exclusions = calculate_exclusion_periods(rule_windows, self.current_date, self.end_date)
+            # Get latest window end date for post-window calculations (if there are any rule windows)
+            latest_window_end = None
+            if rule_windows:
+                latest_window_end = max(end for _, end, _, _ in rule_windows)
             
-            # Schedule birthday emails
-            if birthdays:
-                for birthday in sorted(birthdays):
-                    # Birthday emails are 14 days before the birthday
-                    email_date = birthday - timedelta(days=14)
-                    if email_date >= self.current_date and email_date <= self.end_date:
-                        # Check for IL age exception before scheduling birthday email
-                        if state == "IL" and contact.get('birth_date'):
-                            # Calculate age at the time of the birthday
-                            birth_date = datetime.strptime(contact['birth_date'], "%Y-%m-%d").date()
-                            age_at_birthday = birthday.year - birth_date.year
+            # Calculate exclusion periods
+            exclusion_periods = calculate_exclusion_periods(rule_windows, self.current_date, self.end_date)
+            
+            # Process birthdays
+            birthday_scheduled = False
+            if contact.get('birth_date'):
+                try:
+                    # Get actual birthdate
+                    if isinstance(contact['birth_date'], str):
+                        birthday = datetime.strptime(contact['birth_date'], "%Y-%m-%d").date()
+                    elif isinstance(contact['birth_date'], date):
+                        birthday = contact['birth_date']
+                    else:
+                        log(f"Invalid birth_date format for contact {contact['id']}: {contact['birth_date']}", always=True)
+                        result["skipped"].append({
+                            "type": EMAIL_TYPE_BIRTHDAY,
+                            "reason": "Invalid birth_date format"
+                        })
+                        birthday = None
+                    
+                    if birthday:
+                        # For IL residents, check age before scheduling birthday email
+                        if state == "IL":
+                            # Calculate age
+                            age = self.current_date.year - birthday.year
+                            if self.current_date.month < birthday.month or (self.current_date.month == birthday.month and self.current_date.day < birthday.day):
+                                age -= 1
+                                
                             # Skip birthday emails for IL residents 76+ years old
-                            if age_at_birthday >= 76:
+                            if age >= 76:
                                 result["skipped"].append({
                                     "type": EMAIL_TYPE_BIRTHDAY,
                                     "reason": "Illinois resident over 76 years old"
                                 })
-                                break
+                                birthday = None
+
+                        if birthday:
+                            # Calculate all birthdays in our date range
+                            birthdays = []
+                            # Current year birthday if not already passed
+                            if (birthday.month > self.current_date.month or 
+                                (birthday.month == self.current_date.month and birthday.day >= self.current_date.day)):
+                                birthdays.append(date(self.current_date.year, birthday.month, birthday.day))
+                            
+                            # Add birthdays for future years
+                            for yr in range(self.current_date.year + 1, self.end_date.year + 1):
+                                if birthday.month == 2 and birthday.day == 29 and not is_leap_year(yr):
+                                    birthdays.append(date(yr, 2, 28))
+                                else:
+                                    birthdays.append(date(yr, birthday.month, birthday.day))
+                            
+                            # Schedule birthday emails (14 days before each birthday)
+                            for birthday_date in birthdays:
+                                email_date = calculate_birthday_email_date(birthday_date, birthday_date.year)
                                 
-                        if not is_date_excluded(email_date, exclusions):
-                            result["emails"].append({
-                                "type": EMAIL_TYPE_BIRTHDAY,
-                                "date": str(email_date)
-                            })
-                        else:
-                            result["skipped"].append({
-                                "type": EMAIL_TYPE_BIRTHDAY,
-                                "reason": "Within exclusion period"
-                            })
-                        break  # Only schedule one birthday email
+                                # Only schedule if email date is within our range and not excluded
+                                if self.current_date <= email_date <= self.end_date:
+                                    # For birthday emails, bypass exclusion for non-special rule states
+                                    # This ensures that non-special states like Alaska still get birthday emails
+                                    bypass_exclusion = state not in BIRTHDAY_RULE_STATES
+                                    
+                                    # Check if date would be excluded by normal rules
+                                    would_be_excluded = is_date_excluded(email_date, exclusion_periods, "birthday", state)
+                                    
+                                    # Log exclusion status for debugging
+                                    if would_be_excluded:
+                                        log(f"Birthday email for contact {contact['id']} on {email_date} would be excluded, bypass_exclusion={bypass_exclusion}", always=DEBUG)
+                                    
+                                    if bypass_exclusion or not would_be_excluded:
+                                        log(f"Scheduling birthday email for contact {contact['id']} (state={state}) on {email_date}", always=DEBUG)
+                                        result["emails"].append({
+                                            "type": "birthday",  # Ensure lowercase consistent with frontend
+                                            "date": email_date.isoformat()
+                                        })
+                                        birthday_scheduled = True
+                                    else:
+                                        log(f"Skipping birthday email for contact {contact['id']} on {email_date} due to exclusion period", always=DEBUG)
+                            # If no birthdays were scheduled, provide a reason
+                            if not birthday_scheduled:
+                                result["skipped"].append({
+                                    "type": "birthday",
+                                    "reason": "No birthdays in scheduling window or all dates excluded"
+                                })
+                except Exception as e:
+                    log(f"Error processing birthdate for contact {contact['id']}: {e}", always=True)
+                    result["skipped"].append({
+                        "type": "birthday",
+                        "reason": f"Error processing birth_date: {str(e)}"
+                    })
+            else:
+                # Skip birthday emails if no birth date
+                result["skipped"].append({
+                    "type": "birthday",
+                    "reason": "No birth date provided"
+                })
             
-            # Schedule effective date emails
-            if effective_dates:
-                for eff_date in sorted(effective_dates):
-                    # Effective date emails are 30 days before
-                    email_date = eff_date - timedelta(days=30)
-                    if email_date >= self.current_date and email_date <= self.end_date:
-                        if not is_date_excluded(email_date, exclusions):
-                            result["emails"].append({
-                                "type": EMAIL_TYPE_EFFECTIVE_DATE,
-                                "date": str(email_date)
-                            })
-                        else:
+            # Process effective dates
+            effective_date_scheduled = False
+            if contact.get('effective_date'):
+                try:
+                    # Get actual effective date
+                    if isinstance(contact['effective_date'], str):
+                        effective_date = datetime.strptime(contact['effective_date'], "%Y-%m-%d").date()
+                    elif isinstance(contact['effective_date'], date):
+                        effective_date = contact['effective_date']
+                    else:
+                        log(f"Invalid effective_date format for contact {contact['id']}: {contact['effective_date']}", always=True)
+                        result["skipped"].append({
+                            "type": "effective_date",
+                            "reason": "Invalid effective_date format"
+                        })
+                        effective_date = None
+                    
+                    if effective_date:
+                        # Calculate all effective dates in our date range
+                        effective_dates = []
+                        # Start with current year if not already passed
+                        if (effective_date.month > self.current_date.month or 
+                            (effective_date.month == self.current_date.month and effective_date.day >= self.current_date.day)):
+                            effective_dates.append(date(self.current_date.year, effective_date.month, effective_date.day))
+                        
+                        # Add effective dates for future years
+                        for yr in range(self.current_date.year + 1, self.end_date.year + 1):
+                            effective_dates.append(date(yr, effective_date.month, effective_date.day))
+                        
+                        # Schedule effective date emails (30 days before each date)
+                        for eff_date in effective_dates:
+                            email_date = calculate_effective_date_email(eff_date, self.current_date)
+                            
+                            # Only schedule if email date is within our range and not excluded
+                            if self.current_date <= email_date <= self.end_date:
+                                # For effective date emails, bypass exclusion for special rule states like Missouri
+                                # This ensures that states like Missouri still get effective date emails
+                                bypass_exclusion = state in EFFECTIVE_DATE_RULE_STATES
+                                
+                                # Check if date would be excluded by normal rules
+                                would_be_excluded = is_date_excluded(email_date, exclusion_periods, "effective_date", state)
+                                
+                                # Log exclusion status for debugging
+                                if would_be_excluded:
+                                    log(f"Effective date email for contact {contact['id']} on {email_date} would be excluded, bypass_exclusion={bypass_exclusion}", always=DEBUG)
+                                
+                                if bypass_exclusion or not would_be_excluded:
+                                    log(f"Scheduling effective date email for contact {contact['id']} (state={state}) on {email_date}", always=DEBUG)
+                                    result["emails"].append({
+                                        "type": "effective_date",  # Ensure lowercase consistent with frontend
+                                        "date": email_date.isoformat()
+                                    })
+                                    effective_date_scheduled = True
+                                else:
+                                    log(f"Skipping effective date email for contact {contact['id']} on {email_date} due to exclusion period", always=DEBUG)
+                        # If no effective dates were scheduled, provide a reason
+                        if not effective_date_scheduled:
                             result["skipped"].append({
-                                "type": EMAIL_TYPE_EFFECTIVE_DATE,
-                                "reason": "Within exclusion period"
+                                "type": "effective_date",
+                                "reason": "No effective dates in scheduling window or all dates excluded"
                             })
-                        break  # Only schedule one effective date email
+                except Exception as e:
+                    log(f"Error processing effective date for contact {contact['id']}: {e}", always=True)
+                    result["skipped"].append({
+                        "type": "effective_date",
+                        "reason": f"Error processing effective_date: {str(e)}"
+                    })
+            else:
+                # Skip effective date emails if no effective date
+                result["skipped"].append({
+                    "type": "effective_date",
+                    "reason": "No effective date provided"
+                })
             
             # Schedule AEP emails
             aep_scheduled = False
@@ -261,9 +414,9 @@ class SimpleEmailScheduler(EmailScheduler):
                 aep_date = aep_dates_for_year[week_index]
                 
                 if aep_date >= self.current_date and aep_date <= self.end_date:
-                    if not is_date_excluded(aep_date, exclusions):
+                    if not is_date_excluded(aep_date, exclusion_periods, "aep", state):
                         result["emails"].append({
-                            "type": EMAIL_TYPE_AEP,
+                            "type": "aep",  # Ensure lowercase consistent with frontend
                             "date": str(aep_date)
                         })
                         aep_scheduled = True
@@ -271,71 +424,27 @@ class SimpleEmailScheduler(EmailScheduler):
             
             if not aep_scheduled:
                 result["skipped"].append({
-                    "type": EMAIL_TYPE_AEP,
+                    "type": "aep",
                     "reason": "No suitable AEP date found"
                 })
             
-            # Calculate post-window dates
-            post_window_dates = calculate_post_window_dates(rule_windows, self.end_date)
-            
             # Schedule post-window emails
             post_window_scheduled = False
+            post_window_dates = calculate_post_window_dates(rule_windows, self.end_date)
             if post_window_dates:
                 for post_date in sorted(post_window_dates):
                     if post_date >= self.current_date and post_date <= self.end_date:
                         # Post-window emails bypass exclusion checks
                         result["emails"].append({
-                            "type": EMAIL_TYPE_POST_WINDOW,
+                            "type": "post_window",  # Ensure lowercase consistent with frontend
                             "date": str(post_date)
                         })
                         post_window_scheduled = True
                         break  # Only schedule one post-window email
             
-            # Force post-window emails for each state in BIRTHDAY_RULE_STATES
-            if not post_window_scheduled and state in BIRTHDAY_RULE_STATES and birthday:
-                # For IL residents, check age before applying birthday window rules
-                if state == "IL" and contact.get('birth_date'):
-                    # Calculate age
-                    birth_date = datetime.strptime(contact['birth_date'], "%Y-%m-%d").date()
-                    age = self.current_date.year - birth_date.year
-                    if self.current_date.month < birth_date.month or (self.current_date.month == birth_date.month and self.current_date.day < birth_date.day):
-                        age -= 1
-                        
-                    # Skip post-window email for IL residents 76+ years old
-                    if age >= 76:
-                        result["skipped"].append({
-                            "type": EMAIL_TYPE_POST_WINDOW,
-                            "reason": "Illinois resident over 76 years old"
-                        })
-                        return result
-                
-                # Schedule post-window email 1 day after the biggest birthday rule window
-                window_after = BIRTHDAY_RULE_STATES[state]["window_after"]
-                
-                # Find the earliest birthday in our date range
-                if birthdays:
-                    earliest_birthday = sorted(birthdays)[0]
-                    post_date = earliest_birthday + timedelta(days=window_after + 1)
-                    
-                    if post_date >= self.current_date and post_date <= self.end_date:
-                        result["emails"].append({
-                            "type": EMAIL_TYPE_POST_WINDOW,
-                            "date": str(post_date),
-                            "reason": "Forced post-window email"
-                        })
-                    else:
-                        result["skipped"].append({
-                            "type": EMAIL_TYPE_POST_WINDOW,
-                            "reason": "Post-window date outside scheduling period"
-                        })
-                else:
-                    result["skipped"].append({
-                        "type": EMAIL_TYPE_POST_WINDOW,
-                        "reason": "No birthdays in date range"
-                    })
-            elif not post_window_scheduled and state in BIRTHDAY_RULE_STATES:
+            if not post_window_scheduled:
                 result["skipped"].append({
-                    "type": EMAIL_TYPE_POST_WINDOW,
+                    "type": "post_window",
                     "reason": "No valid post-window dates found"
                 })
             
@@ -533,6 +642,35 @@ def get_contacts_from_org_db(org_db_path: str, org_id: int) -> List[Dict[str, An
     finally:
         conn.close()
 
+def parse_date_flexible(date_str: str) -> Optional[date]:
+    """
+    Parse a date string flexibly, handling both dash and slash formats.
+    Supports formats: YYYY-MM-DD, YYYY/MM/DD, MM/DD/YYYY, MM-DD-YYYY
+    
+    Args:
+        date_str: Date string to parse
+        
+    Returns:
+        datetime.date object if successful, None if parsing fails
+    """
+    if not date_str:
+        return None
+        
+    formats = [
+        "%Y-%m-%d",  # YYYY-MM-DD
+        "%Y/%m/%d",  # YYYY/MM/DD
+        "%m/%d/%Y",  # MM/DD/YYYY
+        "%m-%d-%Y"   # MM-DD-YYYY
+    ]
+    
+    for fmt in formats:
+        try:
+            return datetime.strptime(date_str, fmt).date()
+        except ValueError:
+            continue
+    
+    return None
+
 def format_contact_data(contacts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Format contact data for compatibility with the email scheduler
@@ -547,15 +685,21 @@ def format_contact_data(contacts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     
     formatted_contacts = []
     for contact in contacts:
-        # Determine state from ZIP code if not already set
-        state = contact.get('state')
-        if not state and contact.get('zip_code'):
+        # Always try to determine state from ZIP code first
+        state = None
+        if contact.get('zip_code'):
             from app import get_state_from_zip
             state = get_state_from_zip(contact['zip_code'])
         
-        # Default to CA only if we couldn't determine state from ZIP
+        # If we couldn't get state from ZIP, check if existing state is valid
+        if not state and contact.get('state'):
+            from app import ALL_STATES
+            if contact['state'] in ALL_STATES:
+                state = contact['state']
+        
+        # Default to CA if we still don't have a valid state
         if not state:
-            log(f"No state or valid ZIP code for contact {contact.get('id')}, defaulting to CA", always=False)
+            log(f"Could not determine valid state for contact {contact.get('id')}, defaulting to CA", always=False)
             state = 'CA'
         
         # Ensure required fields exist
@@ -578,8 +722,17 @@ def format_contact_data(contacts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             
         # Convert date fields if needed
         for date_field in ['birth_date', 'effective_date']:
-            if formatted_contact[date_field] and not isinstance(formatted_contact[date_field], date) and not isinstance(formatted_contact[date_field], str):
-                formatted_contact[date_field] = formatted_contact[date_field].isoformat()
+            if formatted_contact[date_field]:
+                if not isinstance(formatted_contact[date_field], date):
+                    if isinstance(formatted_contact[date_field], str):
+                        parsed_date = parse_date_flexible(formatted_contact[date_field])
+                        if parsed_date:
+                            formatted_contact[date_field] = parsed_date.isoformat()
+                        else:
+                            log(f"Warning: Could not parse {date_field} for contact {formatted_contact['id']}: {formatted_contact[date_field]}", always=True)
+                            formatted_contact[date_field] = None
+                    else:
+                        formatted_contact[date_field] = formatted_contact[date_field].isoformat()
                 
         formatted_contacts.append(formatted_contact)
         
@@ -646,7 +799,8 @@ def write_results_to_csv(results: List[Dict[str, Any]], contacts: List[Dict[str,
     # Create a lookup dictionary for contacts
     contact_dict = {str(contact['id']): contact for contact in contacts}
     
-    # Prepare data for CSV
+    # Prepare data for CSV, using a set to track unique entries
+    seen_entries = set()  # Track unique entries to prevent duplicates
     csv_data = []
     
     for result in results:
@@ -656,7 +810,17 @@ def write_results_to_csv(results: List[Dict[str, Any]], contacts: List[Dict[str,
         # Process scheduled emails
         for email in result.get('emails', []):
             email_type = email.get('type', '')
-            email_date = email.get('date', '')
+            # Ensure date is a string
+            email_date = str(email.get('date', ''))
+            
+            # Create a unique key for this email entry
+            unique_key = f"{contact_id}-{email_type}-{email_date}"
+            if unique_key in seen_entries:
+                continue
+            seen_entries.add(unique_key)
+            
+            # Generate complete link
+            link = generate_link(org_id, contact_id, email_type, email_date)
             
             row = {
                 'org_id': org_id,
@@ -664,12 +828,12 @@ def write_results_to_csv(results: List[Dict[str, Any]], contacts: List[Dict[str,
                 'email': contact.get('email', f"contact{contact_id}@example.com"),
                 'first_name': contact.get('first_name', 'Unknown'),
                 'last_name': contact.get('last_name', 'Unknown'),
-                'state': contact.get('state', 'CA'),  # Add state to CSV output
+                'state': contact.get('state', 'CA'),
                 'birth_date': contact.get('birth_date', ''),
                 'effective_date': contact.get('effective_date', ''),
                 'email_type': email_type,
                 'email_date': email_date,
-                'link': generate_link(org_id, contact_id, email_type, email_date),
+                'link': link,
                 'skipped': 'No',
                 'reason': email.get('reason', '')
             }
@@ -677,9 +841,14 @@ def write_results_to_csv(results: List[Dict[str, Any]], contacts: List[Dict[str,
             
         # Process skipped emails
         for skipped in result.get('skipped', []):
-            email_type = skipped.get('type', '')
-            email_date = skipped.get('date', '')
+            email_type = skipped.get('type', 'all')
             reason = skipped.get('reason', 'Unknown reason')
+            
+            # Create a unique key for this skipped entry
+            unique_key = f"{contact_id}-{email_type}-skipped-{reason}"
+            if unique_key in seen_entries:
+                continue
+            seen_entries.add(unique_key)
             
             row = {
                 'org_id': org_id,
@@ -687,27 +856,21 @@ def write_results_to_csv(results: List[Dict[str, Any]], contacts: List[Dict[str,
                 'email': contact.get('email', f"contact{contact_id}@example.com"),
                 'first_name': contact.get('first_name', 'Unknown'),
                 'last_name': contact.get('last_name', 'Unknown'),
-                'state': contact.get('state', 'CA'),  # Add state to CSV output
+                'state': contact.get('state', 'CA'),
                 'birth_date': contact.get('birth_date', ''),
                 'effective_date': contact.get('effective_date', ''),
-                'email_type': f"{email_type} (skipped)",
-                'email_date': email_date or '',
-                'link': '',
+                'email_type': email_type,
+                'email_date': '',  # Empty string for skipped emails
+                'link': '',  # No link for skipped emails
                 'skipped': 'Yes',
                 'reason': reason
             }
             csv_data.append(row)
     
-    # Create directory if it doesn't exist
-    output_dir = os.path.dirname(output_csv)
-    if output_dir and not os.path.exists(output_dir):
-        os.makedirs(output_dir, exist_ok=True)
-    
-    # Define column order to ensure birth_date and effective_date appear in a logical place
+    # Define column order
     columns = [
         'org_id', 'contact_id', 'email', 'first_name', 'last_name',
-        'state',  # Add state to column order
-        'birth_date', 'effective_date',  # Place dates together
+        'state', 'birth_date', 'effective_date',
         'email_type', 'email_date', 'link', 'skipped', 'reason'
     ]
     
@@ -715,6 +878,18 @@ def write_results_to_csv(results: List[Dict[str, Any]], contacts: List[Dict[str,
     try:
         df = pd.DataFrame(csv_data)
         df = df[columns]  # Reorder columns
+        
+        # Replace any remaining nan values with empty strings
+        df = df.fillna('')
+        
+        # Convert all date fields to strings to ensure consistent format
+        if 'email_date' in df.columns:
+            df['email_date'] = df['email_date'].astype(str)
+        if 'birth_date' in df.columns:
+            df['birth_date'] = df['birth_date'].astype(str)
+        if 'effective_date' in df.columns:
+            df['effective_date'] = df['effective_date'].astype(str)
+            
         df.to_csv(output_csv, index=False)
         log(f"Successfully wrote {len(csv_data)} rows to {output_csv}", always=True)
     except Exception as e:
@@ -746,7 +921,9 @@ async def process_contacts_async(contacts: List[Dict[str, Any]], current_date: d
             contact = contacts[i]
             state = contact.get('state', 'CA')
             
-            # Check if state has specific post-window rules
+            # Post-window emails should only be scheduled for states with specific rules
+            # This is already handled by the calculate_rule_windows function which will
+            # return an empty list for states without specific rules
             if state in BIRTHDAY_RULE_STATES or state in EFFECTIVE_DATE_RULE_STATES:
                 has_post_window = any(email.get('type') == EMAIL_TYPE_POST_WINDOW for email in result.get('emails', []))
                 
@@ -762,7 +939,7 @@ async def process_contacts_async(contacts: List[Dict[str, Any]], current_date: d
                         # Find the latest rule window end date
                         rule_windows = calculate_rule_windows(contact, [], [], current_date, end_date)
                         if rule_windows:
-                            latest_window_end = max(end for _, end, _, _, _ in rule_windows)
+                            latest_window_end = max(end for _, end, _, _ in rule_windows)
                             post_date = latest_window_end + timedelta(days=window_after + 1)
                             
                             if current_date <= post_date <= end_date:
@@ -771,6 +948,15 @@ async def process_contacts_async(contacts: List[Dict[str, Any]], current_date: d
                                     "date": str(post_date),
                                     "reason": f"Post-window email based on {state} state rules"
                                 })
+            else:
+                # For states without specific rules, ensure there are no post-window emails
+                # and add a skip reason if needed
+                has_skip_reason = any(skip.get('type') == EMAIL_TYPE_POST_WINDOW for skip in result.get('skipped', []))
+                if not has_skip_reason:
+                    result.setdefault('skipped', []).append({
+                        "type": EMAIL_TYPE_POST_WINDOW,
+                        "reason": f"No post-window emails for state {state} - no rule windows"
+                    })
     
     return results
 
@@ -803,6 +989,44 @@ def process_contacts_sync(contacts: List[Dict[str, Any]], current_date: date,
             # Ensure contact_id is included
             if not result.get('contact_id'):
                 result['contact_id'] = contact_id
+            
+            # Apply the same post-window email logic as in the async processor
+            state = contact.get('state', 'CA')
+            
+            # Post-window emails should only be scheduled for states with specific rules
+            if state in BIRTHDAY_RULE_STATES or state in EFFECTIVE_DATE_RULE_STATES:
+                has_post_window = any(email.get('type') == EMAIL_TYPE_POST_WINDOW for email in result.get('emails', []))
+                
+                if not has_post_window:
+                    # Calculate post-window date based on state rules
+                    window_after = None
+                    if state in BIRTHDAY_RULE_STATES:
+                        window_after = BIRTHDAY_RULE_STATES[state]["window_after"]
+                    elif state in EFFECTIVE_DATE_RULE_STATES:
+                        window_after = EFFECTIVE_DATE_RULE_STATES[state]["window_after"]
+                        
+                    if window_after is not None:
+                        # Find the latest rule window end date
+                        rule_windows = calculate_rule_windows(contact, [], [], current_date, end_date)
+                        if rule_windows:
+                            latest_window_end = max(end for _, end, _, _ in rule_windows)
+                            post_date = latest_window_end + timedelta(days=window_after + 1)
+                            
+                            if current_date <= post_date <= end_date:
+                                result['emails'].append({
+                                    "type": EMAIL_TYPE_POST_WINDOW,
+                                    "date": str(post_date),
+                                    "reason": f"Post-window email based on {state} state rules"
+                                })
+            else:
+                # For states without specific rules, ensure there are no post-window emails
+                # and add a skip reason if needed
+                has_skip_reason = any(skip.get('type') == EMAIL_TYPE_POST_WINDOW for skip in result.get('skipped', []))
+                if not has_skip_reason:
+                    result.setdefault('skipped', []).append({
+                        "type": EMAIL_TYPE_POST_WINDOW,
+                        "reason": f"No post-window emails for state {state} - no rule windows"
+                    })
                 
             # Add to results
             results.append(result)
@@ -827,8 +1051,8 @@ def main():
     parser.add_argument("--org-db-dir", default="org_dbs/", help="Directory containing organization-specific databases")
     parser.add_argument("--start-date", help="Start date (YYYY-MM-DD)")
     parser.add_argument("--async", action="store_true", help="Use asynchronous processing")
-    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
-    parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging", default=True)
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose logging", default=True)
     
     args = parser.parse_args()
     

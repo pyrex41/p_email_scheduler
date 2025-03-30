@@ -11,7 +11,7 @@ from typing import Dict, List, Set, Tuple, Optional, Union, Any
 import os
 
 # Get log file path from environment variable with default
-LOG_FILE = os.environ.get('LOG_FILE', '/var/log/email_scheduler.log')
+LOG_FILE = os.environ.get('LOG_FILE', 'logs/email_scheduler.log')
 
 # Check if console output is enabled (default: False in production, True in development)
 CONSOLE_OUTPUT = os.environ.get('CONSOLE_OUTPUT', '').lower() in ('true', '1', 'yes', 'y', 't')
@@ -153,57 +153,107 @@ def get_all_occurrences(event_day, start, end_date):
 # Function to calculate rule windows based on state-specific rules
 def calculate_rule_windows(contact, birthdays, effective_dates, current_date, end_date):
     """
-    Calculate rule windows based on contact's state and dates
-    Returns: List of tuples (start_date, end_date, rule_type, state, original_birthday)
+    Calculate rule windows for a contact based on their state and dates
+    
+    Args:
+        contact: Contact dictionary with state and dates
+        birthdays: List of birthday dates (can be empty if calculating from contact)
+        effective_dates: List of effective dates (can be empty if calculating from contact)
+        current_date: Current date to start calculations from
+        end_date: End date to stop calculations at
+        
+    Returns:
+        List of tuples (window_start, window_end, rule_type, state)
     """
     rule_windows = []
-    state = contact['state']
-    
-    # Extract original birthday from contact
-    original_birthday = datetime.strptime(contact['birth_date'], "%Y-%m-%d").date()
-    
-    # Extract age from contact
-    if 'age' in contact:
-        age = contact['age']
-    else:
-        # Calculate age from birth_date if not provided
-        birthday = original_birthday
-        age = current_date.year - birthday.year
-        # Adjust age if birthday hasn't occurred this year
-        if current_date.month < birthday.month or (current_date.month == birthday.month and current_date.day < birthday.day):
-            age -= 1
-    
-    # Check for IL age exception
-    if state == "IL" and age >= 76:
-        logger.debug(f"Contact {contact['id']} is in IL and age {age} >= 76, no birthday rule applies")
-        return []
+    state = contact.get('state', 'CA')  # Default to CA if no state
     
     # Skip for year-round enrollment states
     if state in YEAR_ROUND_ENROLLMENT_STATES:
         logger.debug(f"Contact {contact['id']} is in year-round enrollment state {state}, no rule windows apply")
         return []
     
+    # If no birthdays provided, calculate from contact birth_date
+    if not birthdays and contact.get('birth_date'):
+        try:
+            # Handle both date objects and strings
+            if isinstance(contact['birth_date'], date):
+                original_birthday = contact['birth_date']
+            elif isinstance(contact['birth_date'], str):
+                # Try multiple date formats
+                for fmt in ["%Y-%m-%d", "%Y/%m/%d", "%m/%d/%Y", "%m-%d-%Y"]:
+                    try:
+                        original_birthday = datetime.strptime(contact['birth_date'], fmt).date()
+                        break
+                    except ValueError:
+                        continue
+                else:  # No format worked
+                    original_birthday = None
+            else:
+                original_birthday = None
+                
+            if original_birthday:
+                # Calculate birthdays in range
+                if (original_birthday.month > current_date.month or 
+                    (original_birthday.month == current_date.month and 
+                     original_birthday.day >= current_date.day)):
+                    birthdays.append(date(current_date.year, original_birthday.month, original_birthday.day))
+                
+                for yr in range(current_date.year + 1, end_date.year + 1):
+                    if original_birthday.month == 2 and original_birthday.day == 29 and not is_leap_year(yr):
+                        birthdays.append(date(yr, 2, 28))
+                    else:
+                        birthdays.append(date(yr, original_birthday.month, original_birthday.day))
+        except Exception as e:
+            logger.warning(f"Error processing birth date for contact: {e}")
+    
+    # If no effective dates provided, calculate from contact effective_date
+    if not effective_dates and contact.get('effective_date'):
+        try:
+            # Handle both date objects and strings
+            if isinstance(contact['effective_date'], date):
+                original_effective_date = contact['effective_date']
+            elif isinstance(contact['effective_date'], str):
+                # Try multiple date formats
+                for fmt in ["%Y-%m-%d", "%Y/%m/%d", "%m/%d/%Y", "%m-%d-%Y"]:
+                    try:
+                        original_effective_date = datetime.strptime(contact['effective_date'], fmt).date()
+                        break
+                    except ValueError:
+                        continue
+                else:  # No format worked
+                    original_effective_date = None
+            else:
+                original_effective_date = None
+                
+            if original_effective_date:
+                # Calculate effective dates in range
+                for yr in range(current_date.year, end_date.year + 1):
+                    effective_dates.append(date(yr, original_effective_date.month, original_effective_date.day))
+        except Exception as e:
+            logger.warning(f"Error processing effective date for contact: {e}")
+    
     # Process birthday rule states
-    if state in BIRTHDAY_RULE_STATES:
+    if state in BIRTHDAY_RULE_STATES and birthdays:
         window_before = BIRTHDAY_RULE_STATES[state]["window_before"]
         window_after = BIRTHDAY_RULE_STATES[state]["window_after"]
         
-        for rule_date in birthdays:
+        for birthday in birthdays:
             # Special handling for Nevada (first day of birth month)
             if state == "NV":
-                rule_date = rule_date.replace(day=1)
+                birthday = date(birthday.year, birthday.month, 1)
             
             # Calculate rule window
-            rule_window_start = rule_date - timedelta(days=window_before)
-            rule_window_end = rule_date + timedelta(days=window_after)
+            rule_window_start = birthday - timedelta(days=window_before)
+            rule_window_end = birthday + timedelta(days=window_after)
             
             # Only consider windows that overlap with our target date range
-            if (rule_window_start <= end_date and rule_window_end >= current_date):
+            if rule_window_start <= end_date and rule_window_end >= current_date:
                 logger.debug(f"Birthday rule window for {state} contact: {rule_window_start} to {rule_window_end}")
-                rule_windows.append((rule_window_start, rule_window_end, "birthday", state, original_birthday))
+                rule_windows.append((rule_window_start, rule_window_end, "birthday", state))
     
     # Process effective date rule states
-    if state in EFFECTIVE_DATE_RULE_STATES:
+    if state in EFFECTIVE_DATE_RULE_STATES and effective_dates:
         window_before = EFFECTIVE_DATE_RULE_STATES[state]["window_before"]
         window_after = EFFECTIVE_DATE_RULE_STATES[state]["window_after"]
         
@@ -213,9 +263,15 @@ def calculate_rule_windows(contact, birthdays, effective_dates, current_date, en
             rule_window_end = eff_date + timedelta(days=window_after)
             
             # Only consider windows that overlap with our target date range
-            if (rule_window_start <= end_date and rule_window_end >= current_date):
+            if rule_window_start <= end_date and rule_window_end >= current_date:
                 logger.debug(f"Effective date rule window for {state} contact: {rule_window_start} to {rule_window_end}")
-                rule_windows.append((rule_window_start, rule_window_end, "effective_date", state, original_birthday))
+                rule_windows.append((rule_window_start, rule_window_end, "effective_date", state))
+    
+    # For states without specific rules, return an empty list (no rule windows)
+    # This is a key change - no default 60-day window for states without specific rules
+    if not rule_windows and state not in YEAR_ROUND_ENROLLMENT_STATES:
+        logger.debug(f"Contact {contact['id']} is in state {state} with no specific rule windows defined")
+        return []  # Return empty list for states like Kansas with no specific rules
     
     return rule_windows
 
@@ -239,7 +295,7 @@ def calculate_exclusion_periods(rule_windows, current_date, end_date):
     """
     exclusions = []
     
-    for rule_window_start, rule_window_end, rule_type, state, birthday in rule_windows:
+    for rule_window_start, rule_window_end, rule_type, state in rule_windows:
         # Calculate extended exclusion (PRE_WINDOW_EXCLUSION_DAYS before window to window end)
         exclusion_start = rule_window_start - timedelta(days=PRE_WINDOW_EXCLUSION_DAYS)
         exclusion_end = rule_window_end
@@ -275,7 +331,7 @@ def calculate_post_window_dates(rule_windows, end_date):
         logger.debug("No rule windows found, cannot calculate post-window dates")
         return post_window_dates
     
-    for rule_window_start, rule_window_end, rule_type, state, birthday in rule_windows:
+    for rule_window_start, rule_window_end, rule_type, state in rule_windows:
         # Skip if this is not a birthday rule
         if rule_type != "birthday":
             logger.debug(f"Skipping {rule_type} rule window for post-window calculation")
@@ -296,9 +352,9 @@ def calculate_post_window_dates(rule_windows, end_date):
             logger.debug(f"Nevada-style rule detected: Using end date {post_window_date} instead")
         
         # Logic for February birthdays across all states
-        if birthday.month == 2:
+        if rule_window_start.month == 2:
             # Special handling for February 29 birthdays (leap year birthdays)
-            if birthday.day == 29:
+            if rule_window_start.day == 29:
                 # For CA contacts with Feb 29 birthday: post-window on March 30
                 if state == 'CA':
                     post_window_date = date(rule_window_end.year, 3, 30)
@@ -311,7 +367,7 @@ def calculate_post_window_dates(rule_windows, end_date):
                     logger.debug(f"Special case: Feb 29 NV birthday, post-window date: {post_window_date}")
             # Handle other February birthdays
             elif rule_window_end.month == 3 and (rule_window_end.day == 29 or rule_window_end.day == 30):
-                if state == 'CA' and birthday.day < 15 and birthday.day != 1:  # Before mid-month, not 1st
+                if state == 'CA' and rule_window_start.day < 15 and rule_window_start.day != 1:  # Before mid-month, not 1st
                     # Set to end of March
                     if rule_window_end.day == 29:
                         post_window_date = date(rule_window_end.year, 3, 30)
@@ -536,6 +592,11 @@ def is_date_excluded(date_obj, exclusions):
     Returns:
         Boolean indicating if the date is excluded
     """
+    # If exclusions list is empty (which will happen for states without rule windows like Kansas),
+    # always return False - no exclusions apply
+    if not exclusions:
+        return False
+        
     for exclusion in exclusions:
         if exclusion.start <= date_obj <= exclusion.end_date:
             return True

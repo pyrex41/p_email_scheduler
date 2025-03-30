@@ -1,0 +1,1155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Schedule Timeline - {{ org.name }}</title>
+    <style>
+        :root {
+            --birthday-color: #4285F4;    /* Blue */
+            --effective-date-color: #34A853; /* Green */
+            --aep-color: #FBBC05;         /* Yellow */
+            --post-window-color: #EA4335; /* Red */
+            --rule-window-color: #9C27B0; /* Purple */
+            --exclusion-color: #9AA0A6;   /* Gray */
+            --skipped-opacity: 0.5;
+            --timeline-background: #f8f9fa;
+            --timeline-line: #dadce0;
+            --font-primary: 'Google Sans', 'Roboto', Arial, sans-serif;
+            --font-color: #202124;
+            --font-color-secondary: #5f6368;
+        }
+        
+        * {
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: var(--font-primary);
+            margin: 0;
+            padding: 20px;
+            color: var(--font-color);
+            background-color: var(--timeline-background);
+            line-height: 1.5;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 2px rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
+            padding: 24px;
+        }
+        
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--timeline-line);
+        }
+        
+        h1 {
+            color: var(--font-color);
+            margin: 0;
+            font-size: 24px;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+        
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            margin-bottom: 20px;
+            color: #1a73e8;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        
+        .back-link:hover {
+            text-decoration: underline;
+        }
+        
+        .back-link svg {
+            margin-right: 6px;
+        }
+        
+        .filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 24px;
+            padding: 16px;
+            background-color: var(--timeline-background);
+            border-radius: 8px;
+        }
+        
+        .filter-btn {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            border-radius: 16px;
+            border: 1px solid transparent;
+            background-color: white;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+            color: var(--font-color);
+        }
+        
+        .filter-btn .color-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        
+        .filter-btn.active {
+            background-color: #e8f0fe;
+            border-color: #1a73e8;
+        }
+        
+        .filter-btn:hover {
+            background-color: #f1f3f4;
+        }
+        
+        .filter-btn.birthday .color-dot {
+            background-color: var(--birthday-color);
+        }
+        
+        .filter-btn.effective_date .color-dot {
+            background-color: var(--effective-date-color);
+        }
+        
+        .filter-btn.aep .color-dot {
+            background-color: var(--aep-color);
+        }
+        
+        .filter-btn.post_window .color-dot {
+            background-color: var(--post-window-color);
+        }
+        
+        .filter-btn.rule_window .color-dot {
+            background-color: var(--rule-window-color);
+        }
+        
+        .filter-btn.exclusion .color-dot {
+            background-color: var(--exclusion-color);
+        }
+        
+        .timeline-header {
+            position: relative;
+            margin-bottom: 24px;
+            margin-left: 200px;
+        }
+        
+        .timeline-axis {
+            position: relative;
+            display: flex;
+            border-bottom: 1px solid var(--timeline-line);
+            padding-bottom: 4px;
+        }
+        
+        .timeline-axis .month {
+            font-size: 12px;
+            color: var(--font-color-secondary);
+            text-align: center;
+            text-transform: uppercase;
+            flex: 1;
+        }
+        
+        .timeline-ruler {
+            position: relative;
+            height: 20px;
+        }
+        
+        .timeline-ruler .tick {
+            position: absolute;
+            width: 1px;
+            height: 6px;
+            background-color: var(--timeline-line);
+            top: 0;
+        }
+        
+        .timeline-ruler .tick.first-of-month {
+            height: 10px;
+        }
+        
+        .timeline-ruler .date-label {
+            position: absolute;
+            font-size: 10px;
+            color: var(--font-color-secondary);
+            top: 12px;
+            transform: translateX(-50%);
+            white-space: nowrap;
+        }
+        
+        .contacts-container {
+            max-height: 700px;
+            overflow-y: auto;
+            padding-right: 16px;
+        }
+        
+        .contact-timeline {
+            margin-bottom: 32px;
+            border-radius: 8px;
+            background-color: white;
+            box-shadow: 0 1px 2px rgba(60,64,67,0.3);
+            overflow: hidden;
+        }
+        
+        .contact-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px;
+            background-color: #f8f9fa;
+            border-bottom: 1px solid var(--timeline-line);
+        }
+        
+        .contact-info h3 {
+            margin: 0 0 4px 0;
+            font-size: 16px;
+            font-weight: 500;
+        }
+        
+        .contact-details {
+            display: flex;
+            gap: 16px;
+            font-size: 13px;
+            color: var(--font-color-secondary);
+        }
+        
+        .contact-details .detail {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .detail-icon {
+            width: 16px;
+            height: 16px;
+            opacity: 0.7;
+        }
+        
+        .view-quote-btn {
+            background-color: #1a73e8;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        
+        .view-quote-btn:hover {
+            background-color: #1765cc;
+        }
+        
+        .timeline-lanes {
+            position: relative;
+            padding: 24px 16px 24px 200px;
+        }
+        
+        .lane {
+            position: relative;
+            height: 40px;
+            margin-bottom: 16px;
+        }
+        
+        .lane-label {
+            position: absolute;
+            left: -180px;
+            top: 10px;
+            width: 160px;
+            text-align: right;
+            font-size: 14px;
+            color: var(--font-color-secondary);
+            font-weight: 500;
+        }
+        
+        .lane-track {
+            position: relative;
+            height: 100%;
+            background-color: #f1f3f4;
+            border-radius: 4px;
+        }
+        
+        .timeline-item {
+            position: absolute;
+            height: 28px;
+            top: 6px;
+            border-radius: 14px;
+            color: white;
+            font-size: 12px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 12px;
+            cursor: pointer;
+            z-index: 3;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            min-width: 70px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .timeline-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            z-index: 4;
+        }
+        
+        .timeline-item.birthday {
+            background-color: var(--birthday-color);
+        }
+        
+        .timeline-item.effective_date {
+            background-color: var(--effective-date-color);
+        }
+        
+        .timeline-item.aep {
+            background-color: var(--aep-color);
+            color: #202124;
+        }
+        
+        .timeline-item.post_window {
+            background-color: var(--post-window-color);
+        }
+        
+        .timeline-item.skipped {
+            opacity: var(--skipped-opacity);
+            border: 2px dashed rgba(255,255,255,0.8);
+        }
+        
+        .rule-window {
+            position: absolute;
+            height: 20px;
+            top: 10px;
+            background-color: var(--rule-window-color);
+            opacity: 0.3;
+            border-radius: 4px;
+            z-index: 1;
+            cursor: pointer;
+        }
+        
+        .exclusion-window {
+            position: absolute;
+            height: 40px;
+            top: 0;
+            background-color: var(--exclusion-color);
+            opacity: 0.3;
+            border-radius: 4px;
+            z-index: 2;
+            cursor: pointer;
+        }
+        
+        .tooltip {
+            position: fixed;
+            background-color: white;
+            border-radius: 4px;
+            padding: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 100;
+            min-width: 220px;
+            max-width: 320px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        
+        .tooltip-header {
+            font-weight: 500;
+            margin-bottom: 8px;
+            color: var(--font-color);
+            padding-bottom: 4px;
+            border-bottom: 1px solid var(--timeline-line);
+        }
+        
+        .tooltip-content {
+            font-size: 13px;
+            color: var(--font-color-secondary);
+        }
+        
+        .tooltip-row {
+            display: flex;
+            margin-bottom: 4px;
+        }
+        
+        .tooltip-label {
+            flex: 0 0 70px;
+            font-weight: 500;
+        }
+        
+        .tooltip-value {
+            flex: 1;
+        }
+        
+        .no-data {
+            text-align: center;
+            padding: 40px;
+            color: var(--font-color-secondary);
+            background-color: var(--timeline-background);
+            border-radius: 8px;
+            font-size: 16px;
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 40px;
+        }
+        
+        .spinner {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            border: 4px solid rgba(0,0,0,0.1);
+            border-radius: 50%;
+            border-top-color: #1a73e8;
+            animation: spin 1s linear infinite;
+            margin-bottom: 16px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .actions {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid var(--timeline-line);
+        }
+        
+        .action-btn {
+            padding: 8px 16px;
+            background-color: #1a73e8;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+        }
+        
+        .action-btn:hover {
+            background-color: #1765cc;
+        }
+        
+        .action-btn svg {
+            margin-right: 8px;
+        }
+        
+        @media (max-width: 768px) {
+            .timeline-header {
+                margin-left: 0;
+            }
+            
+            .timeline-lanes {
+                padding-left: 16px;
+            }
+            
+            .lane-label {
+                position: relative;
+                left: 0;
+                top: 0;
+                width: 100%;
+                text-align: left;
+                margin-bottom: 4px;
+            }
+            
+            .lane {
+                height: auto;
+                margin-bottom: 24px;
+            }
+            
+            .lane-track {
+                margin-top: 24px;
+            }
+            
+            .contact-details {
+                flex-direction: column;
+                gap: 4px;
+            }
+            
+            .contact-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 12px;
+            }
+            
+            .view-quote-btn {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/org/{{ org.id }}" class="back-link">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M19 12H5M12 19l-7-7 7-7"/>
+            </svg>
+            Back to Organization
+        </a>
+        
+        <header>
+            <h1>Email Schedule Timeline - {{ org.name }}</h1>
+            <div class="controls">
+                <label for="zoom-level">Zoom:</label>
+                <select id="zoom-level">
+                    <option value="5">5 days/px</option>
+                    <option value="3">3 days/px</option>
+                    <option value="2" selected>2 days/px</option>
+                    <option value="1">1 day/px</option>
+                    <option value="0.5">0.5 days/px</option>
+                </select>
+            </div>
+        </header>
+        
+        <div class="filters" id="filters">
+            <button class="filter-btn birthday active" data-type="birthday">
+                <span class="color-dot"></span>
+                <span>Birthday</span>
+            </button>
+            <button class="filter-btn effective_date active" data-type="effective_date">
+                <span class="color-dot"></span>
+                <span>Effective Date</span>
+            </button>
+            <button class="filter-btn aep active" data-type="aep">
+                <span class="color-dot"></span>
+                <span>AEP</span>
+            </button>
+            <button class="filter-btn post_window active" data-type="post_window">
+                <span class="color-dot"></span>
+                <span>Post Window</span>
+            </button>
+            <button class="filter-btn rule_window active" data-type="rule_window">
+                <span class="color-dot"></span>
+                <span>Rule Windows</span>
+            </button>
+            <button class="filter-btn exclusion active" data-type="exclusion">
+                <span class="color-dot"></span>
+                <span>Exclusion Windows</span>
+            </button>
+        </div>
+        
+        <div class="timeline-header" id="timeline-header"></div>
+        
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Processing data...</p>
+        </div>
+        
+        <div class="contacts-container" id="contacts-container">
+            <div class="no-data" id="no-data">
+                <p>Loading timeline data...</p>
+            </div>
+        </div>
+        
+        <div class="tooltip" id="tooltip"></div>
+        
+        <div class="actions">
+            <a href="/export/csv/{{ session_id }}" class="action-btn">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                Export CSV
+            </a>
+        </div>
+    </div>
+
+    <script>
+        // Constants
+        const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+        const MONTH_NAMES_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        
+        // State
+        let timelineData = {{ timeline_data|safe }};
+        let startDate = new Date();
+        startDate.setDate(1);
+        startDate.setMonth(startDate.getMonth() - 1);
+        
+        let endDate = new Date(startDate);
+        endDate.setFullYear(endDate.getFullYear() + 1);
+        
+        let zoomLevel = 2; // days per pixel
+        
+        let filters = {
+            birthday: true,
+            effective_date: true,
+            aep: true,
+            post_window: true,
+            rule_window: true,
+            exclusion: true
+        };
+        
+        // DOM Elements
+        const timelineHeader = document.getElementById('timeline-header');
+        const contactsContainer = document.getElementById('contacts-container');
+        const tooltip = document.getElementById('tooltip');
+        const noData = document.getElementById('no-data');
+        const loading = document.getElementById('loading');
+        const zoomSelect = document.getElementById('zoom-level');
+        const filtersContainer = document.getElementById('filters');
+        
+        // Event Listeners
+        zoomSelect.addEventListener('change', (e) => {
+            zoomLevel = parseFloat(e.target.value);
+            renderTimeline();
+        });
+        
+        filtersContainer.addEventListener('click', (e) => {
+            const button = e.target.closest('.filter-btn');
+            if (button) {
+                const type = button.dataset.type;
+                filters[type] = !filters[type];
+                button.classList.toggle('active');
+                updateVisibility();
+            }
+        });
+        
+        document.addEventListener('mousemove', (e) => {
+            if (tooltip.style.opacity !== '0') {
+                tooltip.style.left = (e.pageX + 10) + 'px';
+                tooltip.style.top = (e.pageY + 10) + 'px';
+            }
+        });
+        
+        // Functions
+        function parseDate(dateString) {
+            if (!dateString || dateString.trim() === '') return null;
+            
+            // Try standard ISO format
+            const date = new Date(dateString);
+            if (!isNaN(date.getTime())) return date;
+            
+            // Try MM/DD/YYYY format
+            const parts = dateString.split(/[\/\-]/);
+            if (parts.length === 3) {
+                // Check if month is first (MM/DD/YYYY)
+                if (parseInt(parts[0]) <= 12) {
+                    return new Date(parseInt(parts[2]), parseInt(parts[0]) - 1, parseInt(parts[1]));
+                }
+                // Check if year is first (YYYY/MM/DD)
+                else if (parseInt(parts[0]) > 31) {
+                    return new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+                }
+            }
+            
+            console.warn(`Could not parse date: ${dateString}`);
+            return null;
+        }
+        
+        function updateDateRange() {
+            if (timelineData.length === 0) return;
+            
+            // Find earliest and latest dates in the data
+            let earliestDate = new Date();
+            let latestDate = new Date(0);
+            
+            timelineData.forEach(item => {
+                if (item.date) {
+                    const date = parseDate(item.date);
+                    if (date && date < earliestDate) {
+                        earliestDate = date;
+                    }
+                    if (date && date > latestDate) {
+                        latestDate = date;
+                    }
+                }
+                
+                if (item.end_date) {
+                    const endDate = parseDate(item.end_date);
+                    if (endDate && endDate > latestDate) {
+                        latestDate = endDate;
+                    }
+                }
+            });
+            
+            // Set start date to beginning of month of earliest date
+            startDate = new Date(earliestDate);
+            startDate.setDate(1);
+            startDate.setMonth(startDate.getMonth() - 1);
+            
+            // Set end date to end of month of latest date
+            endDate = new Date(latestDate);
+            endDate.setMonth(endDate.getMonth() + 2, 0);
+        }
+        
+        function renderTimeline() {
+            // Show loading
+            loading.style.display = 'block';
+            noData.style.display = 'none';
+            
+            // Update date range based on data
+            updateDateRange();
+            
+            // Clear containers
+            timelineHeader.innerHTML = '';
+            contactsContainer.innerHTML = '';
+            
+            if (timelineData.length === 0) {
+                noData.style.display = 'block';
+                loading.style.display = 'none';
+                return;
+            }
+            
+            // Render timeline header
+            renderTimelineHeader();
+            
+            // Group data by contact
+            const contactsMap = groupByContact(timelineData);
+            
+            // Render contact timelines
+            Object.values(contactsMap).forEach(contact => {
+                renderContactTimeline(contact);
+            });
+            
+            // Update visibility based on filters
+            updateVisibility();
+            
+            // Hide loading
+            loading.style.display = 'none';
+        }
+        
+        function renderTimelineHeader() {
+            const totalDays = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24));
+            const totalWidth = Math.ceil(totalDays / zoomLevel);
+            
+            // Create months axis
+            const timelineAxis = document.createElement('div');
+            timelineAxis.className = 'timeline-axis';
+            timelineAxis.style.width = totalWidth + 'px';
+            
+            // Add months
+            let currentDate = new Date(startDate);
+            while (currentDate < endDate) {
+                const monthStart = new Date(currentDate);
+                
+                currentDate.setMonth(currentDate.getMonth() + 1);
+                
+                const daysInMonth = Math.floor((currentDate - monthStart) / (1000 * 60 * 60 * 24));
+                const monthWidth = Math.ceil(daysInMonth / zoomLevel);
+                
+                const month = document.createElement('div');
+                month.className = 'month';
+                month.textContent = MONTH_NAMES_SHORT[monthStart.getMonth()];
+                month.style.width = monthWidth + 'px';
+                
+                timelineAxis.appendChild(month);
+            }
+            
+            // Create ruler
+            const timelineRuler = document.createElement('div');
+            timelineRuler.className = 'timeline-ruler';
+            timelineRuler.style.width = totalWidth + 'px';
+            
+            // Add ticks for days
+            currentDate = new Date(startDate);
+            let position = 0;
+            
+            while (currentDate <= endDate) {
+                if (currentDate.getDate() % 5 === 1 || currentDate.getDate() === 1) {
+                    const tick = document.createElement('div');
+                    tick.className = `tick ${currentDate.getDate() === 1 ? 'first-of-month' : ''}`;
+                    tick.style.left = position + 'px';
+                    
+                    if (currentDate.getDate() === 1 || (zoomLevel <= 1 && currentDate.getDate() % 5 === 1)) {
+                        const dateLabel = document.createElement('div');
+                        dateLabel.className = 'date-label';
+                        dateLabel.textContent = currentDate.getDate() === 1 
+                            ? `${MONTH_NAMES_SHORT[currentDate.getMonth()]} 1` 
+                            : currentDate.getDate();
+                        dateLabel.style.left = position + 'px';
+                        timelineRuler.appendChild(dateLabel);
+                    }
+                    
+                    timelineRuler.appendChild(tick);
+                }
+                
+                currentDate.setDate(currentDate.getDate() + 1);
+                position = Math.ceil((currentDate - startDate) / (1000 * 60 * 60 * 24) / zoomLevel);
+            }
+            
+            timelineHeader.appendChild(timelineAxis);
+            timelineHeader.appendChild(timelineRuler);
+        }
+        
+        function groupByContact(data) {
+            const contacts = {};
+            
+            data.forEach(item => {
+                const contactId = item.contact_id;
+                
+                if (!contacts[contactId]) {
+                    contacts[contactId] = {
+                        org_id: item.org_id,
+                        contact_id: contactId,
+                        first_name: item.first_name,
+                        last_name: item.last_name,
+                        email: item.email,
+                        state: item.state,
+                        birth_date: item.birth_date,
+                        effective_date: item.effective_date,
+                        items: []
+                    };
+                }
+                
+                contacts[contactId].items.push(item);
+            });
+            
+            return contacts;
+        }
+        
+        function renderContactTimeline(contact) {
+            const contactTimeline = document.createElement('div');
+            contactTimeline.className = 'contact-timeline';
+            contactTimeline.dataset.contactId = contact.contact_id;
+            
+            // Create contact header
+            const contactHeader = document.createElement('div');
+            contactHeader.className = 'contact-header';
+            
+            const contactInfo = document.createElement('div');
+            contactInfo.className = 'contact-info';
+            
+            const contactName = document.createElement('h3');
+            contactName.textContent = `${contact.first_name} ${contact.last_name}`;
+            
+            const contactDetails = document.createElement('div');
+            contactDetails.className = 'contact-details';
+            
+            // Email
+            const emailDetail = document.createElement('div');
+            emailDetail.className = 'detail';
+            emailDetail.innerHTML = `
+                <svg class="detail-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+                    <polyline points="22,6 12,13 2,6"></polyline>
+                </svg>
+                <span>${contact.email}</span>
+            `;
+            
+            // State
+            const stateDetail = document.createElement('div');
+            stateDetail.className = 'detail';
+            stateDetail.innerHTML = `
+                <svg class="detail-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                    <circle cx="12" cy="10" r="3"></circle>
+                </svg>
+                <span>${contact.state}</span>
+            `;
+            
+            // Contact ID
+            const idDetail = document.createElement('div');
+            idDetail.className = 'detail';
+            idDetail.innerHTML = `
+                <svg class="detail-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="12" cy="7" r="4"></circle>
+                </svg>
+                <span>ID: ${contact.contact_id}</span>
+            `;
+            
+            contactDetails.appendChild(emailDetail);
+            contactDetails.appendChild(stateDetail);
+            contactDetails.appendChild(idDetail);
+            
+            contactInfo.appendChild(contactName);
+            contactInfo.appendChild(contactDetails);
+            
+            // Create quote button
+            const quoteBtn = document.createElement('button');
+            quoteBtn.className = 'view-quote-btn';
+            quoteBtn.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <path d="M16 12l-4 4-4-4M12 8v7"></path>
+                </svg>
+                View Quote
+            `;
+            
+            // Find first email with a link
+            const firstItemWithLink = contact.items.find(item => item.link && item.link.trim() !== '');
+            const quoteLink = firstItemWithLink ? firstItemWithLink.link : `https://example.com/quote/${contact.org_id}/${contact.contact_id}`;
+            
+            quoteBtn.addEventListener('click', () => {
+                window.open(quoteLink, '_blank');
+            });
+            
+            contactHeader.appendChild(contactInfo);
+            contactHeader.appendChild(quoteBtn);
+            
+            contactTimeline.appendChild(contactHeader);
+            
+            // Create timeline lanes
+            const timelineLanes = document.createElement('div');
+            timelineLanes.className = 'timeline-lanes';
+            
+            // Create lanes for email types
+            const laneTypes = ['birthday', 'effective_date', 'aep', 'post_window'];
+            
+            laneTypes.forEach(type => {
+                const lane = createLane(type, contact);
+                timelineLanes.appendChild(lane);
+            });
+            
+            contactTimeline.appendChild(timelineLanes);
+            contactsContainer.appendChild(contactTimeline);
+        }
+        
+        function createLane(type, contact) {
+            const lane = document.createElement('div');
+            lane.className = 'lane';
+            lane.dataset.type = type;
+            
+            const laneLabel = document.createElement('div');
+            laneLabel.className = 'lane-label';
+            laneLabel.textContent = formatLaneLabel(type);
+            
+            const laneTrack = document.createElement('div');
+            laneTrack.className = 'lane-track';
+            
+            // Calculate total width
+            const totalDays = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24));
+            const totalWidth = Math.ceil(totalDays / zoomLevel);
+            laneTrack.style.width = totalWidth + 'px';
+            
+            // Add exclusion windows
+            const exclusionItems = contact.items.filter(item => 
+                item.item_type === 'exclusion' && 
+                item.date && 
+                item.end_date
+            );
+            
+            exclusionItems.forEach(item => {
+                const startDateObj = parseDate(item.date);
+                const endDateObj = parseDate(item.end_date);
+                
+                if (startDateObj && endDateObj) {
+                    const exclusion = document.createElement('div');
+                    exclusion.className = 'exclusion-window';
+                    exclusion.dataset.type = 'exclusion';
+                    
+                    const position = getPositionFromDate(startDateObj);
+                    const width = getWidthBetweenDates(startDateObj, endDateObj);
+                    
+                    exclusion.style.left = position + 'px';
+                    exclusion.style.width = width + 'px';
+                    
+                    exclusion.addEventListener('mouseenter', () => {
+                        showTooltip({
+                            title: 'Exclusion Window',
+                            date: formatDate(startDateObj),
+                            end_date: formatDate(endDateObj),
+                            description: item.description
+                        });
+                    });
+                    
+                    exclusion.addEventListener('mouseleave', hideTooltip);
+                    
+                    laneTrack.appendChild(exclusion);
+                }
+            });
+            
+            // Add rule windows
+            const ruleWindowItems = contact.items.filter(item => 
+                item.item_type === 'rule_window' && 
+                item.date && 
+                item.end_date
+            );
+            
+            ruleWindowItems.forEach(item => {
+                const startDateObj = parseDate(item.date);
+                const endDateObj = parseDate(item.end_date);
+                
+                if (startDateObj && endDateObj) {
+                    const ruleWindow = document.createElement('div');
+                    ruleWindow.className = 'rule-window';
+                    ruleWindow.dataset.type = 'rule_window';
+                    
+                    const position = getPositionFromDate(startDateObj);
+                    const width = getWidthBetweenDates(startDateObj, endDateObj);
+                    
+                    ruleWindow.style.left = position + 'px';
+                    ruleWindow.style.width = width + 'px';
+                    
+                    ruleWindow.addEventListener('mouseenter', () => {
+                        showTooltip({
+                            title: 'Rule Window',
+                            date: formatDate(startDateObj),
+                            end_date: formatDate(endDateObj),
+                            description: item.description
+                        });
+                    });
+                    
+                    ruleWindow.addEventListener('mouseleave', hideTooltip);
+                    
+                    laneTrack.appendChild(ruleWindow);
+                }
+            });
+            
+            // Add email items
+            const emailItems = contact.items.filter(item => 
+                item.item_type === type && 
+                item.date
+            );
+            
+            emailItems.forEach(item => {
+                const dateObj = parseDate(item.date);
+                
+                if (dateObj) {
+                    const timelineItem = document.createElement('div');
+                    timelineItem.className = `timeline-item ${type}`;
+                    timelineItem.dataset.type = type;
+                    
+                    if (item.skipped === 'Yes') {
+                        timelineItem.classList.add('skipped');
+                    }
+                    
+                    const position = getPositionFromDate(dateObj);
+                    timelineItem.style.left = position + 'px';
+                    
+                    timelineItem.textContent = formatDate(dateObj, true);
+                    
+                    timelineItem.addEventListener('mouseenter', () => {
+                        showTooltip({
+                            title: `${formatLaneLabel(type)} Email${item.skipped === 'Yes' ? ' (Skipped)' : ''}`,
+                            date: formatDate(dateObj),
+                            reason: item.reason,
+                            description: item.description
+                        });
+                    });
+                    
+                    timelineItem.addEventListener('mouseleave', hideTooltip);
+                    
+                    laneTrack.appendChild(timelineItem);
+                }
+            });
+            
+            lane.appendChild(laneLabel);
+            lane.appendChild(laneTrack);
+            
+            return lane;
+        }
+        
+        function getPositionFromDate(date) {
+            const daysSinceStart = Math.ceil((date - startDate) / (1000 * 60 * 60 * 24));
+            return Math.floor(daysSinceStart / zoomLevel);
+        }
+        
+        function getWidthBetweenDates(startDate, endDate) {
+            const daysDiff = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24));
+            return Math.max(Math.floor(daysDiff / zoomLevel), 1);
+        }
+        
+        function formatLaneLabel(type) {
+            switch (type) {
+                case 'birthday': return 'Birthday';
+                case 'effective_date': return 'Effective Date';
+                case 'aep': return 'AEP';
+                case 'post_window': return 'Post Window';
+                default: return type.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+            }
+        }
+        
+        function formatDate(date, short = false) {
+            if (!date) return '';
+            
+            if (short) {
+                return `${MONTH_NAMES_SHORT[date.getMonth()]} ${date.getDate()}`;
+            }
+            
+            return `${MONTH_NAMES[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+        }
+        
+        function showTooltip(data) {
+            tooltip.innerHTML = `
+                <div class="tooltip-header">${data.title}</div>
+                <div class="tooltip-content">
+                    <div class="tooltip-row">
+                        <div class="tooltip-label">Date:</div>
+                        <div class="tooltip-value">${data.date}</div>
+                    </div>
+                    ${data.end_date ? `
+                    <div class="tooltip-row">
+                        <div class="tooltip-label">End Date:</div>
+                        <div class="tooltip-value">${data.end_date}</div>
+                    </div>
+                    ` : ''}
+                    ${data.reason ? `
+                    <div class="tooltip-row">
+                        <div class="tooltip-label">Reason:</div>
+                        <div class="tooltip-value">${data.reason}</div>
+                    </div>
+                    ` : ''}
+                    ${data.description ? `
+                    <div class="tooltip-row">
+                        <div class="tooltip-label">Details:</div>
+                        <div class="tooltip-value">${data.description}</div>
+                    </div>
+                    ` : ''}
+                </div>
+            `;
+            
+            tooltip.style.opacity = '1';
+        }
+        
+        function hideTooltip() {
+            tooltip.style.opacity = '0';
+        }
+        
+        function updateVisibility() {
+            // Update visibility based on filters
+            for (const type in filters) {
+                const visible = filters[type];
+                
+                // Update items
+                document.querySelectorAll(`[data-type="${type}"]`).forEach(el => {
+                    el.style.display = visible ? '' : 'none';
+                });
+            }
+        }
+        
+        // Initialize
+        function init() {
+            // Set initial zoom level
+            zoomSelect.value = zoomLevel.toString();
+            
+            // Add an event listener for escape key to hide tooltip
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                    hideTooltip();
+                }
+            });
+            
+            // Render timeline
+            renderTimeline();
+        }
+        
+        // Start the application
+        init();
+    </script>
+</body>
+</html>
