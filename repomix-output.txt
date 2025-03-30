@@ -36,7 +36,7 @@ Notes:
 ------
 - Some files may have been excluded based on .gitignore rules and Repomix's configuration
 - Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
-- Only files matching these patterns are included: **/*.py, **/*.sh, **/*.md
+- Only files matching these patterns are included: **/*.py
 - Files matching patterns in .gitignore are excluded
 - Files matching default ignore patterns are excluded
 
@@ -47,15 +47,10 @@ Additional Info:
 Directory Structure
 ================================================================
 app.py
-CLAUDE.md
 contact_rule_engine.py
-dump_and_convert.sh
 email_scheduler_common.py
 email_scheduler_optimized.py
 email_template_engine.py
-README.md
-run_scheduler_and_send.sh
-run_with_uv.sh
 schedule_org_emails.py
 send_scheduled_emails.py
 sendgrid_client.py
@@ -714,6 +709,10 @@ async def check_schedules(
         main_db = "main.db"
         org_db_dir = "org_dbs"
 
+        # Set date range
+        current_date = date.today()
+        end_date = date(current_date.year + 2, current_date.month, current_date.day)
+
         await refresh_databases(org_id)
         
         # Get organization details
@@ -761,10 +760,6 @@ async def check_schedules(
                     "error": "No valid contacts found for scheduling"
                 }
             )
-        
-        # Set date range
-        current_date = date.today()
-        end_date = date(current_date.year + 2, current_date.month, current_date.day)
         
         # Process contacts
         try:
@@ -876,6 +871,39 @@ async def check_schedules(
                         }
                     }
                     
+                    # Get birth_date and effective_date
+                    birth_date = row.get('birth_date')
+                    effective_date = row.get('effective_date')
+                    
+                    # Calculate birthdays and effective dates in range
+                    birthdays = []
+                    effective_dates = []
+                    if birth_date:
+                        birthdays = get_all_occurrences(pd.to_datetime(birth_date).date(), current_date, end_date)
+                    if effective_date:
+                        effective_dates = get_all_occurrences(pd.to_datetime(effective_date).date(), current_date, end_date)
+                    
+                    # Initialize timeline data
+                    timeline_data = []
+                    
+                    # Add birthdays to timeline
+                    for birthday in birthdays:
+                        timeline_data.append({
+                            "start": birthday.isoformat(),
+                            "type": "point",
+                            "className": "date-birthday",
+                            "content": "Birthday"
+                        })
+                    
+                    # Add effective dates to timeline
+                    for eff_date in effective_dates:
+                        timeline_data.append({
+                            "start": eff_date.isoformat(),
+                            "type": "point",
+                            "className": "date-effective",
+                            "content": "Effective Date"
+                        })
+                    
                     contacts_data[contact_id] = {
                         'contact_info': {
                             'id': contact_id,
@@ -883,8 +911,8 @@ async def check_schedules(
                             'email': row['email'],
                             'state': state_code,
                             'state_info': state_info,
-                            'birth_date': row['birth_date'],
-                            'effective_date': row['effective_date']
+                            'birth_date': birth_date,
+                            'effective_date': effective_date
                         },
                         'scheduled_emails': {
                             'birthday': [],
@@ -894,7 +922,8 @@ async def check_schedules(
                         },
                         'skipped_emails': [],
                         'scheduling_rules': [],
-                        'emails': []  # Keep for backwards compatibility with the template
+                        'emails': [],  # Keep for backwards compatibility with the template
+                        'timeline_data': timeline_data  # Add timeline data
                     }
                     
                     # Add applicable scheduling rules based on state
@@ -924,6 +953,15 @@ async def check_schedules(
                 # Add to the emails list for backwards compatibility
                 contacts_data[contact_id]['emails'].append(email_info)
                 
+                # Add to timeline data if not skipped
+                if row['skipped'] != 'Yes':
+                    contacts_data[contact_id]['timeline_data'].append({
+                        "start": str(row['email_date']),
+                        "type": "point",
+                        "className": f"email-{row['email_type'].lower().replace('_', '-')}",
+                        "content": f"{row['email_type'].replace('_', ' ').title()} Email"
+                    })
+                
                 # Also add to the structured format
                 if row['skipped'] != 'Yes':
                     email_type = row['email_type'].lower()
@@ -938,6 +976,38 @@ async def check_schedules(
                         'type': row['email_type'],
                         'reason': row['reason']
                     })
+                
+                # Add exclusion periods if not a year-round enrollment state
+                if not state_info['has_year_round_enrollment']:
+                    # Calculate rule windows and exclusion periods
+                    contact_data = {
+                        'id': contact_id,
+                        'birth_date': pd.to_datetime(birth_date).date() if birth_date else None,
+                        'effective_date': pd.to_datetime(effective_date).date() if effective_date else None,
+                        'state': state_code
+                    }
+                    
+                    # Calculate birthdays and effective dates
+                    birthdays = []
+                    effective_dates = []
+                    if birth_date:
+                        birthdays = get_all_occurrences(pd.to_datetime(birth_date).date(), current_date, end_date)
+                    if effective_date:
+                        effective_dates = get_all_occurrences(pd.to_datetime(effective_date).date(), current_date, end_date)
+                    
+                    # Calculate rule windows and exclusion periods
+                    rule_windows = calculate_rule_windows(contact_data, birthdays, effective_dates, current_date, end_date)
+                    exclusion_periods = calculate_exclusion_periods(rule_windows, current_date, end_date)
+                    
+                    # Add exclusion periods to timeline data
+                    for period in exclusion_periods:
+                        contacts_data[contact_id]['timeline_data'].append({
+                            "start": period.start.isoformat(),
+                            "end": period.end_date.isoformat(),
+                            "type": "range",
+                            "className": "exclusion",
+                            "content": "Exclusion Period"
+                        })
                 
         except Exception as e:
             import traceback
@@ -964,7 +1034,9 @@ async def check_schedules(
                 "special_rules_only": special_rules_only,
                 "all_states": ALL_STATES,
                 "special_rule_states": SPECIAL_RULE_STATES,
-                "contact_search": contact_search if contact_search else ""
+                "contact_search": contact_search if contact_search else "",
+                "current_date": current_date.isoformat(),
+                "end_date": end_date.isoformat()
             }
         )
         
@@ -988,41 +1060,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     uvicorn.run(app, host="0.0.0.0", port=args.port)
-
-================
-File: CLAUDE.md
-================
-# CLAUDE.md - Email Scheduler Project Guidelines
-
-## Build and Test Commands
-- Run scheduler: `./run_with_uv.sh email_scheduler_optimized.py --input input.json --output output.json [--async] [--start-date YYYY-MM-DD]`
-- Full pipeline: `./run_scheduler_and_send.sh --input contacts.json --output scheduled_emails.json [--async] [--live]`
-- Run tests: `uv run python -m unittest test_file.py`
-- Run with verbose output: `uv run python -m unittest test_file.py -v`
-- Validate templates: `uv run python email_template_engine.py --validate`
-
-## Code Style Guidelines
-- **Imports**: Standard lib first, third-party next, sort alphabetically within groups
-- **Types**: Use `from typing import Dict, List, Optional` consistently
-- **Naming**: `UPPER_SNAKE` constants, `snake_case` variables/functions, `PascalCase` classes
-- **Error Handling**: Use specific exceptions, log with context, recover gracefully 
-- **Formatting**: 4-space indentation, blank lines between logical sections
-- **Documentation**: Docstrings for functions, comment complex logic
-- **Async**: Use `async/await` consistently, handle exceptions properly
-
-## Code Organization
-- `email_scheduler_optimized.py`: Main implementation (both sync/async)
-- `contact_rule_engine.py`: Rule processing for contact-specific rules
-- `email_template_engine.py`: Template generation system
-- `send_scheduled_emails.py`: SendGrid integration for email delivery
-- `app.py`: Web interface for system management
-
-## Email Rules
-- Birthday emails: 14 days before birthday
-- Effective date emails: 30 days before effective date
-- AEP emails: Distributed across August/September weeks
-- Post-window emails: Follow state-specific rules
-- Special rules for leap years and state-specific timing
 
 ================
 File: contact_rule_engine.py
@@ -1140,150 +1177,6 @@ class ContactRuleEngine:
         """Get special rules for a state"""
         state_rules = self.get_state_rules(state)
         return state_rules.get('special_rules', {})
-
-================
-File: dump_and_convert.sh
-================
-#!/bin/bash
-
-# Ensure necessary directories exist
-mkdir -p dumps
-mkdir -p org_dbs
-mkdir -p output_dir
-
-# Load environment variables
-source .env
-
-# Colors for better readability
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-NC='\033[0m' # No Color
-
-# Check if org ID was provided
-if [ $# -eq 1 ]; then
-    TARGET_ORG_ID=$1
-    echo -e "${YELLOW}Processing only organization ID: ${TARGET_ORG_ID}${NC}"
-fi
-
-echo -e "${YELLOW}Starting database dump and conversion process...${NC}"
-
-# Function to normalize database URL
-normalize_url() {
-    local url=$1
-    # Remove libsql:// or https:// prefix
-    url=${url#libsql://}
-    url=${url#https://}
-    echo "$url"
-}
-
-# Function to dump a Turso database
-dump_turso_db() {
-    local url=$1
-    local token=$2
-    local output_file=$3
-    
-    echo -e "${YELLOW}Dumping database from ${url} to ${output_file}...${NC}"
-    
-    # Normalize the URL
-    local base_url=$(normalize_url "$url")
-    
-    # Use curl to get the dump
-    if curl -s -X GET "https://${base_url}/dump" \
-         -H "Authorization: Bearer ${token}" \
-         -o "${output_file}"; then
-        echo -e "${GREEN}Successfully dumped database to ${output_file}${NC}"
-        return 0
-    else
-        echo -e "${RED}Failed to dump database from ${url}${NC}"
-        return 1
-    fi
-}
-
-# Function to convert a SQL dump to SQLite
-convert_to_sqlite() {
-    local dump_file=$1
-    local sqlite_file=$2
-    
-    echo -e "${YELLOW}Converting ${dump_file} to SQLite database ${sqlite_file}...${NC}"
-    
-    # Remove any existing database file
-    rm -f "${sqlite_file}"
-    
-    # Create SQLite database from dump
-    if sqlite3 "${sqlite_file}" < "${dump_file}"; then
-        echo -e "${GREEN}Successfully converted to SQLite database: ${sqlite_file}${NC}"
-        return 0
-    else
-        echo -e "${RED}Failed to convert to SQLite database: ${sqlite_file}${NC}"
-        return 1
-    fi
-}
-
-# Function to extract database ID from URL
-extract_db_id() {
-    local url=$1
-    # Extract the org-X part from the URL
-    if [[ $url =~ org-([0-9]+) ]]; then
-        echo "${BASH_REMATCH[1]}"
-    else
-        echo ""
-    fi
-}
-
-# Step 1: Dump the medicare-portal database
-MEDICARE_PORTAL_DUMP="dumps/medicare-portal.sql"
-dump_turso_db "${TURSO_PY_DB_URL}" "${TURSO_PY_AUTH_TOKEN}" "${MEDICARE_PORTAL_DUMP}"
-
-# Step 2: Convert the medicare-portal dump to SQLite
-convert_to_sqlite "${MEDICARE_PORTAL_DUMP}" "main.db"
-
-# Step 3: Get organization database URLs and tokens
-echo -e "${YELLOW}Extracting organization database URLs and tokens...${NC}"
-if [ -n "$TARGET_ORG_ID" ]; then
-    ORG_DATA=$(sqlite3 main.db "SELECT id, name, turso_db_url, turso_auth_token FROM organizations WHERE turso_db_url IS NOT NULL AND id = ${TARGET_ORG_ID};")
-else
-    ORG_DATA=$(sqlite3 main.db "SELECT id, name, turso_db_url, turso_auth_token FROM organizations WHERE turso_db_url IS NOT NULL;")
-fi
-
-# Step 4: Dump each organization database and convert to SQLite
-echo -e "${YELLOW}Processing organization databases...${NC}"
-echo "${ORG_DATA}" | while IFS='|' read -r org_id name url token; do
-    # Skip if any field is empty
-    if [[ -z "$org_id" || -z "$url" || -z "$token" ]]; then
-        continue
-    fi
-    
-    # Extract the actual database ID from the URL
-    db_id=$(extract_db_id "$url")
-    if [[ -z "$db_id" ]]; then
-        echo -e "${RED}Could not extract database ID from URL: ${url}${NC}"
-        continue
-    fi
-    
-    # Clean up name for filename (remove spaces and special characters)
-    clean_name=$(echo "${name}" | tr ' ' '_' | tr -cd '[:alnum:]_-')
-    
-    # Dump the organization database using the URL's database ID
-    ORG_DUMP="dumps/org-${db_id}-${clean_name}.sql"
-    dump_turso_db "${url}" "${token}" "${ORG_DUMP}"
-    
-    # Convert to SQLite using the organization's actual ID from the database
-    ORG_DB="org_dbs/org-${org_id}.db"
-    convert_to_sqlite "${ORG_DUMP}" "${ORG_DB}"
-    
-    echo -e "${GREEN}Processed organization ${org_id} (${name}) using database ${db_id}${NC}"
-done
-
-echo -e "${GREEN}All databases have been dumped and converted!${NC}"
-echo -e "${YELLOW}Summary:${NC}"
-echo -e "- Medicare Portal database: main.db"
-if [ -n "$TARGET_ORG_ID" ]; then
-    echo -e "- Organization database: org_dbs/org-${TARGET_ORG_ID}.db"
-else
-    echo -e "- Organization databases: org_dbs/org-*.db"
-fi
-rm -rf dumps
 
 ================
 File: email_scheduler_common.py
@@ -3130,255 +3023,6 @@ class EmailTemplateEngine:
                 success = False
         
         return success
-
-================
-File: README.md
-================
-# Email Scheduler
-
-A FastAPI web application for scheduling and checking Medicare-related emails based on complex business rules.
-
-## Features
-
-- Web interface for checking email schedules for an organization's contacts
-- Sample contacts based on state and special rule criteria
-- Support for state-specific email rules (birthday rules, effective date rules, etc.)
-- Detailed display of scheduled emails with timing information
-- Integration with existing email scheduling backend
-
-## Technical Stack
-
-- FastAPI for the web backend
-- Jinja2 for templating
-- SQLite for data storage
-- Async processing for handling large contact datasets
-- Bootstrap for the frontend interface
-
-## Setup
-
-1. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-2. Run the application:
-   ```bash
-   uvicorn app:app --host 0.0.0.0 --port 8000
-   ```
-
-## Usage
-
-1. Enter an organization ID on the home page
-2. Select sample size and optional state filter
-3. View the scheduled emails for a random sample of contacts
-4. Resample to see different contacts from the organization
-
-## State-Specific Rules
-
-The application handles special Medicare rules for various states:
-- Birthday rule states (CA, ID, IL, KY, LA, MD, NV, OK, OR)
-- Effective date rule states (MO)
-- Year-round enrollment states
-
-================
-File: run_scheduler_and_send.sh
-================
-#!/bin/bash
-
-# run_scheduler_and_send.sh - Run the email scheduler and send emails
-#
-# This script runs the optimized email scheduler and then sends the resulting emails
-# using SendGrid. It supports both dry-run and live modes.
-
-set -e  # Exit on error
-
-# Default values
-INPUT_FILE="./temp_test/contacts.json"
-OUTPUT_FILE="./output_dir/scheduled_emails.json"
-START_DATE=$(date +%Y-%m-%d)
-END_DATE=$(date -v+365d +%Y-%m-%d 2>/dev/null || date --date="+365 days" +%Y-%m-%d 2>/dev/null || date -d "+365 days" +%Y-%m-%d)
-ASYNC="false"
-LIVE="false"
-MAX_EMAILS=0
-DELAY=0.5  # Default delay between emails in seconds
-
-# Parse command line arguments
-while [[ $# -gt 0 ]]; do
-  case $1 in
-    --input)
-      INPUT_FILE="$2"
-      shift 2
-      ;;
-    --output)
-      OUTPUT_FILE="$2"
-      shift 2
-      ;;
-    --start-date)
-      START_DATE="$2"
-      shift 2
-      ;;
-    --end-date)
-      END_DATE="$2"
-      shift 2
-      ;;
-    --async)
-      ASYNC="true"
-      shift
-      ;;
-    --live)
-      LIVE="true"
-      shift
-      ;;
-    --max-emails)
-      MAX_EMAILS="$2"
-      shift 2
-      ;;
-    --delay)
-      DELAY="$2"
-      shift 2
-      ;;
-    --help)
-      echo "Usage: $0 [options]"
-      echo "Options:"
-      echo "  --input FILE       Input JSON file with contacts (default: $INPUT_FILE)"
-      echo "  --output FILE      Output JSON file for scheduled emails (default: $OUTPUT_FILE)"
-      echo "  --start-date DATE  Start date for scheduling (YYYY-MM-DD, default: today)"
-      echo "  --end-date DATE    End date for scheduling (YYYY-MM-DD, default: today + 365 days)"
-      echo "  --async            Use asynchronous processing (default: false)"
-      echo "  --live             Send actual emails (default: dry-run mode)"
-      echo "  --max-emails NUM   Maximum number of emails to send (default: 0 = no limit)"
-      echo "  --delay SEC        Delay between emails in seconds (default: 0.5)"
-      echo "  --help             Show this help message"
-      exit 0
-      ;;
-    *)
-      echo "Unknown option: $1"
-      echo "Use --help for usage information"
-      exit 1
-      ;;
-  esac
-done
-
-# Create output directory if it doesn't exist
-mkdir -p "$(dirname "$OUTPUT_FILE")"
-
-# Ensure UV is available
-if ! command -v uv &> /dev/null; then
-    echo "UV is not installed or not in PATH. Please install it first."
-    exit 1
-fi
-
-# Print configuration
-echo "Email Scheduler Pipeline"
-echo "======================="
-echo "Input file:     $INPUT_FILE"
-echo "Output file:    $OUTPUT_FILE"
-echo "Date range:     $START_DATE to $END_DATE"
-echo "Async mode:     $ASYNC"
-echo "Live mode:      $LIVE"
-echo "Max emails:     $MAX_EMAILS"
-echo "Email delay:    $DELAY seconds"
-echo ""
-
-# Step 1: Run the scheduler
-echo "Step 1: Running email scheduler..."
-if [ "$ASYNC" == "true" ]; then
-    # Run with async mode
-    ./run_with_uv.sh email_scheduler_optimized.py --input "$INPUT_FILE" --output "$OUTPUT_FILE" --start-date "$START_DATE" --end-date "$END_DATE" --async
-else
-    # Run in sync mode
-    ./run_with_uv.sh email_scheduler_optimized.py --input "$INPUT_FILE" --output "$OUTPUT_FILE" --start-date "$START_DATE" --end-date "$END_DATE"
-fi
-
-# Check if scheduler was successful
-if [ $? -ne 0 ]; then
-    echo "Error: Email scheduler failed"
-    exit 1
-fi
-
-echo ""
-echo "Step 2: Sending emails..."
-
-# Build command for sending emails
-SEND_CMD="./run_with_uv.sh send_scheduled_emails.py --input \"$OUTPUT_FILE\" --contacts \"$INPUT_FILE\" --start-date \"$START_DATE\" --end-date \"$END_DATE\" --delay \"$DELAY\""
-
-# Add limit if specified
-if [ "$MAX_EMAILS" -gt 0 ]; then
-    SEND_CMD="$SEND_CMD --limit $MAX_EMAILS"
-fi
-
-# Add live mode if specified
-if [ "$LIVE" == "true" ]; then
-    SEND_CMD="$SEND_CMD --live"
-fi
-
-# Run the send command
-eval $SEND_CMD
-
-# Check if sending was successful
-if [ $? -ne 0 ]; then
-    echo "Error: Email sending failed"
-    exit 1
-fi
-
-echo ""
-echo "Pipeline completed successfully"
-
-================
-File: run_with_uv.sh
-================
-#!/bin/bash
-
-# Disable history expansion to prevent issues with ! in arguments
-set +H
-
-# This script is a simple wrapper to run Python scripts with UV
-# Usage: ./run_with_uv.sh [python_options] <script_name.py> [args]
-#   or   ./run_with_uv.sh -c 'python code'  (use single quotes to avoid issues with special characters)
-#   or   ./run_with_uv.sh -m module_name
-
-# Check if at least one argument is provided
-if [ $# -eq 0 ]; then
-    echo "Usage: ./run_with_uv.sh [python_options] <script_name.py> [args]"
-    echo "Examples:"
-    echo "  ./run_with_uv.sh email_scheduler_optimized.py --input data.json --output results.json"
-    echo "  ./run_with_uv.sh -c 'import sys; print(sys.version)'  # Note: Use single quotes for -c option"
-    echo "  ./run_with_uv.sh -m unittest discover"
-    exit 1
-fi
-
-# Special handling for -c option to work around history expansion issues
-if [ "$1" = "-c" ]; then
-    # Create a temporary file for the Python code
-    TEMP_FILE=$(mktemp)
-    # Write the Python code to the file, without shell expansion
-    printf "%s\n" "$2" > "$TEMP_FILE"
-    echo "Running Python code with UV..."
-    uv run python -c "$(cat "$TEMP_FILE")"
-    exit_code=$?
-    # Clean up temp file
-    rm -f "$TEMP_FILE"
-elif [[ "$1" == "-m" || "$1" == "-V" || "$1" == "--version" ]]; then
-    # Other Python interpreter options
-    echo "Running Python with UV using option $1..."
-    uv run python "$@"
-    exit_code=$?
-else
-    # This is likely a script filename
-    SCRIPT="$1"
-    shift  # Remove the first argument
-    
-    echo "Running $SCRIPT with UV..."
-    uv run python "$SCRIPT" "$@"
-    exit_code=$?
-fi
-
-# Check if the script executed successfully
-if [ $exit_code -eq 0 ]; then
-    echo "Script executed successfully."
-else
-    echo "Script failed with exit code $exit_code."
-fi
 
 ================
 File: schedule_org_emails.py

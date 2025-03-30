@@ -644,6 +644,10 @@ async def check_schedules(
         main_db = "main.db"
         org_db_dir = "org_dbs"
 
+        # Set date range
+        current_date = date.today()
+        end_date = date(current_date.year + 2, current_date.month, current_date.day)
+
         await refresh_databases(org_id)
         
         # Get organization details
@@ -691,10 +695,6 @@ async def check_schedules(
                     "error": "No valid contacts found for scheduling"
                 }
             )
-        
-        # Set date range
-        current_date = date.today()
-        end_date = date(current_date.year + 2, current_date.month, current_date.day)
         
         # Process contacts
         try:
@@ -806,6 +806,39 @@ async def check_schedules(
                         }
                     }
                     
+                    # Get birth_date and effective_date
+                    birth_date = row.get('birth_date')
+                    effective_date = row.get('effective_date')
+                    
+                    # Calculate birthdays and effective dates in range
+                    birthdays = []
+                    effective_dates = []
+                    if birth_date:
+                        birthdays = get_all_occurrences(pd.to_datetime(birth_date).date(), current_date, end_date)
+                    if effective_date:
+                        effective_dates = get_all_occurrences(pd.to_datetime(effective_date).date(), current_date, end_date)
+                    
+                    # Initialize timeline data
+                    timeline_data = []
+                    
+                    # Add birthdays to timeline
+                    for birthday in birthdays:
+                        timeline_data.append({
+                            "start": birthday.isoformat(),
+                            "type": "point",
+                            "className": "date-birthday",
+                            "content": "Birthday"
+                        })
+                    
+                    # Add effective dates to timeline
+                    for eff_date in effective_dates:
+                        timeline_data.append({
+                            "start": eff_date.isoformat(),
+                            "type": "point",
+                            "className": "date-effective",
+                            "content": "Effective Date"
+                        })
+                    
                     contacts_data[contact_id] = {
                         'contact_info': {
                             'id': contact_id,
@@ -813,8 +846,8 @@ async def check_schedules(
                             'email': row['email'],
                             'state': state_code,
                             'state_info': state_info,
-                            'birth_date': row['birth_date'],
-                            'effective_date': row['effective_date']
+                            'birth_date': birth_date,
+                            'effective_date': effective_date
                         },
                         'scheduled_emails': {
                             'birthday': [],
@@ -824,7 +857,8 @@ async def check_schedules(
                         },
                         'skipped_emails': [],
                         'scheduling_rules': [],
-                        'emails': []  # Keep for backwards compatibility with the template
+                        'emails': [],  # Keep for backwards compatibility with the template
+                        'timeline_data': timeline_data  # Add timeline data
                     }
                     
                     # Add applicable scheduling rules based on state
@@ -854,6 +888,15 @@ async def check_schedules(
                 # Add to the emails list for backwards compatibility
                 contacts_data[contact_id]['emails'].append(email_info)
                 
+                # Add to timeline data if not skipped
+                if row['skipped'] != 'Yes':
+                    contacts_data[contact_id]['timeline_data'].append({
+                        "start": str(row['email_date']),
+                        "type": "point",
+                        "className": f"email-{row['email_type'].lower().replace('_', '-')}",
+                        "content": f"{row['email_type'].replace('_', ' ').title()} Email"
+                    })
+                
                 # Also add to the structured format
                 if row['skipped'] != 'Yes':
                     email_type = row['email_type'].lower()
@@ -868,6 +911,38 @@ async def check_schedules(
                         'type': row['email_type'],
                         'reason': row['reason']
                     })
+                
+                # Add exclusion periods if not a year-round enrollment state
+                if not state_info['has_year_round_enrollment']:
+                    # Calculate rule windows and exclusion periods
+                    contact_data = {
+                        'id': contact_id,
+                        'birth_date': pd.to_datetime(birth_date).date() if birth_date else None,
+                        'effective_date': pd.to_datetime(effective_date).date() if effective_date else None,
+                        'state': state_code
+                    }
+                    
+                    # Calculate birthdays and effective dates
+                    birthdays = []
+                    effective_dates = []
+                    if birth_date:
+                        birthdays = get_all_occurrences(pd.to_datetime(birth_date).date(), current_date, end_date)
+                    if effective_date:
+                        effective_dates = get_all_occurrences(pd.to_datetime(effective_date).date(), current_date, end_date)
+                    
+                    # Calculate rule windows and exclusion periods
+                    rule_windows = calculate_rule_windows(contact_data, birthdays, effective_dates, current_date, end_date)
+                    exclusion_periods = calculate_exclusion_periods(rule_windows, current_date, end_date)
+                    
+                    # Add exclusion periods to timeline data
+                    for period in exclusion_periods:
+                        contacts_data[contact_id]['timeline_data'].append({
+                            "start": period.start.isoformat(),
+                            "end": period.end_date.isoformat(),
+                            "type": "range",
+                            "className": "exclusion",
+                            "content": "Exclusion Period"
+                        })
                 
         except Exception as e:
             import traceback
@@ -894,7 +969,9 @@ async def check_schedules(
                 "special_rules_only": special_rules_only,
                 "all_states": ALL_STATES,
                 "special_rule_states": SPECIAL_RULE_STATES,
-                "contact_search": contact_search if contact_search else ""
+                "contact_search": contact_search if contact_search else "",
+                "current_date": current_date.isoformat(),
+                "end_date": end_date.isoformat()
             }
         )
         
