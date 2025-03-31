@@ -2358,12 +2358,12 @@ File: templates/simulator.html
                         
                         <div class="mb-3">
                             <label for="birth_date" class="form-label">Birth Date</label>
-                            <input type="date" class="form-control" id="birth_date" name="birth_date" required>
+                            <input type="date" class="form-control" id="birth_date" name="birth_date" value="1955-01-01" required>
                         </div>
                         
                         <div class="mb-3">
                             <label for="effective_date" class="form-label">Effective Date</label>
-                            <input type="date" class="form-control" id="effective_date" name="effective_date">
+                            <input type="date" class="form-control" id="effective_date" name="effective_date" value="2022-01-01">
                             <div class="form-text">Policy effective/anniversary date</div>
                         </div>
                         
