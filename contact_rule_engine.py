@@ -182,6 +182,9 @@ class ContactRuleEngine:
                     'date': email['date']
                 })
 
+        # Sort scheduled emails by date
+        result['scheduled'].sort(key=lambda x: x['date'])
+
         return result
 
     def get_state_window_period(self, state: str) -> Dict[str, int]:

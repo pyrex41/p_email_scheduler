@@ -31,164 +31,28 @@ class EmailScheduler:
         Returns:
             Dictionary containing scheduled and skipped emails
         """
-        result = {
-            "scheduled": [],
-            "skipped": []
-        }
-        
-        state = contact.get('state', 'CA')
-        
-        # Get state rules
-        state_rule = self.rule_engine.get_state_rule(state)
-        rule_type = state_rule.get('type') if state_rule else None
-        
-        # Skip all emails for year-round enrollment states
-        if self.rule_engine.is_year_round_enrollment_state(state):
-            result["skipped"].append({
-                "type": "all",
-                "reason": "Year-round enrollment state"
-            })
+        try:
+            # Use the rule engine's calculate_email_dates method which handles all email types
+            result = self.rule_engine.calculate_email_dates(
+                contact=contact,
+                current_date=current_date,
+                end_date=end_date
+            )
+            
+            # Add contact ID to result
+            result['contact_id'] = contact.get('id')
             return result
             
-        # Process birthday emails
-        if rule_type == 'birthday' and contact.get('birth_date'):
-            try:
-                # Get actual birthdate
-                if isinstance(contact['birth_date'], str):
-                    birthday = datetime.strptime(contact['birth_date'], "%Y-%m-%d").date()
-                elif isinstance(contact['birth_date'], date):
-                    birthday = contact['birth_date']
-                else:
-                    logger.warning(f"Invalid birth_date format for contact {contact['id']}: {contact['birth_date']}")
-                    result["skipped"].append({
-                        "type": "birthday",
-                        "reason": "Invalid birth_date format"
-                    })
-                    birthday = None
-                
-                if birthday:
-                    # Calculate email dates
-                    email_dates = self.rule_engine.calculate_birthday_email_dates(
-                        state, birthday, current_date, end_date
-                    )
-                    
-                    # Add non-excluded dates to schedule
-                    for email_date in email_dates:
-                        if not self.rule_engine.is_date_excluded(email_date, state):
-                            result["scheduled"].append({
-                                "type": "birthday",
-                                "date": email_date
-                            })
-                        else:
-                            result["skipped"].append({
-                                "type": "birthday",
-                                "reason": "Date in exclusion window",
-                                "date": email_date
-                            })
-                            
-            except Exception as e:
-                logger.error(f"Error processing birthday email for contact {contact['id']}: {e}")
-                result["skipped"].append({
-                    "type": "birthday",
-                    "reason": str(e)
-                })
-                
-        # Process effective date emails
-        if rule_type == 'effective_date' and contact.get('effective_date'):
-            try:
-                # Get actual effective date
-                if isinstance(contact['effective_date'], str):
-                    effective_date = datetime.strptime(contact['effective_date'], "%Y-%m-%d").date()
-                elif isinstance(contact['effective_date'], date):
-                    effective_date = contact['effective_date']
-                else:
-                    logger.warning(f"Invalid effective_date format for contact {contact['id']}: {contact['effective_date']}")
-                    result["skipped"].append({
-                        "type": "effective_date",
-                        "reason": "Invalid effective_date format"
-                    })
-                    effective_date = None
-                    
-                if effective_date:
-                    # Calculate email dates
-                    email_dates = self.rule_engine.calculate_effective_date_email_dates(
-                        state, effective_date, current_date, end_date
-                    )
-                    
-                    # Add non-excluded dates to schedule
-                    for email_date in email_dates:
-                        if not self.rule_engine.is_date_excluded(email_date, state):
-                            result["scheduled"].append({
-                                "type": "effective_date",
-                                "date": email_date
-                            })
-                        else:
-                            result["skipped"].append({
-                                "type": "effective_date",
-                                "reason": "Date in exclusion window",
-                                "date": email_date
-                            })
-                            
-            except Exception as e:
-                logger.error(f"Error processing effective date email for contact {contact['id']}: {e}")
-                result["skipped"].append({
-                    "type": "effective_date",
-                    "reason": str(e)
-                })
-                
-        # Process AEP emails if not in year-round enrollment state
-        if not self.rule_engine.is_year_round_enrollment_state(state):
-            try:
-                # Get AEP dates
-                aep_dates = self.rule_engine.get_aep_dates_for_year(current_date.year, end_date.year)
-                
-                # Filter to dates in range and not excluded
-                for aep_date in aep_dates:
-                    if current_date <= aep_date <= end_date:
-                        if not self.rule_engine.is_date_excluded(aep_date, state):
-                            result["scheduled"].append({
-                                "type": "aep",
-                                "date": aep_date
-                            })
-                        else:
-                            result["skipped"].append({
-                                "type": "aep",
-                                "reason": "Date in exclusion window",
-                                "date": aep_date
-                            })
-                            
-            except Exception as e:
-                logger.error(f"Error processing AEP emails for contact {contact['id']}: {e}")
-                result["skipped"].append({
-                    "type": "aep",
-                    "reason": str(e)
-                })
-                
-        # Process post-window emails
-        try:
-            post_window_dates = self.rule_engine.calculate_post_window_dates(state, current_date, end_date)
-            
-            for post_date in post_window_dates:
-                if not self.rule_engine.is_date_excluded(post_date, state):
-                    result["scheduled"].append({
-                        "type": "post_window",
-                        "date": post_date
-                    })
-                else:
-                    result["skipped"].append({
-                        "type": "post_window",
-                        "reason": "Date in exclusion window",
-                        "date": post_date
-                    })
-                    
         except Exception as e:
-            logger.error(f"Error processing post-window emails for contact {contact['id']}: {e}")
-            result["skipped"].append({
-                "type": "post_window",
-                "reason": str(e)
-            })
-            
-        return result
+            logger.error(f"Error processing contact {contact.get('id')}: {e}")
+            return {
+                "contact_id": contact.get('id'),
+                "scheduled": [],
+                "skipped": [{
+                    "type": "all",
+                    "reason": f"Processing error: {str(e)}"
+                }]
+            }
 
 class AsyncEmailProcessor:
     """Allows for asynchronous processing of contacts in batches"""
@@ -210,6 +74,7 @@ class AsyncEmailProcessor:
             List of results for each contact
         """
         results = []
+        total_contacts = len(contacts)
         
         # Process in batches
         for i in range(0, len(contacts), self.batch_size):
@@ -217,8 +82,8 @@ class AsyncEmailProcessor:
             
             # Create tasks for batch
             tasks = [
-                asyncio.create_task(self._process_contact(contact, current_date, end_date))
-                for contact in batch
+                asyncio.create_task(self._process_contact(contact, current_date, end_date, total_contacts, idx))
+                for idx, contact in enumerate(batch)
             ]
             
             # Wait for batch to complete
@@ -229,10 +94,18 @@ class AsyncEmailProcessor:
             
         return results
         
-    async def _process_contact(self, contact: Dict[str, Any], current_date: date, end_date: date) -> Dict[str, Any]:
+    async def _process_contact(self, contact: Dict[str, Any], current_date: date, end_date: date, 
+                             total_contacts: int, contact_index: int) -> Dict[str, Any]:
         """Process a single contact asynchronously"""
         try:
-            result = self.scheduler.process_contact(contact, current_date, end_date)
+            # Use the rule engine's calculate_email_dates method with contact distribution info
+            result = self.scheduler.rule_engine.calculate_email_dates(
+                contact=contact,
+                current_date=current_date,
+                end_date=end_date,
+                total_contacts=total_contacts,
+                contact_index=contact_index
+            )
             result['contact_id'] = contact.get('id')
             return result
         except Exception as e:
@@ -290,10 +163,17 @@ def main_sync(contacts: List[Dict[str, Any]], current_date: Optional[date] = Non
         
     scheduler = EmailScheduler()
     results = []
+    total_contacts = len(contacts)
     
     for i, contact in enumerate(contacts):
         try:
-            result = scheduler.process_contact(contact, current_date, end_date)
+            result = scheduler.rule_engine.calculate_email_dates(
+                contact=contact,
+                current_date=current_date,
+                end_date=end_date,
+                total_contacts=total_contacts,
+                contact_index=i
+            )
             result['contact_id'] = contact.get('id')
             results.append(result)
             
