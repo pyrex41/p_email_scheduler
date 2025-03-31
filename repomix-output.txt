@@ -36,7 +36,7 @@ Notes:
 ------
 - Some files may have been excluded based on .gitignore rules and Repomix's configuration
 - Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
-- Only files matching these patterns are included: **/*.py
+- Only files matching these patterns are included: **/*.py, **/*.html
 - Files matching patterns in .gitignore are excluded
 - Files matching default ignore patterns are excluded
 
@@ -46,6 +46,23 @@ Additional Info:
 ================================================================
 Directory Structure
 ================================================================
+templates/
+  html/
+    aep/
+      email.html
+    birthday/
+      email.html
+  base.html
+  dashboard.html
+  email_table.html
+  error.html
+  home.html
+  index.html
+  organization.html
+  results.html
+  simulator.html
+  state_info.html
+  timeline.html
 app.py
 contact_rule_engine.py
 email_scheduler_common.py
@@ -59,6 +76,3860 @@ timeline_data_helper.py
 ================================================================
 Files
 ================================================================
+
+================
+File: templates/html/aep/email.html
+================
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>{{ subject }}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            color: #0066cc;
+            margin-bottom: 20px;
+        }
+        .content {
+            margin-bottom: 30px;
+        }
+        .benefits {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .benefits ul {
+            margin: 0;
+            padding-left: 20px;
+        }
+        .cta {
+            background-color: #0066cc;
+            color: white;
+            padding: 15px;
+            text-align: center;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .signature {
+            margin-top: 30px;
+            border-top: 1px solid #eee;
+            padding-top: 20px;
+        }
+        .footer {
+            font-size: 12px;
+            color: #666;
+            border-top: 1px solid #eee;
+            margin-top: 30px;
+            padding-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>{{ subject }}</h1>
+    </div>
+
+    <div class="content">
+        <p>{{ greeting }}</p>
+
+        <p>The Annual Enrollment Period (AEP) is approaching, and we want to help you make the most of this important time. From {{ aep_start | date }} to {{ aep_end | date }}, you'll have the opportunity to review and adjust your Medicare coverage.</p>
+
+        <div class="benefits">
+            <p>Here's what we'll cover in your AEP review:</p>
+            <ul>
+            {% for benefit in aep_benefits %}
+                <li>{{ benefit }}</li>
+            {% endfor %}
+            </ul>
+        </div>
+
+        <div class="cta">
+            <h2>{{ call_to_action }}</h2>
+            <p>Call us at {{ signature_phone | phone }} to schedule your review.</p>
+        </div>
+
+        <div class="signature">
+            <p>Best regards,<br>
+            {{ signature_name }}</p>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>{{ company_name }}<br>
+        Phone: {{ phone | phone }}<br>
+        Website: {{ website }}<br>
+        {% if contact.id %}Contact ID: {{ contact.id }}{% endif %}</p>
+    </div>
+</body>
+</html>
+
+================
+File: templates/html/birthday/email.html
+================
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>{{ subject }}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            color: #0066cc;
+            margin-bottom: 20px;
+        }
+        .content {
+            margin-bottom: 30px;
+        }
+        .benefits {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .benefits ul {
+            margin: 0;
+            padding-left: 20px;
+        }
+        .cta {
+            background-color: #0066cc;
+            color: white;
+            padding: 15px;
+            text-align: center;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .cta a {
+            color: white;
+            text-decoration: none;
+        }
+        .signature {
+            margin-top: 30px;
+            border-top: 1px solid #eee;
+            padding-top: 20px;
+        }
+        .footer {
+            font-size: 12px;
+            color: #666;
+            border-top: 1px solid #eee;
+            margin-top: 30px;
+            padding-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>{{ subject }}</h1>
+    </div>
+
+    <div class="content">
+        <p>Dear {{ first_name }},</p>
+
+        <p>Happy birthday month! As your Medicare insurance specialists, we want to ensure you're getting the most from your coverage during this special time.</p>
+
+        <div class="benefits">
+            <p>Your birthday month is a perfect opportunity for a comprehensive review of your Medicare coverage. Here's what we'll cover:</p>
+            <ul>
+            {% for benefit in review_benefits %}
+                <li>{{ benefit }}</li>
+            {% endfor %}
+            </ul>
+        </div>
+
+        <div class="cta">
+            <h2>{{ call_to_action }}</h2>
+            <p>Call us at {{ signature_phone | phone }} to schedule your review.</p>
+        </div>
+
+        <div class="signature">
+            <p>Best regards,<br>
+            {{ signature_name }}</p>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>{{ company_name }}<br>
+        Phone: {{ phone | phone }}<br>
+        Website: {{ website }}<br>
+        {% if contact.id %}Contact ID: {{ contact.id }}{% endif %}</p>
+    </div>
+</body>
+</html>
+
+================
+File: templates/base.html
+================
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Schedule Checker</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        /* Card styles */
+        .contact-card {
+            margin-bottom: 2rem;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .contact-card .card-header {
+            font-weight: bold;
+        }
+        
+        /* Email styling */
+        .email-row {
+            margin-bottom: 0.5rem;
+        }
+        .skipped {
+            color: #dc3545;
+        }
+        
+        /* Dashboard styles */
+        .card {
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            margin-bottom: 1.5rem;
+        }
+        .card-header h5 {
+            margin-bottom: 0;
+        }
+        .progress {
+            height: 30px;
+            border-radius: 8px;
+            box-shadow: inset 0 1px 3px rgba(0,0,0,.2);
+        }
+        .progress-bar {
+            font-weight: bold;
+            font-size: 0.9rem;
+            line-height: 30px;
+            text-shadow: 1px 1px 1px rgba(0,0,0,0.3);
+        }
+        
+        /* Table styles */
+        .table-responsive {
+            overflow-x: auto;
+        }
+        .table th {
+            background-color: #f8f9fa;
+            position: sticky;
+            top: 0;
+        }
+        
+        /* Badge styling */
+        .badge {
+            font-size: 85%;
+            padding: 0.35em 0.65em;
+        }
+        
+        /* Nav tabs */
+        .nav-tabs .nav-link {
+            font-weight: 500;
+        }
+        
+        /* Add responsive elements */
+        @media (max-width: 768px) {
+            .display-4 {
+                font-size: 2.5rem;
+            }
+        }
+    </style>
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="/">Email Schedule Checker</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">Home</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/dashboard">Dashboard</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/simulator">Simulator</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container my-4">
+        {% block content %}{% endblock %}
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/dashboard.js"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>
+
+================
+File: templates/dashboard.html
+================
+{% extends "base.html" %}
+
+{% block content %}
+<h1 class="mb-4">Email Scheduling Dashboard</h1>
+
+<!-- Summary cards -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card bg-primary text-white">
+            <div class="card-body">
+                <h5 class="card-title">Total Emails Scheduled</h5>
+                <h2 class="display-4">{{ total_emails }}</h2>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-success text-white">
+            <div class="card-body">
+                <h5 class="card-title">Birthday Emails</h5>
+                <h2 class="display-4">{{ email_type_totals.birthday }}</h2>
+                <p class="card-text">
+                    {{ (email_type_totals.birthday / total_emails * 100) | round(1) }}% of total
+                </p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-info text-white">
+            <div class="card-body">
+                <h5 class="card-title">Effective Date Emails</h5>
+                <h2 class="display-4">{{ email_type_totals.effective_date }}</h2>
+                <p class="card-text">
+                    {{ (email_type_totals.effective_date / total_emails * 100) | round(1) }}% of total
+                </p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-warning text-dark">
+            <div class="card-body">
+                <h5 class="card-title">Skipped Emails</h5>
+                <h2 class="display-4">{{ total_skipped }}</h2>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Email type distribution -->
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="card-title mb-0">Email Types Distribution</h5>
+            </div>
+            <div class="card-body">
+                <div class="progress" style="height: 30px;">
+                    <div class="progress-bar bg-primary" role="progressbar" 
+                        style="width: {{ (email_type_totals.birthday / total_emails * 100) | round(1) }}%;" 
+                        aria-valuenow="{{ email_type_totals.birthday }}" aria-valuemin="0" aria-valuemax="{{ total_emails }}">
+                        Birthday: {{ (email_type_totals.birthday / total_emails * 100) | round(1) }}%
+                    </div>
+                    <div class="progress-bar bg-success" role="progressbar" 
+                        style="width: {{ (email_type_totals.effective_date / total_emails * 100) | round(1) }}%;" 
+                        aria-valuenow="{{ email_type_totals.effective_date }}" aria-valuemin="0" aria-valuemax="{{ total_emails }}">
+                        Effective: {{ (email_type_totals.effective_date / total_emails * 100) | round(1) }}%
+                    </div>
+                    <div class="progress-bar bg-info" role="progressbar" 
+                        style="width: {{ (email_type_totals.aep / total_emails * 100) | round(1) }}%;" 
+                        aria-valuenow="{{ email_type_totals.aep }}" aria-valuemin="0" aria-valuemax="{{ total_emails }}">
+                        AEP: {{ (email_type_totals.aep / total_emails * 100) | round(1) }}%
+                    </div>
+                    <div class="progress-bar bg-warning" role="progressbar" 
+                        style="width: {{ (email_type_totals.post_window / total_emails * 100) | round(1) }}%;" 
+                        aria-valuenow="{{ email_type_totals.post_window }}" aria-valuemin="0" aria-valuemax="{{ total_emails }}">
+                        Post: {{ (email_type_totals.post_window / total_emails * 100) | round(1) }}%
+                    </div>
+                </div>
+                <div class="row mt-3 text-center">
+                    <div class="col">
+                        <span class="badge bg-primary">Birthday: {{ email_type_totals.birthday }}</span>
+                    </div>
+                    <div class="col">
+                        <span class="badge bg-success">Effective Date: {{ email_type_totals.effective_date }}</span>
+                    </div>
+                    <div class="col">
+                        <span class="badge bg-info">AEP: {{ email_type_totals.aep }}</span>
+                    </div>
+                    <div class="col">
+                        <span class="badge bg-warning text-dark">Post-Window: {{ email_type_totals.post_window }}</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- States table -->
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <ul class="nav nav-tabs card-header-tabs" id="statesTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="all-states-tab" data-bs-toggle="tab" data-bs-target="#all-states" type="button" role="tab" aria-controls="all-states" aria-selected="true">All States</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="special-states-tab" data-bs-toggle="tab" data-bs-target="#special-states" type="button" role="tab" aria-controls="special-states" aria-selected="false">Special Rule States</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="birthday-states-tab" data-bs-toggle="tab" data-bs-target="#birthday-states" type="button" role="tab" aria-controls="birthday-states" aria-selected="false">Birthday Rule States</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="effective-date-states-tab" data-bs-toggle="tab" data-bs-target="#effective-date-states" type="button" role="tab" aria-controls="effective-date-states" aria-selected="false">Effective Date Rule States</button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="year-round-states-tab" data-bs-toggle="tab" data-bs-target="#year-round-states" type="button" role="tab" aria-controls="year-round-states" aria-selected="false">Year-Round Enrollment States</button>
+                    </li>
+                </ul>
+            </div>
+            <div class="card-body">
+                <div class="tab-content" id="statesTabsContent">
+                    <!-- All States Tab -->
+                    <div class="tab-pane fade show active" id="all-states" role="tabpanel" aria-labelledby="all-states-tab">
+                        <div class="table-responsive">
+                            <table class="table table-striped table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>State</th>
+                                        <th>Birthday</th>
+                                        <th>Effective Date</th>
+                                        <th>AEP</th>
+                                        <th>Post-Window</th>
+                                        <th>Total</th>
+                                        <th>Skipped</th>
+                                        <th>Special Rules</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for state in all_states %}
+                                    {% if email_counts[state].total > 0 %}
+                                    <tr>
+                                        <td>{{ state }}</td>
+                                        <td>{{ email_counts[state].birthday }}</td>
+                                        <td>{{ email_counts[state].effective_date }}</td>
+                                        <td>{{ email_counts[state].aep }}</td>
+                                        <td>{{ email_counts[state].post_window }}</td>
+                                        <td><strong>{{ email_counts[state].total }}</strong></td>
+                                        <td>{{ email_counts[state].skipped }}</td>
+                                        <td>
+                                            {% if state in special_rule_states %}
+                                            <span class="badge bg-info">Yes</span>
+                                            {% else %}
+                                            <span class="badge bg-secondary">No</span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    {% endif %}
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <!-- Special Rule States Tab -->
+                    <div class="tab-pane fade" id="special-states" role="tabpanel" aria-labelledby="special-states-tab">
+                        <div class="table-responsive">
+                            <table class="table table-striped table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>State</th>
+                                        <th>Birthday</th>
+                                        <th>Effective Date</th>
+                                        <th>AEP</th>
+                                        <th>Post-Window</th>
+                                        <th>Total</th>
+                                        <th>Skipped</th>
+                                        <th>Rules</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for state in special_rule_states %}
+                                    {% if email_counts[state].total > 0 %}
+                                    <tr>
+                                        <td>{{ state }}</td>
+                                        <td>{{ email_counts[state].birthday }}</td>
+                                        <td>{{ email_counts[state].effective_date }}</td>
+                                        <td>{{ email_counts[state].aep }}</td>
+                                        <td>{{ email_counts[state].post_window }}</td>
+                                        <td><strong>{{ email_counts[state].total }}</strong></td>
+                                        <td>{{ email_counts[state].skipped }}</td>
+                                        <td>
+                                            {% if state in birthday_rule_states %}
+                                            <span class="badge bg-primary">Birthday</span>
+                                            {% endif %}
+                                            {% if state in effective_date_rule_states %}
+                                            <span class="badge bg-success">Effective Date</span>
+                                            {% endif %}
+                                            {% if state in year_round_enrollment_states %}
+                                            <span class="badge bg-warning text-dark">Year-Round</span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    {% endif %}
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <!-- Birthday Rule States Tab -->
+                    <div class="tab-pane fade" id="birthday-states" role="tabpanel" aria-labelledby="birthday-states-tab">
+                        <div class="table-responsive">
+                            <table class="table table-striped table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>State</th>
+                                        <th>Birthday</th>
+                                        <th>Effective Date</th>
+                                        <th>AEP</th>
+                                        <th>Post-Window</th>
+                                        <th>Total</th>
+                                        <th>Window Before</th>
+                                        <th>Window After</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for state in birthday_rule_states %}
+                                    <tr>
+                                        <td>{{ state }}</td>
+                                        <td>{{ email_counts[state].birthday }}</td>
+                                        <td>{{ email_counts[state].effective_date }}</td>
+                                        <td>{{ email_counts[state].aep }}</td>
+                                        <td>{{ email_counts[state].post_window }}</td>
+                                        <td><strong>{{ email_counts[state].total }}</strong></td>
+                                        <td>{{ birthday_rule_states[state].window_before }} days</td>
+                                        <td>{{ birthday_rule_states[state].window_after }} days</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <!-- Effective Date Rule States Tab -->
+                    <div class="tab-pane fade" id="effective-date-states" role="tabpanel" aria-labelledby="effective-date-states-tab">
+                        <div class="table-responsive">
+                            <table class="table table-striped table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>State</th>
+                                        <th>Birthday</th>
+                                        <th>Effective Date</th>
+                                        <th>AEP</th>
+                                        <th>Post-Window</th>
+                                        <th>Total</th>
+                                        <th>Window Before</th>
+                                        <th>Window After</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for state in effective_date_rule_states %}
+                                    <tr>
+                                        <td>{{ state }}</td>
+                                        <td>{{ email_counts[state].birthday }}</td>
+                                        <td>{{ email_counts[state].effective_date }}</td>
+                                        <td>{{ email_counts[state].aep }}</td>
+                                        <td>{{ email_counts[state].post_window }}</td>
+                                        <td><strong>{{ email_counts[state].total }}</strong></td>
+                                        <td>{{ effective_date_rule_states[state].window_before }} days</td>
+                                        <td>{{ effective_date_rule_states[state].window_after }} days</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <!-- Year-Round Enrollment States Tab -->
+                    <div class="tab-pane fade" id="year-round-states" role="tabpanel" aria-labelledby="year-round-states-tab">
+                        <div class="alert alert-warning mb-3">
+                            <strong>Note:</strong> Year-round enrollment states should have no AEP or post-window emails scheduled.
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-striped table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>State</th>
+                                        <th>Birthday</th>
+                                        <th>Effective Date</th>
+                                        <th>AEP</th>
+                                        <th>Post-Window</th>
+                                        <th>Total</th>
+                                        <th>Skipped</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for state in year_round_enrollment_states %}
+                                    <tr>
+                                        <td>{{ state }}</td>
+                                        <td>{{ email_counts[state].birthday }}</td>
+                                        <td>{{ email_counts[state].effective_date }}</td>
+                                        <td>
+                                            {% if email_counts[state].aep > 0 %}
+                                            <span class="text-danger">{{ email_counts[state].aep }}</span>
+                                            {% else %}
+                                            0
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if email_counts[state].post_window > 0 %}
+                                            <span class="text-danger">{{ email_counts[state].post_window }}</span>
+                                            {% else %}
+                                            0
+                                            {% endif %}
+                                        </td>
+                                        <td><strong>{{ email_counts[state].total }}</strong></td>
+                                        <td>{{ email_counts[state].skipped }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+================
+File: templates/email_table.html
+================
+<div class="table-responsive">
+    <table class="table table-sm">
+        <thead>
+            <tr>
+                <th>Type</th>
+                <th>Date</th>
+                <th>Status</th>
+                <th>Default Date</th>
+                <th>Reason</th>
+                <th>Link</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for email in contact_data.emails %}
+            <tr {% if email.skipped == 'Yes' %}class="table-danger"{% endif %}>
+                <td>
+                    {% if email.type == 'birthday' %}
+                    <span class="badge bg-primary">Birthday</span>
+                    {% elif email.type == 'effective_date' %}
+                    <span class="badge bg-success">Effective Date</span>
+                    {% elif email.type == 'aep' %}
+                    <span class="badge bg-info">AEP</span>
+                    {% elif email.type == 'post_window' %}
+                    <span class="badge bg-warning">Post Window</span>
+                    {% else %}
+                    {{ email.type }}
+                    {% endif %}
+                </td>
+                <td>{{ email.date }}</td>
+                <td>
+                    {% if email.skipped == 'Yes' %}
+                    <span class="badge bg-danger">Skipped</span>
+                    {% else %}
+                    <span class="badge bg-success">Scheduled</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if email.type == 'birthday' and contact_data.contact_info.birth_date and '-' in contact_data.contact_info.birth_date %}
+                        {% set date_str = email.date|string %}
+                        {% if '-' in date_str %}
+                            {% set birthday_parts = contact_data.contact_info.birth_date.split('-') %}
+                            {% set current_year = date_str.split('-')[0] %}
+                            {% if birthday_parts|length >= 3 %}
+                                {% set default_date = current_year + '-' + birthday_parts[1] + '-' + birthday_parts[2] %}
+                                {% if email.date < default_date %}
+                                    {{ (current_year|int - 1)|string + '-' + birthday_parts[1] + '-' + birthday_parts[2] }}
+                                {% else %}
+                                    {{ default_date }}
+                                {% endif %}
+                            {% else %}
+                                N/A (birth date format error)
+                            {% endif %}
+                        {% else %}
+                            N/A (email date format error)
+                        {% endif %}
+                    {% elif email.type == 'effective_date' and contact_data.contact_info.effective_date and '-' in contact_data.contact_info.effective_date %}
+                        {% set date_str = email.date|string %}
+                        {% if '-' in date_str %}
+                            {% set effective_parts = contact_data.contact_info.effective_date.split('-') %}
+                            {% set current_year = date_str.split('-')[0] %}
+                            {% if effective_parts|length >= 3 %}
+                                {% set default_date = current_year + '-' + effective_parts[1] + '-' + effective_parts[2] %}
+                                {% if email.date < default_date %}
+                                    {{ (current_year|int - 1)|string + '-' + effective_parts[1] + '-' + effective_parts[2] }}
+                                {% else %}
+                                    {{ default_date }}
+                                {% endif %}
+                            {% else %}
+                                N/A (effective date format error)
+                            {% endif %}
+                        {% else %}
+                            N/A (email date format error)
+                        {% endif %}
+                    {% else %}
+                    N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if email.reason %}
+                    <span class="text-danger">{{ email.reason }}</span>
+                    {% elif email.skipped == 'Yes' %}
+                    <span class="text-danger">Unknown</span>
+                    {% else %}
+                    <span class="text-success">Normal schedule</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if email.link and email.skipped != 'Yes' %}
+                    <a href="{{ email.link }}" target="_blank" class="btn btn-sm btn-primary">View</a>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            
+            {% if not contact_data.emails|selectattr('type', 'equalto', 'birthday')|list and contact_data.contact_info.birth_date %}
+            <tr class="table-info">
+                <td><span class="badge bg-primary">Birthday</span></td>
+                <td>-</td>
+                <td><span class="badge bg-danger">Skipped</span></td>
+                <td>N/A</td>
+                <td><span class="text-danger">Check birthday calculation</span></td>
+                <td></td>
+            </tr>
+            {% endif %}
+            
+            {% if not contact_data.emails|selectattr('type', 'equalto', 'effective_date')|list and contact_data.contact_info.effective_date %}
+            <tr class="table-info">
+                <td><span class="badge bg-success">Effective Date</span></td>
+                <td>-</td>
+                <td><span class="badge bg-danger">Skipped</span></td>
+                <td>N/A</td>
+                <td><span class="text-danger">Check effective date calculation</span></td>
+                <td></td>
+            </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+
+================
+File: templates/error.html
+================
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Error - Email Scheduler</title>
+    <style>
+        :root {
+            --primary-color: #1a73e8;
+            --primary-hover: #1765cc;
+            --bg-color: #f8f9fa;
+            --card-bg: #ffffff;
+            --text-color: #202124;
+            --text-secondary: #5f6368;
+            --border-color: #dadce0;
+            --error-color: #ea4335;
+            --shadow: 0 1px 2px rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
+        }
+        
+        * {
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Google Sans', 'Roboto', Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            line-height: 1.5;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 24px;
+            background-color: var(--card-bg);
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+        }
+        
+        header {
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+        }
+        
+        .error-icon {
+            width: 40px;
+            height: 40px;
+            margin-right: 16px;
+            color: var(--error-color);
+        }
+        
+        h1 {
+            margin: 0;
+            font-size: 24px;
+            color: var(--error-color);
+        }
+        
+        .error-message {
+            background-color: #fdede9;
+            border-left: 4px solid var(--error-color);
+            padding: 16px;
+            margin-bottom: 24px;
+            border-radius: 4px;
+        }
+        
+        .error-details {
+            background-color: #f1f3f4;
+            padding: 16px;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            overflow-x: auto;
+            margin-bottom: 24px;
+        }
+        
+        .btn {
+            display: inline-block;
+            padding: 8px 16px;
+            background-color: var(--primary-color);
+            color: white;
+            font-weight: 500;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            text-decoration: none;
+            transition: background-color 0.2s;
+        }
+        
+        .btn:hover {
+            background-color: var(--primary-hover);
+        }
+        
+        .home-link {
+            display: inline-flex;
+            align-items: center;
+        }
+        
+        .home-link svg {
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <svg class="error-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+            <h1>Error Occurred</h1>
+        </header>
+        
+        <div class="error-message">
+            {{ error }}
+        </div>
+        
+        {% if error_details %}
+        <div class="error-details">
+            {{ error_details }}
+        </div>
+        {% endif %}
+        
+        <a href="/" class="btn home-link">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                <polyline points="9 22 9 12 15 12 15 22"></polyline>
+            </svg>
+            Back to Home
+        </a>
+    </div>
+</body>
+</html>
+
+================
+File: templates/home.html
+================
+{% extends "base.html" %}
+
+{% block content %}
+<h1 class="mb-4">Email Schedule Checker</h1>
+
+<div class="card mb-4">
+    <div class="card-header bg-primary text-white">
+        <h5 class="card-title mb-0">Calculate Email Schedule</h5>
+    </div>
+    <div class="card-body">
+        <form action="/check" method="post" id="scheduleForm">
+            <div class="mb-3">
+                <label for="org_id" class="form-label">Organization ID</label>
+                <input type="number" class="form-control" id="org_id" name="org_id" value="37" required>
+                <div class="form-text">Enter the organization ID to check email schedules</div>
+            </div>
+            
+            <div class="row mb-3">
+                <div class="col-md-4">
+                    <label for="sample_size" class="form-label">Sample Size</label>
+                    <select class="form-select" id="sample_size" name="sample_size">
+                        {% for size in sample_sizes %}
+                        <option value="{{ size }}" {% if size == 10 %}selected{% endif %}>{{ size }} contacts</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            
+            <div class="mb-3">
+                <label for="contact_search" class="form-label">Search by Email or Contact ID (Optional)</label>
+                <input type="text" class="form-control" id="contact_search" name="contact_search" placeholder="Enter email or contact ID">
+                <small class="form-text text-muted">If provided, other filters will be ignored</small>
+            </div>
+            
+            <div class="mb-3">
+                <label class="form-label">State Filter</label>
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="radio" name="filter_type" id="filter_none" value="none" checked>
+                    <label class="form-check-label" for="filter_none">
+                        Show all states
+                    </label>
+                </div>
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="radio" name="filter_type" id="filter_state" value="state">
+                    <label class="form-check-label" for="filter_state">
+                        Filter by specific state
+                    </label>
+                </div>
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="radio" name="filter_type" id="filter_special" value="special">
+                    <label class="form-check-label" for="filter_special">
+                        Show only states with special rules
+                    </label>
+                </div>
+                <select class="form-select mt-2" id="state" name="state" disabled>
+                    <option value="">Select a state...</option>
+                    {% for state in all_states %}
+                    <option value="{{ state }}">
+                        {{ state }}
+                        {% if state in special_rule_states %}
+                            (Special Rules:
+                            {% if state_rules[state].has_birthday_rule %}Birthday{% endif %}
+                            {% if state_rules[state].has_effective_date_rule %}Effective Date{% endif %}
+                            {% if state_rules[state].has_year_round_enrollment %}Year-Round{% endif %}
+                            )
+                        {% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+                <input type="hidden" name="special_rules_only" id="special_rules_only" value="false">
+            </div>
+            
+            <button type="submit" class="btn btn-primary" id="submitBtn">
+                <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                Check Schedules
+            </button>
+        </form>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header bg-info text-white">
+        <h5 class="card-title mb-0">Special State Rules</h5>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-striped table-hover">
+                <thead>
+                    <tr>
+                        <th>State</th>
+                        <th>Birthday Rule</th>
+                        <th>Effective Date Rule</th>
+                        <th>Year-Round Enrollment</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for state in all_states %}
+                    {% if state_rules[state].has_birthday_rule or state_rules[state].has_effective_date_rule or state_rules[state].has_year_round_enrollment %}
+                    <tr class="table-info">
+                    {% else %}
+                    <tr>
+                    {% endif %}
+                        <td>{{ state }}</td>
+                        <td>
+                            {% if state_rules[state].has_birthday_rule %}
+                            <span class="badge bg-primary">Yes</span>
+                            {% else %}
+                            <span class="text-muted">No</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if state_rules[state].has_effective_date_rule %}
+                            <span class="badge bg-success">Yes</span>
+                            {% else %}
+                            <span class="text-muted">No</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if state_rules[state].has_year_round_enrollment %}
+                            <span class="badge bg-warning">No</span>
+                            {% else %}
+                            <span class="text-muted">Yes</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header bg-secondary text-white">
+        <h5 class="card-title mb-0">Help & Information</h5>
+    </div>
+    <div class="card-body">
+        <h6>Standard Email Scheduling Rules:</h6>
+        <ul>
+            <li><strong>Birthday emails:</strong> Sent 14 days before birthday</li>
+            <li><strong>Effective date emails:</strong> Sent 30 days before policy anniversary</li>
+            <li><strong>AEP emails:</strong> Distributed across August/September weeks</li>
+            <li><strong>Post-window emails:</strong> Sent the day after exclusion period ends</li>
+        </ul>
+        
+        <h6>Special State Rules:</h6>
+        <ul>
+            <li><strong>Birthday Rules:</strong> Special rules for states like CA, ID, IL, KY, LA, MD, NV, OK, OR that control when emails can be sent around a birthday</li>
+            <li><strong>Effective Date Rules:</strong> Special rules for states like MO that control email timing around policy anniversary dates</li>
+            <li><strong>Year-Round Enrollment:</strong> States like CT, MA, NY, WA that have year-round enrollment (no scheduled emails)</li>
+        </ul>
+    </div>
+</div>
+
+<script>
+document.getElementById('scheduleForm').addEventListener('submit', function(e) {
+    // Show loading spinner
+    const button = document.getElementById('submitBtn');
+    const spinner = button.querySelector('.spinner-border');
+    button.disabled = true;
+    spinner.classList.remove('d-none');
+    
+    // Handle state filtering
+    const filterType = document.querySelector('input[name="filter_type"]:checked').value;
+    const stateSelect = document.getElementById('state');
+    const specialRulesOnly = document.getElementById('special_rules_only');
+    
+    if (filterType === 'none') {
+        stateSelect.value = '';
+        specialRulesOnly.value = 'false';
+    } else if (filterType === 'special') {
+        stateSelect.value = '';
+        specialRulesOnly.value = 'true';
+    } else if (filterType === 'state') {
+        specialRulesOnly.value = 'false';
+        if (!stateSelect.value) {
+            e.preventDefault();
+            alert('Please select a state');
+            button.disabled = false;
+            spinner.classList.add('d-none');
+            return;
+        }
+    }
+});
+
+// Handle radio button changes
+document.querySelectorAll('input[name="filter_type"]').forEach(radio => {
+    radio.addEventListener('change', function() {
+        const stateSelect = document.getElementById('state');
+        if (this.value === 'state') {
+            stateSelect.disabled = false;
+            stateSelect.required = true;
+        } else {
+            stateSelect.disabled = true;
+            stateSelect.required = false;
+            stateSelect.value = '';
+        }
+    });
+});
+
+// Initialize state select state
+document.getElementById('state').disabled = true;
+</script>
+{% endblock %}
+
+================
+File: templates/index.html
+================
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Scheduler</title>
+    <style>
+        :root {
+            --primary-color: #1a73e8;
+            --primary-hover: #1765cc;
+            --bg-color: #f8f9fa;
+            --card-bg: #ffffff;
+            --text-color: #202124;
+            --text-secondary: #5f6368;
+            --border-color: #dadce0;
+            --shadow: 0 1px 2px rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
+        }
+        
+        * {
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Google Sans', 'Roboto', Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            line-height: 1.5;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 24px;
+            background-color: var(--card-bg);
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+        }
+        
+        header {
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        h1 {
+            margin: 0;
+            font-size: 24px;
+            color: var(--text-color);
+        }
+        
+        .subtitle {
+            margin-top: 8px;
+            color: var(--text-secondary);
+            font-size: 16px;
+        }
+        
+        .card {
+            background-color: var(--card-bg);
+            border-radius: 8px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+        
+        .card-title {
+            margin-top: 0;
+            margin-bottom: 16px;
+            font-size: 18px;
+            color: var(--text-color);
+        }
+        
+        .form-group {
+            margin-bottom: 16px;
+        }
+        
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: var(--text-color);
+        }
+        
+        .form-select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 14px;
+            color: var(--text-color);
+            background-color: var(--card-bg);
+        }
+        
+        .btn {
+            display: inline-block;
+            padding: 8px 16px;
+            background-color: var(--primary-color);
+            color: white;
+            font-weight: 500;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        
+        .btn:hover {
+            background-color: var(--primary-hover);
+        }
+        
+        .org-list {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            margin-top: 16px;
+        }
+        
+        .org-item {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .org-item:last-child {
+            border-bottom: none;
+        }
+        
+        .org-item:hover {
+            background-color: rgba(0, 0, 0, 0.02);
+        }
+        
+        .org-name {
+            font-weight: 500;
+            color: var(--text-color);
+        }
+        
+        .org-id {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+        
+        .org-link {
+            color: var(--primary-color);
+            text-decoration: none;
+            font-weight: 500;
+        }
+        
+        .org-link:hover {
+            text-decoration: underline;
+        }
+        
+        .search-box {
+            display: flex;
+            align-items: center;
+            position: relative;
+            margin-bottom: 16px;
+        }
+        
+        .search-box input {
+            width: 100%;
+            padding: 8px 12px 8px 36px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        .search-icon {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-secondary);
+        }
+        
+        .no-orgs {
+            text-align: center;
+            padding: 24px;
+            color: var(--text-secondary);
+        }
+        
+        .dashboard-link {
+            display: inline-flex;
+            align-items: center;
+            margin-top: 16px;
+            color: var(--primary-color);
+            text-decoration: none;
+            font-weight: 500;
+        }
+        
+        .dashboard-link:hover {
+            text-decoration: underline;
+        }
+        
+        .dashboard-link svg {
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Email Scheduler</h1>
+            <p class="subtitle">Schedule emails for Medicare services communications</p>
+        </header>
+        
+        <div class="card">
+            <h2 class="card-title">Select an Organization</h2>
+            
+            <div class="search-box">
+                <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <input type="text" id="search-orgs" placeholder="Search organizations...">
+            </div>
+            
+            <div class="org-list">
+                {% if organizations %}
+                    {% for org in organizations %}
+                    <div class="org-item">
+                        <div class="org-info">
+                            <div class="org-name">{{ org.name }}</div>
+                            <div class="org-id">ID: {{ org.id }}</div>
+                        </div>
+                        <a href="/org/{{ org.id }}" class="org-link">Select</a>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="no-orgs">
+                        <p>No organizations found.</p>
+                    </div>
+                {% endif %}
+            </div>
+            
+            <a href="/dashboard" class="dashboard-link">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                    <line x1="3" y1="9" x2="21" y2="9"></line>
+                    <line x1="9" y1="21" x2="9" y2="9"></line>
+                </svg>
+                View Dashboard
+            </a>
+        </div>
+        
+        <div class="card">
+            <h2 class="card-title">Email Scheduling Rules</h2>
+            <p>The system schedules four types of emails based on specific business rules:</p>
+            <ul>
+                <li><strong>Birthday Emails:</strong> Sent 14 days before a contact's birthday</li>
+                <li><strong>Effective Date Emails:</strong> Sent 30 days before a policy effective date</li>
+                <li><strong>AEP Emails:</strong> Sent during the Annual Enrollment Period (August-September)</li>
+                <li><strong>Post-Window Emails:</strong> Sent after rule windows end, with special state handling</li>
+            </ul>
+            <p>Special rule states include: CA, ID, IL, KY, LA, MD, NV, OK, OR (birthday rules) and MO (effective date rule).</p>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const searchInput = document.getElementById('search-orgs');
+            const orgItems = document.querySelectorAll('.org-item');
+            
+            // Search organizations
+            searchInput.addEventListener('input', function() {
+                const searchTerm = this.value.toLowerCase();
+                
+                orgItems.forEach(item => {
+                    const orgName = item.querySelector('.org-name').textContent.toLowerCase();
+                    const orgId = item.querySelector('.org-id').textContent.toLowerCase();
+                    
+                    if (orgName.includes(searchTerm) || orgId.includes(searchTerm)) {
+                        item.style.display = '';
+                    } else {
+                        item.style.display = 'none';
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>
+
+================
+File: templates/organization.html
+================
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ org.name }} - Email Scheduler</title>
+    <style>
+        :root {
+            --primary-color: #1a73e8;
+            --primary-hover: #1765cc;
+            --bg-color: #f8f9fa;
+            --card-bg: #ffffff;
+            --text-color: #202124;
+            --text-secondary: #5f6368;
+            --border-color: #dadce0;
+            --shadow: 0 1px 2px rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
+            --birthday-color: #4285F4;
+            --effective-date-color: #34A853;
+            --aep-color: #FBBC05;
+            --post-window-color: #EA4335;
+        }
+        
+        * {
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Google Sans', 'Roboto', Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            line-height: 1.5;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px;
+            background-color: var(--card-bg);
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+        }
+        
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        h1 {
+            margin: 0;
+            font-size: 24px;
+            color: var(--text-color);
+        }
+        
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            color: var(--primary-color);
+            text-decoration: none;
+            font-weight: 500;
+            margin-bottom: 16px;
+        }
+        
+        .back-link:hover {
+            text-decoration: underline;
+        }
+        
+        .back-link svg {
+            margin-right: 8px;
+        }
+        
+        .card {
+            background-color: var(--card-bg);
+            border-radius: 8px;
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: var(--shadow);
+        }
+        
+        .card-title {
+            margin-top: 0;
+            margin-bottom: 16px;
+            font-size: 18px;
+            color: var(--text-color);
+        }
+        
+        .form-group {
+            margin-bottom: 16px;
+        }
+        
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: var(--text-color);
+        }
+        
+        .form-input {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 14px;
+            color: var(--text-color);
+        }
+        
+        .form-select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 14px;
+            color: var(--text-color);
+            background-color: var(--card-bg);
+        }
+        
+        .date-inputs {
+            display: flex;
+            gap: 16px;
+        }
+        
+        .date-inputs .form-group {
+            flex: 1;
+        }
+        
+        .btn {
+            display: inline-block;
+            padding: 8px 16px;
+            background-color: var(--primary-color);
+            color: white;
+            font-weight: 500;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            text-decoration: none;
+            transition: background-color 0.2s;
+        }
+        
+        .btn:hover {
+            background-color: var(--primary-hover);
+        }
+        
+        .btn-secondary {
+            background-color: transparent;
+            color: var(--primary-color);
+            border: 1px solid var(--primary-color);
+        }
+        
+        .btn-secondary:hover {
+            background-color: rgba(26, 115, 232, 0.04);
+        }
+        
+        .contacts-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 16px;
+        }
+        
+        .contacts-table th,
+        .contacts-table td {
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .contacts-table th {
+            font-weight: 500;
+            color: var(--text-secondary);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .contacts-table tr:hover {
+            background-color: rgba(0, 0, 0, 0.02);
+        }
+        
+        .contacts-container {
+            max-height: 500px;
+            overflow-y: auto;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+        }
+        
+        .contact-checkbox {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+        
+        .table-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        
+        .search-box {
+            display: flex;
+            align-items: center;
+            max-width: 300px;
+            position: relative;
+        }
+        
+        .search-box input {
+            width: 100%;
+            padding: 8px 12px 8px 36px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        .search-icon {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-secondary);
+        }
+        
+        .select-all {
+            display: flex;
+            align-items: center;
+            margin-left: 16px;
+            font-size: 14px;
+        }
+        
+        .select-all input {
+            margin-right: 8px;
+        }
+        
+        .tag {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 16px;
+            font-size: 12px;
+            font-weight: 500;
+            color: white;
+        }
+        
+        .tag.birthday {
+            background-color: var(--birthday-color);
+        }
+        
+        .tag.effective-date {
+            background-color: var(--effective-date-color);
+        }
+        
+        .tag.aep {
+            background-color: var(--aep-color);
+            color: var(--text-color);
+        }
+        
+        .tag.post-window {
+            background-color: var(--post-window-color);
+        }
+        
+        .state-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 2px 8px;
+            border-radius: 16px;
+            font-size: 12px;
+            font-weight: 500;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin-left: 8px;
+        }
+        
+        .state-badge.special::before {
+            content: '';
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--primary-color);
+            margin-right: 4px;
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 40px;
+        }
+        
+        .spinner {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            border: 4px solid rgba(0,0,0,0.1);
+            border-radius: 50%;
+            border-top-color: var(--primary-color);
+            animation: spin 1s linear infinite;
+            margin-bottom: 16px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .no-contacts {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-secondary);
+        }
+        
+        .actions {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 24px;
+        }
+        
+        @media (max-width: 768px) {
+            .date-inputs {
+                flex-direction: column;
+                gap: 8px;
+            }
+            
+            .contacts-table th:nth-child(3),
+            .contacts-table td:nth-child(3) {
+                display: none;
+            }
+            
+            .table-controls {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 12px;
+            }
+            
+            .search-box {
+                max-width: 100%;
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/" class="back-link">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M19 12H5M12 19l-7-7 7-7"/>
+            </svg>
+            Back to Organizations
+        </a>
+        
+        <header>
+            <h1>{{ org.name }}</h1>
+        </header>
+        
+        <div class="card">
+            <h2 class="card-title">Schedule Emails</h2>
+            
+            <form id="schedule-form" action="/schedule" method="post">
+                <input type="hidden" name="session_id" value="{{ session_id }}">
+                
+                <div class="date-inputs">
+                    <div class="form-group">
+                        <label for="start-date" class="form-label">Start Date</label>
+                        <input type="date" id="start-date" name="start_date" class="form-input" value="{{ today.isoformat() if today else '' }}">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="end-date" class="form-label">End Date</label>
+                        <input type="date" id="end-date" name="end_date" class="form-input" value="{{ (today + timedelta(days=365)).isoformat() if today else '' }}">
+                    </div>
+                </div>
+                
+                <div class="contacts-selection">
+                    <div class="table-controls">
+                        <div class="search-box">
+                            <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="11" cy="11" r="8"></circle>
+                                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                            </svg>
+                            <input type="text" id="search-contacts" placeholder="Search contacts...">
+                        </div>
+                        
+                        <div class="select-all">
+                            <input type="checkbox" id="select-all-checkbox">
+                            <label for="select-all-checkbox">Select All</label>
+                        </div>
+                    </div>
+                    
+                    <div class="contacts-container">
+                        {% if contacts %}
+                        <table class="contacts-table">
+                            <thead>
+                                <tr>
+                                    <th width="50"></th>
+                                    <th>Name</th>
+                                    <th>Email</th>
+                                    <th>State</th>
+                                    <th>Birth Date</th>
+                                    <th>Effective Date</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for contact in contacts %}
+                                <tr class="contact-row">
+                                    <td>
+                                        <input type="checkbox" name="contact_ids" value="{{ contact.id }}" class="contact-checkbox">
+                                    </td>
+                                    <td>{{ contact.first_name }} {{ contact.last_name }}</td>
+                                    <td>{{ contact.email }}</td>
+                                    <td>
+                                        {{ contact.state }}
+                                        {% if contact.state in special_rule_states %}
+                                        <span class="state-badge special" title="Special rules apply">Rule</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ contact.birth_date }}</td>
+                                    <td>{{ contact.effective_date }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                        {% else %}
+                        <div class="no-contacts">
+                            <p>No contacts found for this organization.</p>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+                
+                <div class="loading" id="loading">
+                    <div class="spinner"></div>
+                    <p>Scheduling emails...</p>
+                </div>
+                
+                <div class="actions">
+                    <button type="button" id="cancel-btn" class="btn btn-secondary">Cancel</button>
+                    <button type="submit" id="schedule-btn" class="btn">Schedule Emails</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const searchInput = document.getElementById('search-contacts');
+            const selectAllCheckbox = document.getElementById('select-all-checkbox');
+            const contactCheckboxes = document.querySelectorAll('.contact-checkbox');
+            const scheduleForm = document.getElementById('schedule-form');
+            const scheduleBtn = document.getElementById('schedule-btn');
+            const cancelBtn = document.getElementById('cancel-btn');
+            const loading = document.getElementById('loading');
+            
+            // Search contacts
+            searchInput.addEventListener('input', function() {
+                const searchTerm = this.value.toLowerCase();
+                const rows = document.querySelectorAll('.contact-row');
+                
+                rows.forEach(row => {
+                    const contactName = row.children[1].textContent.toLowerCase();
+                    const contactEmail = row.children[2].textContent.toLowerCase();
+                    const contactState = row.children[3].textContent.toLowerCase();
+                    
+                    if (contactName.includes(searchTerm) || 
+                        contactEmail.includes(searchTerm) || 
+                        contactState.includes(searchTerm)) {
+                        row.style.display = '';
+                    } else {
+                        row.style.display = 'none';
+                    }
+                });
+            });
+            
+            // Select all contacts
+            selectAllCheckbox.addEventListener('change', function() {
+                const isChecked = this.checked;
+                
+                // Only select visible contacts
+                const visibleCheckboxes = Array.from(contactCheckboxes).filter(checkbox => {
+                    return checkbox.closest('tr').style.display !== 'none';
+                });
+                
+                visibleCheckboxes.forEach(checkbox => {
+                    checkbox.checked = isChecked;
+                });
+            });
+            
+            // Update "Select All" state when individual contacts are selected/deselected
+            contactCheckboxes.forEach(checkbox => {
+                checkbox.addEventListener('change', updateSelectAllState);
+            });
+            
+            function updateSelectAllState() {
+                const visibleCheckboxes = Array.from(contactCheckboxes).filter(checkbox => {
+                    return checkbox.closest('tr').style.display !== 'none';
+                });
+                
+                const allChecked = visibleCheckboxes.every(checkbox => checkbox.checked);
+                const someChecked = visibleCheckboxes.some(checkbox => checkbox.checked);
+                
+                selectAllCheckbox.checked = allChecked;
+                selectAllCheckbox.indeterminate = someChecked && !allChecked;
+            }
+            
+            // Form submission
+            scheduleForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                // Validate that at least one contact is selected
+                const selectedContacts = document.querySelectorAll('.contact-checkbox:checked');
+                if (selectedContacts.length === 0) {
+                    alert('Please select at least one contact.');
+                    return;
+                }
+                
+                // Show loading
+                loading.style.display = 'block';
+                scheduleBtn.disabled = true;
+                
+                // Submit form via AJAX
+                const formData = new FormData(this);
+                
+                fetch('/schedule', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        alert(data.error);
+                        loading.style.display = 'none';
+                        scheduleBtn.disabled = false;
+                    } else if (data.redirect) {
+                        window.location.href = data.redirect;
+                    } else {
+                        alert(data.message || 'Emails scheduled successfully!');
+                        loading.style.display = 'none';
+                        scheduleBtn.disabled = false;
+                    }
+                })
+                .catch(error => {
+                    alert('An error occurred: ' + error.message);
+                    loading.style.display = 'none';
+                    scheduleBtn.disabled = false;
+                });
+            });
+            
+            // Cancel button
+            cancelBtn.addEventListener('click', function() {
+                window.location.href = '/';
+            });
+        });
+    </script>
+</body>
+</html>
+
+================
+File: templates/results.html
+================
+{% extends "base.html" %}
+
+{% block head %}
+<!-- Add vis-timeline CSS -->
+<link rel="stylesheet" href="/static/vis-timeline-graph2d.min.css">
+<style>
+.timeline-container { 
+    margin-top: 20px; 
+    height: 300px; 
+}
+.date-birthday { 
+    background-color: #ffd700 !important; /* yellow */ 
+}
+.date-effective { 
+    background-color: #ffa500 !important; /* orange */ 
+}
+.exclusion { 
+    background-color: #ff0000 !important; /* red */
+    opacity: 0.3; 
+}
+.email-birthday { 
+    background-color: #008000 !important; /* green */ 
+}
+.email-effective-date { 
+    background-color: #0000ff !important; /* blue */ 
+}
+.email-aep { 
+    background-color: #800080 !important; /* purple */ 
+}
+.email-post-window { 
+    background-color: #00ffff !important; /* cyan */ 
+}
+.timeline-wrapper {
+    display: flex;
+    margin-top: 20px;
+}
+.timeline-labels {
+    width: 150px;
+    padding-right: 10px;
+}
+.timeline-label {
+    height: 60px;
+    line-height: 60px;
+    font-weight: bold;
+    text-align: right;
+    padding-right: 10px;
+}
+.timeline-content {
+    flex: 1;
+}
+.timeline-row {
+    height: 60px;
+    margin-bottom: 5px;
+}
+.date-birthday {
+    background-color: #ffd700 !important;
+    border-color: #b8860b !important;
+}
+.date-effective {
+    background-color: #ffa500 !important;
+    border-color: #8b4513 !important;
+}
+.exclusion {
+    background-color: rgba(255, 0, 0, 0.3) !important;
+    border-color: #8b0000 !important;
+}
+.email-birthday {
+    background-color: #32cd32 !important;
+    border-color: #006400 !important;
+}
+.email-effective-date {
+    background-color: #4169e1 !important;
+    border-color: #00008b !important;
+}
+.email-aep {
+    background-color: #9370db !important;
+    border-color: #4b0082 !important;
+}
+.email-post-window {
+    background-color: #00ffff !important;
+    border-color: #008b8b !important;
+}
+.email-skipped {
+    background-color: #808080 !important;
+    border-color: #2f4f4f !important;
+}
+.vis-item {
+    border-width: 2px !important;
+    border-radius: 5px !important;
+}
+.vis-item.vis-point {
+    border-width: 3px !important;
+}
+.vis-item.vis-selected {
+    border-color: #000000 !important;
+    background-color: inherit !important;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+    <h2>{{ org_name }} (ID: {{ org_id }})</h2>
+    <p class="text-muted">
+        Showing {{ sample_size }} contacts out of {{ total_contacts }} total contacts
+        {% if selected_state %}
+        (Filtered by state: {{ selected_state }})
+        {% elif special_rules_only %}
+        (Showing only states with special rules)
+        {% endif %}
+        {% if contact_search %}
+        (Searching for: {{ contact_search }})
+        {% endif %}
+    </p>
+    
+    <form action="/check" method="post" class="d-inline">
+        <input type="hidden" name="org_id" value="{{ org_id }}">
+        <input type="hidden" name="state" value="{{ selected_state }}">
+        <input type="hidden" name="special_rules_only" value="{{ 'true' if special_rules_only else 'false' }}">
+        <select class="form-select form-select-sm d-inline w-auto" name="sample_size" onchange="this.form.submit()">
+            {% for size in sample_sizes %}
+            <option value="{{ size }}" {% if size == sample_size %}selected{% endif %}>Show {{ size }} contacts</option>
+            {% endfor %}
+        </select>
+    </form>
+    
+    <button class="btn btn-primary btn-sm ms-2" onclick="resampleContacts()">
+        <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+        Resample Contacts
+    </button>
+</div>
+
+<div id="contacts-container">
+    {% for contact_id, contact_data in contacts.items() %}
+    <div class="card contact-card mb-4">
+        <div class="card-header">
+            <h5 class="card-title mb-0">
+                {{ contact_data.contact_info.name }}
+                <small class="text-muted">(ID: {{ contact_data.contact_info.id }})</small>
+            </h5>
+        </div>
+        <div class="card-body">
+            <div class="row mb-3">
+                <div class="col-md-4">
+                    <strong>Email:</strong> {{ contact_data.contact_info.email }}
+                </div>
+                <div class="col-md-4">
+                    <strong>Birth Date:</strong> {{ contact_data.contact_info.birth_date or 'N/A' }}
+                </div>
+                <div class="col-md-4">
+                    <strong>Effective Date:</strong> {{ contact_data.contact_info.effective_date or 'N/A' }}
+                </div>
+            </div>
+            
+            <div class="row">
+                <div class="col-md-4">
+                    {% include "state_info.html" %}
+                </div>
+                <div class="col-md-8">
+                    {% include "email_table.html" %}
+                </div>
+            </div>
+            
+            <div class="row mt-4">
+                <div class="col-12">
+                    <h6>Timeline View:</h6>
+                    <div class="timeline-wrapper">
+                        <div class="timeline-labels">
+                            <div class="timeline-label">Exclusion Periods</div>
+                            <div class="timeline-label">Birthdays</div>
+                            <div class="timeline-label">Effective Dates</div>
+                            <div class="timeline-label">Scheduled Emails</div>
+                            <div class="timeline-label">Skipped Emails</div>
+                        </div>
+                        <div class="timeline-content">
+                            <div id="timeline-exclusions-{{ contact_data.contact_info.id }}" class="timeline-row"></div>
+                            <div id="timeline-birthdays-{{ contact_data.contact_info.id }}" class="timeline-row"></div>
+                            <div id="timeline-effective-dates-{{ contact_data.contact_info.id }}" class="timeline-row"></div>
+                            <div id="timeline-scheduled-{{ contact_data.contact_info.id }}" class="timeline-row"></div>
+                            <div id="timeline-skipped-{{ contact_data.contact_info.id }}" class="timeline-row"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<div class="mt-4 mb-4">
+    <a href="/" class="btn btn-secondary">Check Another Organization</a>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/vis-timeline-graph2d.min.js"></script>
+<script>
+function createTimeline(containerId, items, options) {
+    var container = document.getElementById(containerId);
+    var dataset = new vis.DataSet(items);
+    var timeline = new vis.Timeline(container, dataset, options);
+    
+    timeline.on('mouseOver', function(properties) {
+        var item = dataset.get(properties.item);
+        if (item && item.tooltip) {
+            var element = document.getElementById(properties.item);
+            if (element) {
+                element.title = item.tooltip;
+            }
+        }
+    });
+}
+
+var baseOptions = {
+    start: '{{ current_date }}',
+    end: '{{ end_date }}',
+    height: '60px',
+    zoomable: false,
+    selectable: false,
+    showCurrentTime: false,
+    stack: false,
+    verticalScroll: false,
+    horizontalScroll: true
+};
+
+{% for contact_id, contact_data in contacts.items() %}
+createTimeline('timeline-exclusions-{{ contact_data.contact_info.id }}', {{ contact_data.timeline_exclusions | tojson }}, Object.assign({}, baseOptions));
+createTimeline('timeline-birthdays-{{ contact_data.contact_info.id }}', {{ contact_data.timeline_birthdays | tojson }}, Object.assign({}, baseOptions));
+createTimeline('timeline-effective-dates-{{ contact_data.contact_info.id }}', {{ contact_data.timeline_effective_dates | tojson }}, Object.assign({}, baseOptions));
+createTimeline('timeline-scheduled-{{ contact_data.contact_info.id }}', {{ contact_data.timeline_scheduled | tojson }}, Object.assign({}, baseOptions));
+createTimeline('timeline-skipped-{{ contact_data.contact_info.id }}', {{ contact_data.timeline_skipped | tojson }}, Object.assign({}, baseOptions));
+{% endfor %}
+
+async function resampleContacts() {
+    const button = document.querySelector('button');
+    const spinner = button.querySelector('.spinner-border');
+    const container = document.getElementById('contacts-container');
+    const sampleSize = document.querySelector('select[name="sample_size"]').value;
+    const state = '{{ selected_state or "" }}';
+    const specialRulesOnly = {{ 'true' if special_rules_only else 'false' }};
+    const contactSearch = '{{ contact_search or "" }}';
+    
+    button.disabled = true;
+    spinner.classList.remove('d-none');
+    
+    try {
+        let url = `/resample/{{ org_id }}?sample_size=${sampleSize}`;
+        if (state) {
+            url += `&state=${state}`;
+        }
+        url += `&special_rules_only=${specialRulesOnly}`;
+        if (contactSearch) {
+            url += `&contact_search=${encodeURIComponent(contactSearch)}`;
+        }
+        
+        const response = await fetch(url, {
+            method: 'POST'
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to resample contacts');
+        }
+        
+        location.reload();
+    } catch (error) {
+        console.error('Error resampling contacts:', error);
+        alert('Failed to resample contacts. Please try again.');
+    } finally {
+        button.disabled = false;
+        spinner.classList.add('d-none');
+    }
+}
+</script>
+{% endblock %}
+
+================
+File: templates/simulator.html
+================
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <h1 class="mb-4">Email Scheduler Simulator</h1>
+    
+    <div class="row">
+        <div class="col-md-5">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">Contact Information</h5>
+                </div>
+                <div class="card-body">
+                    <form id="simulatorForm" method="post" action="/simulate">
+                        <div class="mb-3">
+                            <label for="state" class="form-label">State</label>
+                            <select class="form-select" id="state" name="state" required>
+                                <option value="" selected disabled>Select a state...</option>
+                                {% for state in all_states %}
+                                <option value="{{ state }}" 
+                                    {% if state in special_rule_states %}data-special="true"{% endif %}
+                                    data-birthday="{% if state in birthday_rule_states %}true{% else %}false{% endif %}"
+                                    data-effective="{% if state in effective_date_rule_states %}true{% else %}false{% endif %}"
+                                    data-yearround="{% if state in year_round_enrollment_states %}true{% else %}false{% endif %}">
+                                    {{ state }}
+                                    {% if state in special_rule_states %}
+                                        (Special Rules)
+                                    {% endif %}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="birth_date" class="form-label">Birth Date</label>
+                            <input type="date" class="form-control" id="birth_date" name="birth_date" required>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="effective_date" class="form-label">Effective Date</label>
+                            <input type="date" class="form-control" id="effective_date" name="effective_date">
+                            <div class="form-text">Policy effective/anniversary date</div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="start_date" class="form-label">Start Date</label>
+                            <input type="date" class="form-control" id="start_date" name="start_date" value="{{ today }}" required>
+                            <div class="form-text">Beginning of scheduling window</div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="end_date" class="form-label">End Date</label>
+                            <input type="date" class="form-control" id="end_date" name="end_date" value="{{ next_year }}" required>
+                            <div class="form-text">End of scheduling window</div>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary" id="calculateBtn">
+                            <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                            Calculate Scheduled Emails
+                        </button>
+                    </form>
+                </div>
+            </div>
+            
+            <div id="stateRules" class="card mt-4 d-none">
+                <div class="card-header bg-info text-white">
+                    <h5 class="card-title mb-0">State Rules</h5>
+                </div>
+                <div class="card-body">
+                    <div id="birthdayRuleInfo" class="d-none">
+                        <h6>Birthday Rule</h6>
+                        <div id="birthdayRuleDetails"></div>
+                    </div>
+                    
+                    <div id="effectiveDateRuleInfo" class="d-none">
+                        <h6>Effective Date Rule</h6>
+                        <div id="effectiveDateRuleDetails"></div>
+                    </div>
+                    
+                    <div id="yearRoundInfo" class="d-none">
+                        <div class="alert alert-warning">
+                            <strong>Year-Round Enrollment State</strong>
+                            <p>No AEP or post-window emails are sent in this state.</p>
+                        </div>
+                    </div>
+                    
+                    <div id="regularRuleInfo" class="d-none">
+                        <div class="alert alert-info">
+                            <strong>Standard Rules</strong>
+                            <p>This state follows the standard email scheduling rules:</p>
+                            <ul class="mb-0">
+                                <li>Birthday emails: 14 days before birthday</li>
+                                <li>Effective date emails: 30 days before anniversary</li>
+                                <li>AEP emails: Distributed across August/September</li>
+                                <li>Post-window emails: Day after exclusion period</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-7 mt-3 mt-md-0">
+            <div id="resultsContainer" class="d-none">
+                <div class="card">
+                    <div class="card-header bg-success text-white">
+                        <h5 class="card-title mb-0">Scheduled Emails</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="emailResults"></div>
+                    </div>
+                </div>
+                
+                <div class="card mt-4">
+                    <div class="card-header bg-secondary text-white">
+                        <h5 class="card-title mb-0">Exclusion Periods</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="exclusionResults"></div>
+                    </div>
+                </div>
+                
+                <div class="card mt-4">
+                    <div class="card-header bg-warning text-dark">
+                        <h5 class="card-title mb-0">Important Dates</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="birthdayResults" class="mb-4">
+                            <h6>Birthdays in Period</h6>
+                            <div id="birthdayDatesList"></div>
+                        </div>
+                        
+                        <div id="effectiveDateResults" class="mb-4">
+                            <h6>Effective Dates in Period</h6>
+                            <div id="effectiveDatesList"></div>
+                        </div>
+                        
+                        <div id="aepDateResults">
+                            <h6>AEP Dates</h6>
+                            <div id="aepDatesList"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Show loading spinner on form submit
+    document.getElementById('simulatorForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const button = document.getElementById('calculateBtn');
+        const spinner = button.querySelector('.spinner-border');
+        button.disabled = true;
+        spinner.classList.remove('d-none');
+        
+        // Collect form data
+        const formData = new FormData(this);
+        
+        // Make API call to calculate scheduled emails
+        fetch('/simulate', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(Object.fromEntries(formData)),
+        })
+        .then(response => response.json())
+        .then(data => {
+            displayResults(data);
+            button.disabled = false;
+            spinner.classList.add('d-none');
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('An error occurred while calculating scheduled emails.');
+            button.disabled = false;
+            spinner.classList.add('d-none');
+        });
+    });
+    
+    // Display state-specific rules when state is selected
+    document.getElementById('state').addEventListener('change', function() {
+        const selectedOption = this.options[this.selectedIndex];
+        const hasBirthdayRule = selectedOption.getAttribute('data-birthday') === 'true';
+        const hasEffectiveDateRule = selectedOption.getAttribute('data-effective') === 'true';
+        const hasYearRoundEnrollment = selectedOption.getAttribute('data-yearround') === 'true';
+        const stateCode = this.value;
+        
+        // Show state rules card
+        document.getElementById('stateRules').classList.remove('d-none');
+        
+        // Reset all rule displays
+        document.getElementById('birthdayRuleInfo').classList.add('d-none');
+        document.getElementById('effectiveDateRuleInfo').classList.add('d-none');
+        document.getElementById('yearRoundInfo').classList.add('d-none');
+        document.getElementById('regularRuleInfo').classList.add('d-none');
+        
+        // Update rule displays based on state
+        if (hasBirthdayRule) {
+            document.getElementById('birthdayRuleInfo').classList.remove('d-none');
+            updateBirthdayRuleInfo(stateCode);
+        }
+        
+        if (hasEffectiveDateRule) {
+            document.getElementById('effectiveDateRuleInfo').classList.remove('d-none');
+            updateEffectiveDateRuleInfo(stateCode);
+        }
+        
+        if (hasYearRoundEnrollment) {
+            document.getElementById('yearRoundInfo').classList.remove('d-none');
+        }
+        
+        if (!hasBirthdayRule && !hasEffectiveDateRule && !hasYearRoundEnrollment) {
+            document.getElementById('regularRuleInfo').classList.remove('d-none');
+        }
+    });
+    
+    // Helper functions for state rule info
+    function updateBirthdayRuleInfo(state) {
+        const birthdayRuleDetails = document.getElementById('birthdayRuleDetails');
+        
+        // Define rule descriptions based on state
+        const birthdayRules = {
+            'CA': '60-day exclusion period: 30 days before and 30 days after birthday.',
+            'ID': '63-day exclusion period: Starting on birthday and ending 63 days after.',
+            'IL': '45-day exclusion period: Starting on birthday and ending 45 days after.',
+            'KY': '60-day exclusion period: Starting on birthday and ending 60 days after.',
+            'LA': '93-day exclusion period: 30 days before and 63 days after birthday.',
+            'MD': '31-day exclusion period: Starting on birthday and ending 31 days after.',
+            'NV': '60-day exclusion period: Starting on first day of birth month.',
+            'OK': '60-day exclusion period: Starting on birthday and ending 60 days after.',
+            'OR': '31-day exclusion period: Starting on birthday and ending 31 days after.'
+        };
+        
+        birthdayRuleDetails.textContent = birthdayRules[state] || 'State has special birthday rules.';
+    }
+    
+    function updateEffectiveDateRuleInfo(state) {
+        const effectiveDateRuleDetails = document.getElementById('effectiveDateRuleDetails');
+        
+        // Define rule descriptions based on state
+        const effectiveDateRules = {
+            'MO': '63-day exclusion period: 30 days before and 33 days after the policy anniversary.',
+        };
+        
+        effectiveDateRuleDetails.textContent = effectiveDateRules[state] || 'State has special effective date rules.';
+    }
+    
+    // Function to display simulation results
+    function displayResults(data) {
+        // Show results container
+        document.getElementById('resultsContainer').classList.remove('d-none');
+        
+        // Display scheduled emails
+        const emailResultsDiv = document.getElementById('emailResults');
+        if (data.emails.length > 0) {
+            let emailsHtml = '<div class="table-responsive"><table class="table table-striped">';
+            emailsHtml += '<thead><tr><th>Type</th><th>Date</th><th>Notes</th></tr></thead><tbody>';
+            
+            data.emails.forEach(email => {
+                const formattedDate = new Date(email.date).toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                });
+                
+                const badgeClass = {
+                    'birthday': 'bg-primary',
+                    'effective_date': 'bg-success',
+                    'aep': 'bg-info',
+                    'post_window': 'bg-warning text-dark'
+                }[email.type] || 'bg-secondary';
+                
+                const typeName = {
+                    'birthday': 'Birthday',
+                    'effective_date': 'Effective Date',
+                    'aep': 'AEP',
+                    'post_window': 'Post-Window'
+                }[email.type] || email.type;
+                
+                emailsHtml += `<tr>
+                    <td><span class="badge ${badgeClass}">${typeName}</span></td>
+                    <td>${formattedDate}</td>
+                    <td>${email.reason || 'Normal scheduling rule'}</td>
+                </tr>`;
+            });
+            
+            emailsHtml += '</tbody></table></div>';
+            emailResultsDiv.innerHTML = emailsHtml;
+        } else {
+            emailResultsDiv.innerHTML = '<div class="alert alert-warning">No emails scheduled for this contact.</div>';
+        }
+        
+        // Display exclusion periods
+        const exclusionResultsDiv = document.getElementById('exclusionResults');
+        if (data.exclusion_periods.length > 0) {
+            let exclusionHtml = '<div class="table-responsive"><table class="table table-striped">';
+            exclusionHtml += '<thead><tr><th>Start Date</th><th>End Date</th><th>Duration</th><th>Type</th></tr></thead><tbody>';
+            
+            data.exclusion_periods.forEach(period => {
+                const startDate = new Date(period.start_date).toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                });
+                
+                const endDate = new Date(period.end_date).toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                });
+                
+                // Calculate duration in days
+                const start = new Date(period.start_date);
+                const end = new Date(period.end_date);
+                const diffTime = Math.abs(end - start);
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; // +1 to include both start and end dates
+                
+                exclusionHtml += `<tr>
+                    <td>${startDate}</td>
+                    <td>${endDate}</td>
+                    <td>${diffDays} days</td>
+                    <td>${period.type || 'Standard'}</td>
+                </tr>`;
+            });
+            
+            exclusionHtml += '</tbody></table></div>';
+            exclusionResultsDiv.innerHTML = exclusionHtml;
+        } else {
+            exclusionResultsDiv.innerHTML = '<div class="alert alert-info">No exclusion periods defined for this contact.</div>';
+        }
+        
+        // Display birthday dates
+        const birthdayDatesDiv = document.getElementById('birthdayDatesList');
+        if (data.birthdays.length > 0) {
+            const birthdaysList = data.birthdays.map(date => {
+                return new Date(date).toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                });
+            }).join('</li><li>');
+            
+            birthdayDatesDiv.innerHTML = `<ul><li>${birthdaysList}</li></ul>`;
+        } else {
+            birthdayDatesDiv.innerHTML = '<p class="text-muted">No birthdays in the selected period.</p>';
+        }
+        
+        // Display effective dates
+        const effectiveDatesDiv = document.getElementById('effectiveDatesList');
+        if (data.effective_dates.length > 0) {
+            const effectiveDatesList = data.effective_dates.map(date => {
+                return new Date(date).toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                });
+            }).join('</li><li>');
+            
+            effectiveDatesDiv.innerHTML = `<ul><li>${effectiveDatesList}</li></ul>`;
+        } else {
+            effectiveDatesDiv.innerHTML = '<p class="text-muted">No effective dates in the selected period.</p>';
+        }
+        
+        // Display AEP dates
+        const aepDatesDiv = document.getElementById('aepDatesList');
+        if (data.aep_dates.length > 0) {
+            const aepDatesList = data.aep_dates.map(date => {
+                return new Date(date).toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                });
+            }).join('</li><li>');
+            
+            aepDatesDiv.innerHTML = `<ul><li>${aepDatesList}</li></ul>`;
+        } else {
+            aepDatesDiv.innerHTML = '<p class="text-muted">No AEP dates in the selected period or not applicable.</p>';
+        }
+    }
+});
+</script>
+{% endblock %}
+
+================
+File: templates/state_info.html
+================
+<div class="card border-info mb-3">
+    <div class="card-header bg-info text-white">
+        <strong>State: {{ contact_data.contact_info.state }}</strong>
+        {% if contact_data.contact_info.state_info.has_birthday_rule or 
+            contact_data.contact_info.state_info.has_effective_date_rule or 
+            contact_data.contact_info.state_info.has_year_round_enrollment %}
+        <span class="badge bg-light text-dark">Special Rules Apply</span>
+        {% endif %}
+    </div>
+    <div class="card-body">
+        {% if contact_data.contact_info.state_info.has_year_round_enrollment %}
+        <div class="alert alert-warning">
+            <strong>Year-Round Enrollment State</strong>
+            <p class="mb-0 small">All emails are skipped because this state allows year-round enrollment.</p>
+        </div>
+        {% endif %}
+        
+        {% if contact_data.contact_info.state_info.has_birthday_rule %}
+        <div class="mb-2">
+            <strong class="text-primary">Birthday Rule</strong>
+            <p class="mb-0 small">
+                {% if contact_data.contact_info.state == "CA" %}
+                60-day exclusion period: 30 days before and 30 days after birthday.
+                {% elif contact_data.contact_info.state == "ID" %}
+                63-day exclusion period: Starting on birthday and ending 63 days after.
+                {% elif contact_data.contact_info.state == "IL" %}
+                45-day exclusion period: Starting on birthday and ending 45 days after.
+                {% elif contact_data.contact_info.state == "KY" %}
+                60-day exclusion period: Starting on birthday and ending 60 days after.
+                {% elif contact_data.contact_info.state == "LA" %}
+                93-day exclusion period: 30 days before and 63 days after birthday.
+                {% elif contact_data.contact_info.state == "MD" %}
+                31-day exclusion period: Starting on birthday and ending 31 days after.
+                {% elif contact_data.contact_info.state == "NV" %}
+                60-day exclusion period: Starting on first day of birth month.
+                {% elif contact_data.contact_info.state == "OK" %}
+                60-day exclusion period: Starting on birthday and ending 60 days after.
+                {% elif contact_data.contact_info.state == "OR" %}
+                31-day exclusion period: Starting on birthday and ending 31 days after.
+                {% endif %}
+            </p>
+        </div>
+        {% endif %}
+        
+        {% if contact_data.contact_info.state_info.has_effective_date_rule %}
+        <div class="mb-2">
+            <strong class="text-success">Effective Date Rule</strong>
+            <p class="mb-0 small">
+                {% if contact_data.contact_info.state == "MO" %}
+                63-day exclusion period: 30 days before and 33 days after the policy anniversary.
+                {% endif %}
+            </p>
+        </div>
+        {% endif %}
+        
+        <div class="mb-0 small text-muted">
+            <p class="mb-0"><strong>Standard Scheduling Rules:</strong></p>
+            <ul class="ps-3 mb-0">
+                <li>Birthday emails: 14 days before birthday</li>
+                <li>Effective date emails: 30 days before anniversary</li>
+                <li>AEP emails: Distributed across August/September</li>
+                <li>Post-window emails: Day after exclusion period</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+================
+File: templates/timeline.html
+================
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Schedule Timeline - {{ org.name }}</title>
+    <style>
+        :root {
+            --birthday-color: #4285F4;    /* Blue */
+            --effective-date-color: #34A853; /* Green */
+            --aep-color: #FBBC05;         /* Yellow */
+            --post-window-color: #EA4335; /* Red */
+            --rule-window-color: #9C27B0; /* Purple */
+            --exclusion-color: #9AA0A6;   /* Gray */
+            --skipped-opacity: 0.5;
+            --timeline-background: #f8f9fa;
+            --timeline-line: #dadce0;
+            --font-primary: 'Google Sans', 'Roboto', Arial, sans-serif;
+            --font-color: #202124;
+            --font-color-secondary: #5f6368;
+        }
+        
+        * {
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: var(--font-primary);
+            margin: 0;
+            padding: 20px;
+            color: var(--font-color);
+            background-color: var(--timeline-background);
+            line-height: 1.5;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 2px rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
+            padding: 24px;
+        }
+        
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--timeline-line);
+        }
+        
+        h1 {
+            color: var(--font-color);
+            margin: 0;
+            font-size: 24px;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+        
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            margin-bottom: 20px;
+            color: #1a73e8;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        
+        .back-link:hover {
+            text-decoration: underline;
+        }
+        
+        .back-link svg {
+            margin-right: 6px;
+        }
+        
+        .filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 24px;
+            padding: 16px;
+            background-color: var(--timeline-background);
+            border-radius: 8px;
+        }
+        
+        .filter-btn {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            border-radius: 16px;
+            border: 1px solid transparent;
+            background-color: white;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+            color: var(--font-color);
+        }
+        
+        .filter-btn .color-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        
+        .filter-btn.active {
+            background-color: #e8f0fe;
+            border-color: #1a73e8;
+        }
+        
+        .filter-btn:hover {
+            background-color: #f1f3f4;
+        }
+        
+        .filter-btn.birthday .color-dot {
+            background-color: var(--birthday-color);
+        }
+        
+        .filter-btn.effective_date .color-dot {
+            background-color: var(--effective-date-color);
+        }
+        
+        .filter-btn.aep .color-dot {
+            background-color: var(--aep-color);
+        }
+        
+        .filter-btn.post_window .color-dot {
+            background-color: var(--post-window-color);
+        }
+        
+        .filter-btn.rule_window .color-dot {
+            background-color: var(--rule-window-color);
+        }
+        
+        .filter-btn.exclusion .color-dot {
+            background-color: var(--exclusion-color);
+        }
+        
+        .timeline-header {
+            position: relative;
+            margin-bottom: 24px;
+            margin-left: 200px;
+        }
+        
+        .timeline-axis {
+            position: relative;
+            display: flex;
+            border-bottom: 1px solid var(--timeline-line);
+            padding-bottom: 4px;
+        }
+        
+        .timeline-axis .month {
+            font-size: 12px;
+            color: var(--font-color-secondary);
+            text-align: center;
+            text-transform: uppercase;
+            flex: 1;
+        }
+        
+        .timeline-ruler {
+            position: relative;
+            height: 20px;
+        }
+        
+        .timeline-ruler .tick {
+            position: absolute;
+            width: 1px;
+            height: 6px;
+            background-color: var(--timeline-line);
+            top: 0;
+        }
+        
+        .timeline-ruler .tick.first-of-month {
+            height: 10px;
+        }
+        
+        .timeline-ruler .date-label {
+            position: absolute;
+            font-size: 10px;
+            color: var(--font-color-secondary);
+            top: 12px;
+            transform: translateX(-50%);
+            white-space: nowrap;
+        }
+        
+        .contacts-container {
+            max-height: 700px;
+            overflow-y: auto;
+            padding-right: 16px;
+        }
+        
+        .contact-timeline {
+            margin-bottom: 32px;
+            border-radius: 8px;
+            background-color: white;
+            box-shadow: 0 1px 2px rgba(60,64,67,0.3);
+            overflow: hidden;
+        }
+        
+        .contact-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px;
+            background-color: #f8f9fa;
+            border-bottom: 1px solid var(--timeline-line);
+        }
+        
+        .contact-info h3 {
+            margin: 0 0 4px 0;
+            font-size: 16px;
+            font-weight: 500;
+        }
+        
+        .contact-details {
+            display: flex;
+            gap: 16px;
+            font-size: 13px;
+            color: var(--font-color-secondary);
+        }
+        
+        .contact-details .detail {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .detail-icon {
+            width: 16px;
+            height: 16px;
+            opacity: 0.7;
+        }
+        
+        .view-quote-btn {
+            background-color: #1a73e8;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        
+        .view-quote-btn:hover {
+            background-color: #1765cc;
+        }
+        
+        .timeline-lanes {
+            position: relative;
+            padding: 24px 16px 24px 200px;
+        }
+        
+        .lane {
+            position: relative;
+            height: 40px;
+            margin-bottom: 16px;
+        }
+        
+        .lane-label {
+            position: absolute;
+            left: -180px;
+            top: 10px;
+            width: 160px;
+            text-align: right;
+            font-size: 14px;
+            color: var(--font-color-secondary);
+            font-weight: 500;
+        }
+        
+        .lane-track {
+            position: relative;
+            height: 100%;
+            background-color: #f1f3f4;
+            border-radius: 4px;
+        }
+        
+        .timeline-item {
+            position: absolute;
+            height: 28px;
+            top: 6px;
+            border-radius: 14px;
+            color: white;
+            font-size: 12px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 12px;
+            cursor: pointer;
+            z-index: 3;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            min-width: 70px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .timeline-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            z-index: 4;
+        }
+        
+        .timeline-item.birthday {
+            background-color: var(--birthday-color);
+        }
+        
+        .timeline-item.effective_date {
+            background-color: var(--effective-date-color);
+        }
+        
+        .timeline-item.aep {
+            background-color: var(--aep-color);
+            color: #202124;
+        }
+        
+        .timeline-item.post_window {
+            background-color: var(--post-window-color);
+        }
+        
+        .timeline-item.skipped {
+            opacity: var(--skipped-opacity);
+            border: 2px dashed rgba(255,255,255,0.8);
+        }
+        
+        .rule-window {
+            position: absolute;
+            height: 20px;
+            top: 10px;
+            background-color: var(--rule-window-color);
+            opacity: 0.3;
+            border-radius: 4px;
+            z-index: 1;
+            cursor: pointer;
+        }
+        
+        .exclusion-window {
+            position: absolute;
+            height: 40px;
+            top: 0;
+            background-color: var(--exclusion-color);
+            opacity: 0.3;
+            border-radius: 4px;
+            z-index: 2;
+            cursor: pointer;
+        }
+        
+        .tooltip {
+            position: fixed;
+            background-color: white;
+            border-radius: 4px;
+            padding: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 100;
+            min-width: 220px;
+            max-width: 320px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        
+        .tooltip-header {
+            font-weight: 500;
+            margin-bottom: 8px;
+            color: var(--font-color);
+            padding-bottom: 4px;
+            border-bottom: 1px solid var(--timeline-line);
+        }
+        
+        .tooltip-content {
+            font-size: 13px;
+            color: var(--font-color-secondary);
+        }
+        
+        .tooltip-row {
+            display: flex;
+            margin-bottom: 4px;
+        }
+        
+        .tooltip-label {
+            flex: 0 0 70px;
+            font-weight: 500;
+        }
+        
+        .tooltip-value {
+            flex: 1;
+        }
+        
+        .no-data {
+            text-align: center;
+            padding: 40px;
+            color: var(--font-color-secondary);
+            background-color: var(--timeline-background);
+            border-radius: 8px;
+            font-size: 16px;
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 40px;
+        }
+        
+        .spinner {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            border: 4px solid rgba(0,0,0,0.1);
+            border-radius: 50%;
+            border-top-color: #1a73e8;
+            animation: spin 1s linear infinite;
+            margin-bottom: 16px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .actions {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid var(--timeline-line);
+        }
+        
+        .action-btn {
+            padding: 8px 16px;
+            background-color: #1a73e8;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+        }
+        
+        .action-btn:hover {
+            background-color: #1765cc;
+        }
+        
+        .action-btn svg {
+            margin-right: 8px;
+        }
+        
+        @media (max-width: 768px) {
+            .timeline-header {
+                margin-left: 0;
+            }
+            
+            .timeline-lanes {
+                padding-left: 16px;
+            }
+            
+            .lane-label {
+                position: relative;
+                left: 0;
+                top: 0;
+                width: 100%;
+                text-align: left;
+                margin-bottom: 4px;
+            }
+            
+            .lane {
+                height: auto;
+                margin-bottom: 24px;
+            }
+            
+            .lane-track {
+                margin-top: 24px;
+            }
+            
+            .contact-details {
+                flex-direction: column;
+                gap: 4px;
+            }
+            
+            .contact-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 12px;
+            }
+            
+            .view-quote-btn {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/org/{{ org.id }}" class="back-link">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M19 12H5M12 19l-7-7 7-7"/>
+            </svg>
+            Back to Organization
+        </a>
+        
+        <header>
+            <h1>Email Schedule Timeline - {{ org.name }}</h1>
+            <div class="controls">
+                <label for="zoom-level">Zoom:</label>
+                <select id="zoom-level">
+                    <option value="5">5 days/px</option>
+                    <option value="3">3 days/px</option>
+                    <option value="2" selected>2 days/px</option>
+                    <option value="1">1 day/px</option>
+                    <option value="0.5">0.5 days/px</option>
+                </select>
+            </div>
+        </header>
+        
+        <div class="filters" id="filters">
+            <button class="filter-btn birthday active" data-type="birthday">
+                <span class="color-dot"></span>
+                <span>Birthday</span>
+            </button>
+            <button class="filter-btn effective_date active" data-type="effective_date">
+                <span class="color-dot"></span>
+                <span>Effective Date</span>
+            </button>
+            <button class="filter-btn aep active" data-type="aep">
+                <span class="color-dot"></span>
+                <span>AEP</span>
+            </button>
+            <button class="filter-btn post_window active" data-type="post_window">
+                <span class="color-dot"></span>
+                <span>Post Window</span>
+            </button>
+            <button class="filter-btn rule_window active" data-type="rule_window">
+                <span class="color-dot"></span>
+                <span>Rule Windows</span>
+            </button>
+            <button class="filter-btn exclusion active" data-type="exclusion">
+                <span class="color-dot"></span>
+                <span>Exclusion Windows</span>
+            </button>
+        </div>
+        
+        <div class="timeline-header" id="timeline-header"></div>
+        
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Processing data...</p>
+        </div>
+        
+        <div class="contacts-container" id="contacts-container">
+            <div class="no-data" id="no-data">
+                <p>Loading timeline data...</p>
+            </div>
+        </div>
+        
+        <div class="tooltip" id="tooltip"></div>
+        
+        <div class="actions">
+            <a href="/export/csv/{{ session_id }}" class="action-btn">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+                Export CSV
+            </a>
+        </div>
+    </div>
+
+    <script>
+        // Constants
+        const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+        const MONTH_NAMES_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        
+        // State
+        let timelineData = {{ timeline_data|safe }};
+        let startDate = new Date();
+        startDate.setDate(1);
+        startDate.setMonth(startDate.getMonth() - 1);
+        
+        let endDate = new Date(startDate);
+        endDate.setFullYear(endDate.getFullYear() + 1);
+        
+        let zoomLevel = 2; // days per pixel
+        
+        let filters = {
+            birthday: true,
+            effective_date: true,
+            aep: true,
+            post_window: true,
+            rule_window: true,
+            exclusion: true
+        };
+        
+        // DOM Elements
+        const timelineHeader = document.getElementById('timeline-header');
+        const contactsContainer = document.getElementById('contacts-container');
+        const tooltip = document.getElementById('tooltip');
+        const noData = document.getElementById('no-data');
+        const loading = document.getElementById('loading');
+        const zoomSelect = document.getElementById('zoom-level');
+        const filtersContainer = document.getElementById('filters');
+        
+        // Event Listeners
+        zoomSelect.addEventListener('change', (e) => {
+            zoomLevel = parseFloat(e.target.value);
+            renderTimeline();
+        });
+        
+        filtersContainer.addEventListener('click', (e) => {
+            const button = e.target.closest('.filter-btn');
+            if (button) {
+                const type = button.dataset.type;
+                filters[type] = !filters[type];
+                button.classList.toggle('active');
+                updateVisibility();
+            }
+        });
+        
+        document.addEventListener('mousemove', (e) => {
+            if (tooltip.style.opacity !== '0') {
+                tooltip.style.left = (e.pageX + 10) + 'px';
+                tooltip.style.top = (e.pageY + 10) + 'px';
+            }
+        });
+        
+        // Functions
+        function parseDate(dateString) {
+            if (!dateString || dateString.trim() === '') return null;
+            
+            // Try standard ISO format
+            const date = new Date(dateString);
+            if (!isNaN(date.getTime())) return date;
+            
+            // Try MM/DD/YYYY format
+            const parts = dateString.split(/[\/\-]/);
+            if (parts.length === 3) {
+                // Check if month is first (MM/DD/YYYY)
+                if (parseInt(parts[0]) <= 12) {
+                    return new Date(parseInt(parts[2]), parseInt(parts[0]) - 1, parseInt(parts[1]));
+                }
+                // Check if year is first (YYYY/MM/DD)
+                else if (parseInt(parts[0]) > 31) {
+                    return new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+                }
+            }
+            
+            console.warn(`Could not parse date: ${dateString}`);
+            return null;
+        }
+        
+        function updateDateRange() {
+            if (timelineData.length === 0) return;
+            
+            // Find earliest and latest dates in the data
+            let earliestDate = new Date();
+            let latestDate = new Date(0);
+            
+            timelineData.forEach(item => {
+                if (item.date) {
+                    const date = parseDate(item.date);
+                    if (date && date < earliestDate) {
+                        earliestDate = date;
+                    }
+                    if (date && date > latestDate) {
+                        latestDate = date;
+                    }
+                }
+                
+                if (item.end_date) {
+                    const endDate = parseDate(item.end_date);
+                    if (endDate && endDate > latestDate) {
+                        latestDate = endDate;
+                    }
+                }
+            });
+            
+            // Set start date to beginning of month of earliest date
+            startDate = new Date(earliestDate);
+            startDate.setDate(1);
+            startDate.setMonth(startDate.getMonth() - 1);
+            
+            // Set end date to end of month of latest date
+            endDate = new Date(latestDate);
+            endDate.setMonth(endDate.getMonth() + 2, 0);
+        }
+        
+        function renderTimeline() {
+            // Show loading
+            loading.style.display = 'block';
+            noData.style.display = 'none';
+            
+            // Update date range based on data
+            updateDateRange();
+            
+            // Clear containers
+            timelineHeader.innerHTML = '';
+            contactsContainer.innerHTML = '';
+            
+            if (timelineData.length === 0) {
+                noData.style.display = 'block';
+                loading.style.display = 'none';
+                return;
+            }
+            
+            // Render timeline header
+            renderTimelineHeader();
+            
+            // Group data by contact
+            const contactsMap = groupByContact(timelineData);
+            
+            // Render contact timelines
+            Object.values(contactsMap).forEach(contact => {
+                renderContactTimeline(contact);
+            });
+            
+            // Update visibility based on filters
+            updateVisibility();
+            
+            // Hide loading
+            loading.style.display = 'none';
+        }
+        
+        function renderTimelineHeader() {
+            const totalDays = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24));
+            const totalWidth = Math.ceil(totalDays / zoomLevel);
+            
+            // Create months axis
+            const timelineAxis = document.createElement('div');
+            timelineAxis.className = 'timeline-axis';
+            timelineAxis.style.width = totalWidth + 'px';
+            
+            // Add months
+            let currentDate = new Date(startDate);
+            while (currentDate < endDate) {
+                const monthStart = new Date(currentDate);
+                
+                currentDate.setMonth(currentDate.getMonth() + 1);
+                
+                const daysInMonth = Math.floor((currentDate - monthStart) / (1000 * 60 * 60 * 24));
+                const monthWidth = Math.ceil(daysInMonth / zoomLevel);
+                
+                const month = document.createElement('div');
+                month.className = 'month';
+                month.textContent = MONTH_NAMES_SHORT[monthStart.getMonth()];
+                month.style.width = monthWidth + 'px';
+                
+                timelineAxis.appendChild(month);
+            }
+            
+            // Create ruler
+            const timelineRuler = document.createElement('div');
+            timelineRuler.className = 'timeline-ruler';
+            timelineRuler.style.width = totalWidth + 'px';
+            
+            // Add ticks for days
+            currentDate = new Date(startDate);
+            let position = 0;
+            
+            while (currentDate <= endDate) {
+                if (currentDate.getDate() % 5 === 1 || currentDate.getDate() === 1) {
+                    const tick = document.createElement('div');
+                    tick.className = `tick ${currentDate.getDate() === 1 ? 'first-of-month' : ''}`;
+                    tick.style.left = position + 'px';
+                    
+                    if (currentDate.getDate() === 1 || (zoomLevel <= 1 && currentDate.getDate() % 5 === 1)) {
+                        const dateLabel = document.createElement('div');
+                        dateLabel.className = 'date-label';
+                        dateLabel.textContent = currentDate.getDate() === 1 
+                            ? `${MONTH_NAMES_SHORT[currentDate.getMonth()]} 1` 
+                            : currentDate.getDate();
+                        dateLabel.style.left = position + 'px';
+                        timelineRuler.appendChild(dateLabel);
+                    }
+                    
+                    timelineRuler.appendChild(tick);
+                }
+                
+                currentDate.setDate(currentDate.getDate() + 1);
+                position = Math.ceil((currentDate - startDate) / (1000 * 60 * 60 * 24) / zoomLevel);
+            }
+            
+            timelineHeader.appendChild(timelineAxis);
+            timelineHeader.appendChild(timelineRuler);
+        }
+        
+        function groupByContact(data) {
+            const contacts = {};
+            
+            data.forEach(item => {
+                const contactId = item.contact_id;
+                
+                if (!contacts[contactId]) {
+                    contacts[contactId] = {
+                        org_id: item.org_id,
+                        contact_id: contactId,
+                        first_name: item.first_name,
+                        last_name: item.last_name,
+                        email: item.email,
+                        state: item.state,
+                        birth_date: item.birth_date,
+                        effective_date: item.effective_date,
+                        items: []
+                    };
+                }
+                
+                contacts[contactId].items.push(item);
+            });
+            
+            return contacts;
+        }
+        
+        function renderContactTimeline(contact) {
+            const contactTimeline = document.createElement('div');
+            contactTimeline.className = 'contact-timeline';
+            contactTimeline.dataset.contactId = contact.contact_id;
+            
+            // Create contact header
+            const contactHeader = document.createElement('div');
+            contactHeader.className = 'contact-header';
+            
+            const contactInfo = document.createElement('div');
+            contactInfo.className = 'contact-info';
+            
+            const contactName = document.createElement('h3');
+            contactName.textContent = `${contact.first_name} ${contact.last_name}`;
+            
+            const contactDetails = document.createElement('div');
+            contactDetails.className = 'contact-details';
+            
+            // Email
+            const emailDetail = document.createElement('div');
+            emailDetail.className = 'detail';
+            emailDetail.innerHTML = `
+                <svg class="detail-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path>
+                    <polyline points="22,6 12,13 2,6"></polyline>
+                </svg>
+                <span>${contact.email}</span>
+            `;
+            
+            // State
+            const stateDetail = document.createElement('div');
+            stateDetail.className = 'detail';
+            stateDetail.innerHTML = `
+                <svg class="detail-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                    <circle cx="12" cy="10" r="3"></circle>
+                </svg>
+                <span>${contact.state}</span>
+            `;
+            
+            // Contact ID
+            const idDetail = document.createElement('div');
+            idDetail.className = 'detail';
+            idDetail.innerHTML = `
+                <svg class="detail-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="12" cy="7" r="4"></circle>
+                </svg>
+                <span>ID: ${contact.contact_id}</span>
+            `;
+            
+            contactDetails.appendChild(emailDetail);
+            contactDetails.appendChild(stateDetail);
+            contactDetails.appendChild(idDetail);
+            
+            contactInfo.appendChild(contactName);
+            contactInfo.appendChild(contactDetails);
+            
+            // Create quote button
+            const quoteBtn = document.createElement('button');
+            quoteBtn.className = 'view-quote-btn';
+            quoteBtn.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <path d="M16 12l-4 4-4-4M12 8v7"></path>
+                </svg>
+                View Quote
+            `;
+            
+            // Find first email with a link
+            const firstItemWithLink = contact.items.find(item => item.link && item.link.trim() !== '');
+            const quoteLink = firstItemWithLink ? firstItemWithLink.link : `https://example.com/quote/${contact.org_id}/${contact.contact_id}`;
+            
+            quoteBtn.addEventListener('click', () => {
+                window.open(quoteLink, '_blank');
+            });
+            
+            contactHeader.appendChild(contactInfo);
+            contactHeader.appendChild(quoteBtn);
+            
+            contactTimeline.appendChild(contactHeader);
+            
+            // Create timeline lanes
+            const timelineLanes = document.createElement('div');
+            timelineLanes.className = 'timeline-lanes';
+            
+            // Create lanes for email types
+            const laneTypes = ['birthday', 'effective_date', 'aep', 'post_window'];
+            
+            laneTypes.forEach(type => {
+                const lane = createLane(type, contact);
+                timelineLanes.appendChild(lane);
+            });
+            
+            contactTimeline.appendChild(timelineLanes);
+            contactsContainer.appendChild(contactTimeline);
+        }
+        
+        function createLane(type, contact) {
+            const lane = document.createElement('div');
+            lane.className = 'lane';
+            lane.dataset.type = type;
+            
+            const laneLabel = document.createElement('div');
+            laneLabel.className = 'lane-label';
+            laneLabel.textContent = formatLaneLabel(type);
+            
+            const laneTrack = document.createElement('div');
+            laneTrack.className = 'lane-track';
+            
+            // Calculate total width
+            const totalDays = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24));
+            const totalWidth = Math.ceil(totalDays / zoomLevel);
+            laneTrack.style.width = totalWidth + 'px';
+            
+            // Add exclusion windows
+            const exclusionItems = contact.items.filter(item => 
+                item.item_type === 'exclusion' && 
+                item.date && 
+                item.end_date
+            );
+            
+            exclusionItems.forEach(item => {
+                const startDateObj = parseDate(item.date);
+                const endDateObj = parseDate(item.end_date);
+                
+                if (startDateObj && endDateObj) {
+                    const exclusion = document.createElement('div');
+                    exclusion.className = 'exclusion-window';
+                    exclusion.dataset.type = 'exclusion';
+                    
+                    const position = getPositionFromDate(startDateObj);
+                    const width = getWidthBetweenDates(startDateObj, endDateObj);
+                    
+                    exclusion.style.left = position + 'px';
+                    exclusion.style.width = width + 'px';
+                    
+                    exclusion.addEventListener('mouseenter', () => {
+                        showTooltip({
+                            title: 'Exclusion Window',
+                            date: formatDate(startDateObj),
+                            end_date: formatDate(endDateObj),
+                            description: item.description
+                        });
+                    });
+                    
+                    exclusion.addEventListener('mouseleave', hideTooltip);
+                    
+                    laneTrack.appendChild(exclusion);
+                }
+            });
+            
+            // Add rule windows
+            const ruleWindowItems = contact.items.filter(item => 
+                item.item_type === 'rule_window' && 
+                item.date && 
+                item.end_date
+            );
+            
+            ruleWindowItems.forEach(item => {
+                const startDateObj = parseDate(item.date);
+                const endDateObj = parseDate(item.end_date);
+                
+                if (startDateObj && endDateObj) {
+                    const ruleWindow = document.createElement('div');
+                    ruleWindow.className = 'rule-window';
+                    ruleWindow.dataset.type = 'rule_window';
+                    
+                    const position = getPositionFromDate(startDateObj);
+                    const width = getWidthBetweenDates(startDateObj, endDateObj);
+                    
+                    ruleWindow.style.left = position + 'px';
+                    ruleWindow.style.width = width + 'px';
+                    
+                    ruleWindow.addEventListener('mouseenter', () => {
+                        showTooltip({
+                            title: 'Rule Window',
+                            date: formatDate(startDateObj),
+                            end_date: formatDate(endDateObj),
+                            description: item.description
+                        });
+                    });
+                    
+                    ruleWindow.addEventListener('mouseleave', hideTooltip);
+                    
+                    laneTrack.appendChild(ruleWindow);
+                }
+            });
+            
+            // Add email items
+            const emailItems = contact.items.filter(item => 
+                item.item_type === type && 
+                item.date
+            );
+            
+            emailItems.forEach(item => {
+                const dateObj = parseDate(item.date);
+                
+                if (dateObj) {
+                    const timelineItem = document.createElement('div');
+                    timelineItem.className = `timeline-item ${type}`;
+                    timelineItem.dataset.type = type;
+                    
+                    if (item.skipped === 'Yes') {
+                        timelineItem.classList.add('skipped');
+                    }
+                    
+                    const position = getPositionFromDate(dateObj);
+                    timelineItem.style.left = position + 'px';
+                    
+                    timelineItem.textContent = formatDate(dateObj, true);
+                    
+                    timelineItem.addEventListener('mouseenter', () => {
+                        showTooltip({
+                            title: `${formatLaneLabel(type)} Email${item.skipped === 'Yes' ? ' (Skipped)' : ''}`,
+                            date: formatDate(dateObj),
+                            reason: item.reason,
+                            description: item.description
+                        });
+                    });
+                    
+                    timelineItem.addEventListener('mouseleave', hideTooltip);
+                    
+                    laneTrack.appendChild(timelineItem);
+                }
+            });
+            
+            lane.appendChild(laneLabel);
+            lane.appendChild(laneTrack);
+            
+            return lane;
+        }
+        
+        function getPositionFromDate(date) {
+            const daysSinceStart = Math.ceil((date - startDate) / (1000 * 60 * 60 * 24));
+            return Math.floor(daysSinceStart / zoomLevel);
+        }
+        
+        function getWidthBetweenDates(startDate, endDate) {
+            const daysDiff = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24));
+            return Math.max(Math.floor(daysDiff / zoomLevel), 1);
+        }
+        
+        function formatLaneLabel(type) {
+            switch (type) {
+                case 'birthday': return 'Birthday';
+                case 'effective_date': return 'Effective Date';
+                case 'aep': return 'AEP';
+                case 'post_window': return 'Post Window';
+                default: return type.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+            }
+        }
+        
+        function formatDate(date, short = false) {
+            if (!date) return '';
+            
+            if (short) {
+                return `${MONTH_NAMES_SHORT[date.getMonth()]} ${date.getDate()}`;
+            }
+            
+            return `${MONTH_NAMES[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+        }
+        
+        function showTooltip(data) {
+            tooltip.innerHTML = `
+                <div class="tooltip-header">${data.title}</div>
+                <div class="tooltip-content">
+                    <div class="tooltip-row">
+                        <div class="tooltip-label">Date:</div>
+                        <div class="tooltip-value">${data.date}</div>
+                    </div>
+                    ${data.end_date ? `
+                    <div class="tooltip-row">
+                        <div class="tooltip-label">End Date:</div>
+                        <div class="tooltip-value">${data.end_date}</div>
+                    </div>
+                    ` : ''}
+                    ${data.reason ? `
+                    <div class="tooltip-row">
+                        <div class="tooltip-label">Reason:</div>
+                        <div class="tooltip-value">${data.reason}</div>
+                    </div>
+                    ` : ''}
+                    ${data.description ? `
+                    <div class="tooltip-row">
+                        <div class="tooltip-label">Details:</div>
+                        <div class="tooltip-value">${data.description}</div>
+                    </div>
+                    ` : ''}
+                </div>
+            `;
+            
+            tooltip.style.opacity = '1';
+        }
+        
+        function hideTooltip() {
+            tooltip.style.opacity = '0';
+        }
+        
+        function updateVisibility() {
+            // Update visibility based on filters
+            for (const type in filters) {
+                const visible = filters[type];
+                
+                // Update items
+                document.querySelectorAll(`[data-type="${type}"]`).forEach(el => {
+                    el.style.display = visible ? '' : 'none';
+                });
+            }
+        }
+        
+        // Initialize
+        function init() {
+            // Set initial zoom level
+            zoomSelect.value = zoomLevel.toString();
+            
+            // Add an event listener for escape key to hide tooltip
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                    hideTooltip();
+                }
+            });
+            
+            // Render timeline
+            renderTimeline();
+        }
+        
+        // Start the application
+        init();
+    </script>
+</body>
+</html>
 
 ================
 File: app.py
@@ -883,27 +4754,7 @@ async def check_schedules(
                     if effective_date:
                         effective_dates = get_all_occurrences(pd.to_datetime(effective_date).date(), current_date, end_date)
                     
-                    # Initialize timeline data
-                    timeline_data = []
-                    
-                    # Add birthdays to timeline
-                    for birthday in birthdays:
-                        timeline_data.append({
-                            "start": birthday.isoformat(),
-                            "type": "point",
-                            "className": "date-birthday",
-                            "content": "Birthday"
-                        })
-                    
-                    # Add effective dates to timeline
-                    for eff_date in effective_dates:
-                        timeline_data.append({
-                            "start": eff_date.isoformat(),
-                            "type": "point",
-                            "className": "date-effective",
-                            "content": "Effective Date"
-                        })
-                    
+                    # Initialize timeline data for each category
                     contacts_data[contact_id] = {
                         'contact_info': {
                             'id': contact_id,
@@ -922,10 +4773,13 @@ async def check_schedules(
                         },
                         'skipped_emails': [],
                         'scheduling_rules': [],
-                        'emails': [],  # Keep for backwards compatibility with the template
-                        'timeline_data': timeline_data  # Add timeline data
+                        'timeline_exclusions': [],
+                        'timeline_birthdays': [],
+                        'timeline_effective_dates': [],
+                        'timeline_scheduled': [],
+                        'timeline_skipped': []
                     }
-                    
+
                     # Add applicable scheduling rules based on state
                     rules = []
                     if state_info['has_birthday_rule']:
@@ -940,73 +4794,105 @@ async def check_schedules(
                         rules.append("AEP emails: Distributed across August/September")
                         rules.append("Post-window emails: Day after exclusion period")
                     contacts_data[contact_id]['scheduling_rules'] = rules
-                
-                # Add email to appropriate category and to the backward compatibility list
-                email_info = {
-                    'type': row['email_type'],
-                    'date': str(row['email_date']),
-                    'link': row['link'],
-                    'skipped': row['skipped'],
-                    'reason': row['reason']
-                }
-                
-                # Add to the emails list for backwards compatibility
-                contacts_data[contact_id]['emails'].append(email_info)
-                
-                # Add to timeline data if not skipped
-                if row['skipped'] != 'Yes':
-                    contacts_data[contact_id]['timeline_data'].append({
-                        "start": str(row['email_date']),
-                        "type": "point",
-                        "className": f"email-{row['email_type'].lower().replace('_', '-')}",
-                        "content": f"{row['email_type'].replace('_', ' ').title()} Email"
-                    })
-                
-                # Also add to the structured format
-                if row['skipped'] != 'Yes':
-                    email_type = row['email_type'].lower()
-                    if email_type in contacts_data[contact_id]['scheduled_emails']:
-                        contacts_data[contact_id]['scheduled_emails'][email_type].append({
-                            'date': str(row['email_date']),
-                            'link': row['link'],
+
+                    # Add birthdays to timeline
+                    for birthday in birthdays:
+                        contacts_data[contact_id]['timeline_birthdays'].append({
+                            "start": birthday.isoformat(),
+                            "type": "point",
+                            "className": "date-birthday",
+                            "content": "Birthday",
+                            "tooltip": f"Birthday: {birthday.strftime('%B %d, %Y')}"
+                        })
+
+                    # Add effective dates to timeline
+                    for eff_date in effective_dates:
+                        contacts_data[contact_id]['timeline_effective_dates'].append({
+                            "start": eff_date.isoformat(),
+                            "type": "point",
+                            "className": "date-effective",
+                            "content": "Effective Date",
+                            "tooltip": f"Effective Date: {eff_date.strftime('%B %d, %Y')}"
+                        })
+
+                    # Add exclusion periods if not a year-round enrollment state
+                    if not state_info['has_year_round_enrollment']:
+                        # Calculate rule windows and exclusion periods
+                        contact_data = {
+                            'id': contact_id,
+                            'birth_date': pd.to_datetime(birth_date).date() if birth_date else None,
+                            'effective_date': pd.to_datetime(effective_date).date() if effective_date else None,
+                            'state': state_code
+                        }
+
+                        # Calculate rule windows and exclusion periods
+                        rule_windows = calculate_rule_windows(contact_data, birthdays, effective_dates, current_date, end_date)
+                        exclusion_periods = calculate_exclusion_periods(rule_windows, current_date, end_date)
+
+                        # Add exclusion periods to timeline
+                        for period in exclusion_periods:
+                            contacts_data[contact_id]['timeline_exclusions'].append({
+                                "start": period.start.isoformat(),
+                                "end": period.end_date.isoformat(),
+                                "type": "range",
+                                "className": "exclusion",
+                                "content": "Exclusion Period",
+                                "tooltip": f"Exclusion Period: {period.start.strftime('%B %d, %Y')} to {period.end_date.strftime('%B %d, %Y')}"
+                            })
+
+                    # Add email to appropriate category and timeline
+                    email_info = {
+                        'type': row['email_type'],
+                        'date': str(row['email_date']),
+                        'link': row['link'],
+                        'skipped': row['skipped'],
+                        'reason': row['reason']
+                    }
+
+                    # Add to timeline based on whether it was skipped
+                    if row['skipped'] != 'Yes':
+                        # Add to scheduled emails list
+                        email_type = row['email_type'].lower()
+                        if email_type in contacts_data[contact_id]['scheduled_emails']:
+                            contacts_data[contact_id]['scheduled_emails'][email_type].append({
+                                'date': str(row['email_date']),
+                                'link': row['link'],
+                                'reason': row['reason']
+                            })
+
+                        # Add to scheduled emails timeline
+                        timeline_item = {
+                            "start": str(row['email_date']),
+                            "type": "point",
+                            "className": f"email-{row['email_type'].lower().replace('_', '-')}",
+                            "content": f"{row['email_type'].replace('_', ' ').title()} Email"
+                        }
+
+                        # Add tooltip for post-window emails
+                        if row['email_type'] == 'post_window':
+                            # Find the most recent exclusion period that ended before this email
+                            for period in contacts_data[contact_id]['timeline_exclusions']:
+                                if period['end'] < str(row['email_date']):
+                                    timeline_item["tooltip"] = f"Post-Window Email: Scheduled after exclusion period ({period['start']} to {period['end']})"
+                                    break
+                        else:
+                            timeline_item["tooltip"] = f"{row['email_type'].replace('_', ' ').title()} Email: {row['email_date']}"
+
+                        contacts_data[contact_id]['timeline_scheduled'].append(timeline_item)
+                    else:
+                        # Add to skipped emails list
+                        contacts_data[contact_id]['skipped_emails'].append({
+                            'type': row['email_type'],
                             'reason': row['reason']
                         })
-                else:
-                    contacts_data[contact_id]['skipped_emails'].append({
-                        'type': row['email_type'],
-                        'reason': row['reason']
-                    })
-                
-                # Add exclusion periods if not a year-round enrollment state
-                if not state_info['has_year_round_enrollment']:
-                    # Calculate rule windows and exclusion periods
-                    contact_data = {
-                        'id': contact_id,
-                        'birth_date': pd.to_datetime(birth_date).date() if birth_date else None,
-                        'effective_date': pd.to_datetime(effective_date).date() if effective_date else None,
-                        'state': state_code
-                    }
-                    
-                    # Calculate birthdays and effective dates
-                    birthdays = []
-                    effective_dates = []
-                    if birth_date:
-                        birthdays = get_all_occurrences(pd.to_datetime(birth_date).date(), current_date, end_date)
-                    if effective_date:
-                        effective_dates = get_all_occurrences(pd.to_datetime(effective_date).date(), current_date, end_date)
-                    
-                    # Calculate rule windows and exclusion periods
-                    rule_windows = calculate_rule_windows(contact_data, birthdays, effective_dates, current_date, end_date)
-                    exclusion_periods = calculate_exclusion_periods(rule_windows, current_date, end_date)
-                    
-                    # Add exclusion periods to timeline data
-                    for period in exclusion_periods:
-                        contacts_data[contact_id]['timeline_data'].append({
-                            "start": period.start.isoformat(),
-                            "end": period.end_date.isoformat(),
-                            "type": "range",
-                            "className": "exclusion",
-                            "content": "Exclusion Period"
+
+                        # Add to skipped emails timeline
+                        contacts_data[contact_id]['timeline_skipped'].append({
+                            "start": str(row['email_date']),
+                            "type": "point",
+                            "className": "email-skipped",
+                            "content": f"{row['email_type'].replace('_', ' ').title()} Email (Skipped)",
+                            "tooltip": f"Skipped {row['email_type'].replace('_', ' ').title()} Email: {row['reason']}"
                         })
                 
         except Exception as e:

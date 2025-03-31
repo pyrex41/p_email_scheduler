@@ -12,28 +12,33 @@ from typing import Optional, List, Dict, Any
 import random
 import json
 
-# Import our email scheduling code
+# Import our updated email scheduling code
+from email_scheduler_optimized import (
+    EmailScheduler,
+    AsyncEmailProcessor,
+    main_async,
+    main_sync,
+    display_results
+)
+from contact_rule_engine import ContactRuleEngine
+from email_scheduler_common import (
+    EMAIL_TYPE_BIRTHDAY,
+    EMAIL_TYPE_EFFECTIVE_DATE,
+    EMAIL_TYPE_AEP,
+    EMAIL_TYPE_POST_WINDOW,
+    ALL_STATES,
+    is_leap_year,
+    try_create_date,
+    is_month_end,
+    get_state_from_zip
+)
+
+# Import our database and formatting functions
 from schedule_org_emails import (
     get_organization_details,
     get_contacts_from_org_db,
     format_contact_data,
-    process_contacts_async,
-    BIRTHDAY_RULE_STATES,
-    EFFECTIVE_DATE_RULE_STATES,
-    YEAR_ROUND_ENROLLMENT_STATES,
     write_results_to_csv
-)
-
-from email_scheduler_common import (
-    calculate_birthday_email_date, 
-    calculate_effective_date_email, 
-    get_aep_dates_for_year,
-    DateRange,
-    calculate_post_window_dates,
-    calculate_rule_windows,
-    calculate_exclusion_periods,
-    is_date_excluded,
-    get_all_occurrences
 )
 
 reload_db = False # set to True to refresh the database
@@ -77,47 +82,17 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # Store DataFrames in memory (key: org_id)
 org_data_store = {}
 
-# Get list of states with special rules
-SPECIAL_RULE_STATES = sorted(set(
-    list(BIRTHDAY_RULE_STATES.keys()) + 
-    list(EFFECTIVE_DATE_RULE_STATES.keys()) + 
-    list(YEAR_ROUND_ENROLLMENT_STATES)
-))
+# Initialize our rule engine and scheduler
+rule_engine = ContactRuleEngine()
+email_scheduler = EmailScheduler()
 
-# All US states
-ALL_STATES = [
-    'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA',
-    'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD',
-    'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ',
-    'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC',
-    'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY',
-    'DC'
-]
+# Get list of states with special rules from rule engine
+SPECIAL_RULE_STATES = sorted(rule_engine.get_special_rule_states())
 
-# Load ZIP code data
-with open('zipData.json') as f:
-    ZIP_DATA = json.load(f)
-
-def get_state_from_zip(zip_code: str) -> str:
-    """
-    Get state from ZIP code using zipData.json
-    
-    Args:
-        zip_code: ZIP code as string
-        
-    Returns:
-        Two-letter state code, or None if not found
-    """
-    try:
-        if not zip_code or not str(zip_code).strip():
-            return None
-        # Convert to string and take first 5 digits
-        zip_str = str(zip_code)[:5]
-        if zip_str in ZIP_DATA:
-            return ZIP_DATA[zip_str]['state']
-    except (KeyError, TypeError, ValueError):
-        pass
-    return None
+# Get state lists from rule engine
+BIRTHDAY_RULE_STATES = {state: rule_engine.get_state_rule(state) for state in ALL_STATES if rule_engine.get_state_rule(state).get('type') == 'birthday'}
+EFFECTIVE_DATE_RULE_STATES = {state: rule_engine.get_state_rule(state) for state in ALL_STATES if rule_engine.get_state_rule(state).get('type') == 'effective_date'}
+YEAR_ROUND_ENROLLMENT_STATES = [state for state in ALL_STATES if rule_engine.is_year_round_enrollment_state(state)]
 
 def sample_contacts_from_states(unique_contacts: pd.DataFrame, sample_size: int, state: Optional[str] = None) -> List[str]:
     """
@@ -352,136 +327,24 @@ async def simulate_emails(data: SimulationRequest):
             "state": data.state
         }
         
-        # Calculate birthdays in range
-        birthdays = []
-        if birth_date:
-            birthdays = get_all_occurrences(birth_date, start_date, end_date)
+        # Use the new scheduler to process the contact
+        result = email_scheduler.process_contact(contact, start_date, end_date)
         
-        # Calculate effective dates in range
-        effective_dates = []
-        if effective_date:
-            effective_dates = get_all_occurrences(effective_date, start_date, end_date)
-        
-        # Get AEP dates
-        aep_dates = []
-        if data.state not in YEAR_ROUND_ENROLLMENT_STATES:
-            for year in range(start_date.year, end_date.year + 1):
-                year_aep_dates = get_aep_dates_for_year(year)
-                aep_dates.extend([d for d in year_aep_dates if start_date <= d <= end_date])
-        
-        # Calculate rule windows
-        rule_windows = calculate_rule_windows(contact, birthdays, effective_dates, start_date, end_date)
-        
-        # Calculate exclusion periods
-        exclusion_periods = calculate_exclusion_periods(rule_windows, start_date, end_date)
-        
-        # Calculate post-window dates - only for states with specific rules
-        post_window_dates = []
-        if rule_windows and (data.state in BIRTHDAY_RULE_STATES or data.state in EFFECTIVE_DATE_RULE_STATES):
-            post_window_dates = calculate_post_window_dates(rule_windows, end_date)
-        
-        # Schedule emails
-        scheduled_emails = []
-        
-        # Check if this is a year-round enrollment state
-        if data.state in YEAR_ROUND_ENROLLMENT_STATES:
-            # No emails for year-round enrollment states
-            return {
-                "emails": [],
-                "exclusion_periods": [
-                    {"start_date": period.start.isoformat(), "end_date": period.end_date.isoformat(), 
-                     "type": "Year-Round Enrollment"} 
-                    for period in exclusion_periods
-                ],
-                "birthdays": [d.isoformat() for d in birthdays],
-                "effective_dates": [d.isoformat() for d in effective_dates],
-                "aep_dates": [],
-                "state": data.state,
-                "message": "No emails scheduled - year-round enrollment state"
-            }
-        
-        # Birthday emails
-        if birthdays:
-            for birthday in birthdays:
-                email_date = calculate_birthday_email_date(birthday, birthday.year)
-                
-                # Only include if within date range
-                if start_date <= email_date <= end_date:
-                    # For birthday emails, states without specific birthday rules 
-                    # (not in BIRTHDAY_RULE_STATES) should always get emails
-                    bypass_exclusion = data.state not in BIRTHDAY_RULE_STATES
-                    
-                    # States without rule windows will have empty exclusion_periods list,
-                    # so is_date_excluded will return False
-                    if bypass_exclusion or not is_date_excluded(email_date, exclusion_periods):
-                        scheduled_emails.append({
-                            "type": "birthday",
-                            "date": email_date.isoformat(),
-                            "reason": f"14 days before birthday ({birthday.isoformat()})"
-                        })
-        
-        # Effective date emails
-        if effective_dates:
-            for eff_date in effective_dates:
-                email_date = calculate_effective_date_email(eff_date, start_date)
-                
-                # Only include if within date range
-                if start_date <= email_date <= end_date:
-                    # For effective date emails, states with effective date rules (like Missouri)
-                    # should always get these emails
-                    bypass_exclusion = data.state in EFFECTIVE_DATE_RULE_STATES
-                    
-                    # States without rule windows will have empty exclusion_periods list,
-                    # so is_date_excluded will return False
-                    if bypass_exclusion or not is_date_excluded(email_date, exclusion_periods):
-                        scheduled_emails.append({
-                            "type": "effective_date",
-                            "date": email_date.isoformat(),
-                            "reason": f"30 days before effective date ({eff_date.isoformat()})"
-                        })
-        
-        # AEP emails
-        if aep_dates and data.state not in YEAR_ROUND_ENROLLMENT_STATES:
-            # Distribute contact across AEP weeks
-            contact_index = 12345 % len(aep_dates)  # Use dummy contact ID
-            aep_date = aep_dates[contact_index]
-            
-            # States without rule windows should always get AEP emails
-            # States without rule windows will have empty exclusion_periods list,
-            # so is_date_excluded will return False
-            if not is_date_excluded(aep_date, exclusion_periods):
-                scheduled_emails.append({
-                    "type": "aep",
-                    "date": aep_date.isoformat(),
-                    "reason": "Annual Enrollment Period email"
-                })
-        
-        # Post-window emails
-        if post_window_dates:
-            # We only send one post-window email, so use the earliest one
-            post_date = post_window_dates[0]
-            
-            # Post-window emails bypass exclusion periods
-            scheduled_emails.append({
-                "type": "post_window",
-                "date": post_date.isoformat(),
-                "reason": "Day after exclusion period"
-            })
-        
-        # Sort emails by date
-        scheduled_emails.sort(key=lambda x: x["date"])
-        
-        return {
-            "emails": scheduled_emails,
+        # Format the result for the response
+        response = {
+            "emails": result["emails"],
+            "skipped": result["skipped"],
             "exclusion_periods": [
-                {"start_date": period.start.isoformat(), "end_date": period.end_date.isoformat()} 
-                for period in exclusion_periods
+                {"start_date": period["start"], "end_date": period["end"]} 
+                for period in result.get("exclusion_periods", [])
             ],
-            "birthdays": [d.isoformat() for d in birthdays],
-            "effective_dates": [d.isoformat() for d in effective_dates],
-            "aep_dates": [d.isoformat() for d in aep_dates],
+            "birthdays": [d.isoformat() for d in result.get("birthdays", [])],
+            "effective_dates": [d.isoformat() for d in result.get("effective_dates", [])],
+            "aep_dates": [d.isoformat() for d in result.get("aep_dates", [])],
             "state": data.state
         }
+        
+        return response
         
     except Exception as e:
         # Log the error and return an error response
@@ -492,6 +355,38 @@ async def simulate_emails(data: SimulationRequest):
             status_code=500,
             content={"error": str(e)}
         )
+
+async def process_contacts_batch(contacts: List[Dict], current_date: date, end_date: date) -> List[Dict]:
+    """Process a batch of contacts using the new scheduler"""
+    results = []
+    for contact in contacts:
+        try:
+            result = email_scheduler.process_contact(contact, current_date, end_date)
+            results.append({
+                "contact_id": contact["id"],
+                **result
+            })
+        except Exception as e:
+            print(f"Error processing contact {contact['id']}: {e}")
+            results.append({
+                "contact_id": contact["id"],
+                "error": str(e),
+                "emails": [],
+                "skipped": []
+            })
+    return results
+
+async def process_contacts_async(contacts: List[Dict], current_date: date, end_date: date, batch_size: int = 100) -> List[Dict]:
+    """Process contacts asynchronously in batches"""
+    all_results = []
+    
+    # Process contacts in batches
+    for i in range(0, len(contacts), batch_size):
+        batch = contacts[i:i + batch_size]
+        batch_results = await process_contacts_batch(batch, current_date, end_date)
+        all_results.extend(batch_results)
+    
+    return all_results
 
 @app.post("/resample/{org_id}")
 async def resample_contacts(
@@ -551,6 +446,8 @@ async def resample_contacts(
         
         # Group data by contact with improved organization
         contacts_data = {}
+        
+        # First pass: Initialize contact data and calculate dates
         for row in sample_data:
             contact_id = row['contact_id']
             if contact_id not in contacts_data:
@@ -566,6 +463,19 @@ async def resample_contacts(
                     }
                 }
                 
+                # Get birth_date and effective_date
+                birth_date = row.get('birth_date')
+                effective_date = row.get('effective_date')
+                
+                # Calculate birthdays and effective dates in range
+                birthdays = []
+                effective_dates = []
+                if birth_date:
+                    birthdays = get_all_occurrences(pd.to_datetime(birth_date).date(), current_date, end_date)
+                if effective_date:
+                    effective_dates = get_all_occurrences(pd.to_datetime(effective_date).date(), current_date, end_date)
+                
+                # Initialize contact data structure
                 contacts_data[contact_id] = {
                     'contact_info': {
                         'id': contact_id,
@@ -573,8 +483,8 @@ async def resample_contacts(
                         'email': row['email'],
                         'state': state_code,
                         'state_info': state_info,
-                        'birth_date': row['birth_date'],
-                        'effective_date': row['effective_date']
+                        'birth_date': birth_date,
+                        'effective_date': effective_date
                     },
                     'scheduled_emails': {
                         'birthday': [],
@@ -583,7 +493,12 @@ async def resample_contacts(
                         'post_window': []
                     },
                     'skipped_emails': [],
-                    'scheduling_rules': []
+                    'scheduling_rules': [],
+                    'timeline_exclusions': [],
+                    'timeline_birthdays': [],
+                    'timeline_effective_dates': [],
+                    'timeline_scheduled': [],
+                    'timeline_skipped': []
                 }
                 
                 # Add applicable scheduling rules based on state
@@ -600,22 +515,109 @@ async def resample_contacts(
                     rules.append("AEP emails: Distributed across August/September")
                     rules.append("Post-window emails: Day after exclusion period")
                 contacts_data[contact_id]['scheduling_rules'] = rules
+                
+                # Add birthdays to timeline
+                for birthday in birthdays:
+                    contacts_data[contact_id]['timeline_birthdays'].append({
+                        "start": birthday.isoformat(),
+                        "type": "point",
+                        "className": "date-birthday",
+                        "content": "Birthday",
+                        "tooltip": f"Birthday: {birthday.strftime('%B %d, %Y')}"
+                    })
+                
+                # Add effective dates to timeline
+                for eff_date in effective_dates:
+                    contacts_data[contact_id]['timeline_effective_dates'].append({
+                        "start": eff_date.isoformat(),
+                        "type": "point",
+                        "className": "date-effective",
+                        "content": "Effective Date",
+                        "tooltip": f"Effective Date: {eff_date.strftime('%B %d, %Y')}"
+                    })
+                
+                # Add exclusion periods if not a year-round enrollment state
+                if not state_info['has_year_round_enrollment']:
+                    # Calculate rule windows and exclusion periods
+                    contact_data = {
+                        'id': contact_id,
+                        'birth_date': pd.to_datetime(birth_date).date() if birth_date else None,
+                        'effective_date': pd.to_datetime(effective_date).date() if effective_date else None,
+                        'state': state_code
+                    }
+                    
+                    # Calculate rule windows and exclusion periods
+                    rule_windows = calculate_rule_windows(contact_data, birthdays, effective_dates, current_date, end_date)
+                    exclusion_periods = calculate_exclusion_periods(rule_windows, current_date, end_date)
+                    
+                    # Add exclusion periods to timeline
+                    for period in exclusion_periods:
+                        contacts_data[contact_id]['timeline_exclusions'].append({
+                            "start": period.start.isoformat(),
+                            "end": period.end_date.isoformat(),
+                            "type": "range",
+                            "className": "exclusion",
+                            "content": "Exclusion Period",
+                            "tooltip": f"Exclusion Period: {period.start.strftime('%B %d, %Y')} to {period.end_date.strftime('%B %d, %Y')}"
+                        })
+        
+        # Second pass: Process emails
+        for row in sample_data:
+            contact_id = row['contact_id']
+            email_info = {
+                'type': row['email_type'],
+                'date': str(row['email_date']),
+                'link': row['link'],
+                'skipped': row['skipped'],
+                'reason': row['reason']
+            }
             
-            # Add email to appropriate category
-            if not row['skipped']:
-                email_type = row['email_type']
-                email_info = {
-                    'date': str(row['email_date']),
-                    'link': row['link'],
-                    'reason': row['reason'] if row['reason'] else None
+            # Add to appropriate category based on skipped status
+            if row['skipped'] != 'Yes':
+                # Add to scheduled emails list
+                email_type = row['email_type'].lower()
+                if email_type in contacts_data[contact_id]['scheduled_emails']:
+                    contacts_data[contact_id]['scheduled_emails'][email_type].append({
+                        'date': str(row['email_date']),
+                        'link': row['link'],
+                        'reason': row['reason']
+                    })
+                
+                # Add to scheduled emails timeline
+                timeline_item = {
+                    "start": str(row['email_date']),
+                    "type": "point",
+                    "className": f"email-{row['email_type'].lower().replace('_', '-')}",
+                    "content": f"{row['email_type'].replace('_', ' ').title()} Email"
                 }
-                contacts_data[contact_id]['scheduled_emails'][email_type].append(email_info)
+                
+                # Add tooltip for post-window emails
+                if row['email_type'] == 'post_window':
+                    # Find the most recent exclusion period that ended before this email
+                    for period in contacts_data[contact_id]['timeline_exclusions']:
+                        if period['end'] < str(row['email_date']):
+                            timeline_item["tooltip"] = f"Post-Window Email: Scheduled after exclusion period ({period['start']} to {period['end']})"
+                            break
+                else:
+                    timeline_item["tooltip"] = f"{row['email_type'].replace('_', ' ').title()} Email: {row['email_date']}"
+                
+                contacts_data[contact_id]['timeline_scheduled'].append(timeline_item)
             else:
+                # Add to skipped emails list
                 contacts_data[contact_id]['skipped_emails'].append({
                     'type': row['email_type'],
                     'reason': row['reason']
                 })
-            
+                
+                # Add to skipped emails timeline
+                contacts_data[contact_id]['timeline_skipped'].append({
+                    "start": str(row['email_date']),
+                    "type": "point",
+                    "className": "email-skipped",
+                    "content": f"{row['email_type'].replace('_', ' ').title()} Email (Skipped)",
+                    "tooltip": f"Skipped {row['email_type'].replace('_', ' ').title()} Email: {row['reason']}"
+                })
+        
         return {
             "contacts": contacts_data,
             "total_contacts": len(df.groupby('contact_id')),
@@ -698,7 +700,8 @@ async def check_schedules(
         
         # Process contacts
         try:
-            results = await process_contacts_async(formatted_contacts, current_date, end_date)
+            # Process contacts asynchronously for better performance
+            results = await main_async(formatted_contacts, current_date, end_date)
         except Exception as e:
             import traceback
             error_trace = traceback.format_exc()
@@ -791,6 +794,8 @@ async def check_schedules(
             
             # Group data by contact with improved organization
             contacts_data = {}
+            
+            # First pass: Initialize contact data and calculate dates
             for row in sample_data:
                 contact_id = row['contact_id']
                 if contact_id not in contacts_data:
@@ -818,27 +823,7 @@ async def check_schedules(
                     if effective_date:
                         effective_dates = get_all_occurrences(pd.to_datetime(effective_date).date(), current_date, end_date)
                     
-                    # Initialize timeline data
-                    timeline_data = []
-                    
-                    # Add birthdays to timeline
-                    for birthday in birthdays:
-                        timeline_data.append({
-                            "start": birthday.isoformat(),
-                            "type": "point",
-                            "className": "date-birthday",
-                            "content": "Birthday"
-                        })
-                    
-                    # Add effective dates to timeline
-                    for eff_date in effective_dates:
-                        timeline_data.append({
-                            "start": eff_date.isoformat(),
-                            "type": "point",
-                            "className": "date-effective",
-                            "content": "Effective Date"
-                        })
-                    
+                    # Initialize contact data structure
                     contacts_data[contact_id] = {
                         'contact_info': {
                             'id': contact_id,
@@ -857,8 +842,11 @@ async def check_schedules(
                         },
                         'skipped_emails': [],
                         'scheduling_rules': [],
-                        'emails': [],  # Keep for backwards compatibility with the template
-                        'timeline_data': timeline_data  # Add timeline data
+                        'timeline_exclusions': [],
+                        'timeline_birthdays': [],
+                        'timeline_effective_dates': [],
+                        'timeline_scheduled': [],
+                        'timeline_skipped': []
                     }
                     
                     # Add applicable scheduling rules based on state
@@ -875,8 +863,55 @@ async def check_schedules(
                         rules.append("AEP emails: Distributed across August/September")
                         rules.append("Post-window emails: Day after exclusion period")
                     contacts_data[contact_id]['scheduling_rules'] = rules
-                
-                # Add email to appropriate category and to the backward compatibility list
+                    
+                    # Add birthdays to timeline
+                    for birthday in birthdays:
+                        contacts_data[contact_id]['timeline_birthdays'].append({
+                            "start": birthday.isoformat(),
+                            "type": "point",
+                            "className": "date-birthday",
+                            "content": "Birthday",
+                            "tooltip": f"Birthday: {birthday.strftime('%B %d, %Y')}"
+                        })
+                    
+                    # Add effective dates to timeline
+                    for eff_date in effective_dates:
+                        contacts_data[contact_id]['timeline_effective_dates'].append({
+                            "start": eff_date.isoformat(),
+                            "type": "point",
+                            "className": "date-effective",
+                            "content": "Effective Date",
+                            "tooltip": f"Effective Date: {eff_date.strftime('%B %d, %Y')}"
+                        })
+                    
+                    # Add exclusion periods if not a year-round enrollment state
+                    if not state_info['has_year_round_enrollment']:
+                        # Calculate rule windows and exclusion periods
+                        contact_data = {
+                            'id': contact_id,
+                            'birth_date': pd.to_datetime(birth_date).date() if birth_date else None,
+                            'effective_date': pd.to_datetime(effective_date).date() if effective_date else None,
+                            'state': state_code
+                        }
+                        
+                        # Calculate rule windows and exclusion periods
+                        rule_windows = calculate_rule_windows(contact_data, birthdays, effective_dates, current_date, end_date)
+                        exclusion_periods = calculate_exclusion_periods(rule_windows, current_date, end_date)
+                        
+                        # Add exclusion periods to timeline
+                        for period in exclusion_periods:
+                            contacts_data[contact_id]['timeline_exclusions'].append({
+                                "start": period.start.isoformat(),
+                                "end": period.end_date.isoformat(),
+                                "type": "range",
+                                "className": "exclusion",
+                                "content": "Exclusion Period",
+                                "tooltip": f"Exclusion Period: {period.start.strftime('%B %d, %Y')} to {period.end_date.strftime('%B %d, %Y')}"
+                            })
+            
+            # Second pass: Process emails
+            for row in sample_data:
+                contact_id = row['contact_id']
                 email_info = {
                     'type': row['email_type'],
                     'date': str(row['email_date']),
@@ -885,20 +920,9 @@ async def check_schedules(
                     'reason': row['reason']
                 }
                 
-                # Add to the emails list for backwards compatibility
-                contacts_data[contact_id]['emails'].append(email_info)
-                
-                # Add to timeline data if not skipped
+                # Add to appropriate category based on skipped status
                 if row['skipped'] != 'Yes':
-                    contacts_data[contact_id]['timeline_data'].append({
-                        "start": str(row['email_date']),
-                        "type": "point",
-                        "className": f"email-{row['email_type'].lower().replace('_', '-')}",
-                        "content": f"{row['email_type'].replace('_', ' ').title()} Email"
-                    })
-                
-                # Also add to the structured format
-                if row['skipped'] != 'Yes':
+                    # Add to scheduled emails list
                     email_type = row['email_type'].lower()
                     if email_type in contacts_data[contact_id]['scheduled_emails']:
                         contacts_data[contact_id]['scheduled_emails'][email_type].append({
@@ -906,43 +930,41 @@ async def check_schedules(
                             'link': row['link'],
                             'reason': row['reason']
                         })
+                    
+                    # Add to scheduled emails timeline
+                    timeline_item = {
+                        "start": str(row['email_date']),
+                        "type": "point",
+                        "className": f"email-{row['email_type'].lower().replace('_', '-')}",
+                        "content": f"{row['email_type'].replace('_', ' ').title()} Email"
+                    }
+                    
+                    # Add tooltip for post-window emails
+                    if row['email_type'] == 'post_window':
+                        # Find the most recent exclusion period that ended before this email
+                        for period in contacts_data[contact_id]['timeline_exclusions']:
+                            if period['end'] < str(row['email_date']):
+                                timeline_item["tooltip"] = f"Post-Window Email: Scheduled after exclusion period ({period['start']} to {period['end']})"
+                                break
+                    else:
+                        timeline_item["tooltip"] = f"{row['email_type'].replace('_', ' ').title()} Email: {row['email_date']}"
+                    
+                    contacts_data[contact_id]['timeline_scheduled'].append(timeline_item)
                 else:
+                    # Add to skipped emails list
                     contacts_data[contact_id]['skipped_emails'].append({
                         'type': row['email_type'],
                         'reason': row['reason']
                     })
-                
-                # Add exclusion periods if not a year-round enrollment state
-                if not state_info['has_year_round_enrollment']:
-                    # Calculate rule windows and exclusion periods
-                    contact_data = {
-                        'id': contact_id,
-                        'birth_date': pd.to_datetime(birth_date).date() if birth_date else None,
-                        'effective_date': pd.to_datetime(effective_date).date() if effective_date else None,
-                        'state': state_code
-                    }
                     
-                    # Calculate birthdays and effective dates
-                    birthdays = []
-                    effective_dates = []
-                    if birth_date:
-                        birthdays = get_all_occurrences(pd.to_datetime(birth_date).date(), current_date, end_date)
-                    if effective_date:
-                        effective_dates = get_all_occurrences(pd.to_datetime(effective_date).date(), current_date, end_date)
-                    
-                    # Calculate rule windows and exclusion periods
-                    rule_windows = calculate_rule_windows(contact_data, birthdays, effective_dates, current_date, end_date)
-                    exclusion_periods = calculate_exclusion_periods(rule_windows, current_date, end_date)
-                    
-                    # Add exclusion periods to timeline data
-                    for period in exclusion_periods:
-                        contacts_data[contact_id]['timeline_data'].append({
-                            "start": period.start.isoformat(),
-                            "end": period.end_date.isoformat(),
-                            "type": "range",
-                            "className": "exclusion",
-                            "content": "Exclusion Period"
-                        })
+                    # Add to skipped emails timeline
+                    contacts_data[contact_id]['timeline_skipped'].append({
+                        "start": str(row['email_date']),
+                        "type": "point",
+                        "className": "email-skipped",
+                        "content": f"{row['email_type'].replace('_', ' ').title()} Email (Skipped)",
+                        "tooltip": f"Skipped {row['email_type'].replace('_', ' ').title()} Email: {row['reason']}"
+                    })
                 
         except Exception as e:
             import traceback

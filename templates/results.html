@@ -30,6 +30,71 @@
 .email-post-window { 
     background-color: #00ffff !important; /* cyan */ 
 }
+.timeline-wrapper {
+    display: flex;
+    margin-top: 20px;
+}
+.timeline-labels {
+    width: 150px;
+    padding-right: 10px;
+}
+.timeline-label {
+    height: 60px;
+    line-height: 60px;
+    font-weight: bold;
+    text-align: right;
+    padding-right: 10px;
+}
+.timeline-content {
+    flex: 1;
+}
+.timeline-row {
+    height: 60px;
+    margin-bottom: 5px;
+}
+.date-birthday {
+    background-color: #ffd700 !important;
+    border-color: #b8860b !important;
+}
+.date-effective {
+    background-color: #ffa500 !important;
+    border-color: #8b4513 !important;
+}
+.exclusion {
+    background-color: rgba(255, 0, 0, 0.3) !important;
+    border-color: #8b0000 !important;
+}
+.email-birthday {
+    background-color: #32cd32 !important;
+    border-color: #006400 !important;
+}
+.email-effective-date {
+    background-color: #4169e1 !important;
+    border-color: #00008b !important;
+}
+.email-aep {
+    background-color: #9370db !important;
+    border-color: #4b0082 !important;
+}
+.email-post-window {
+    background-color: #00ffff !important;
+    border-color: #008b8b !important;
+}
+.email-skipped {
+    background-color: #808080 !important;
+    border-color: #2f4f4f !important;
+}
+.vis-item {
+    border-width: 2px !important;
+    border-radius: 5px !important;
+}
+.vis-item.vis-point {
+    border-width: 3px !important;
+}
+.vis-item.vis-selected {
+    border-color: #000000 !important;
+    background-color: inherit !important;
+}
 </style>
 {% endblock %}
 
@@ -99,7 +164,22 @@
             <div class="row mt-4">
                 <div class="col-12">
                     <h6>Timeline View:</h6>
-                    <div id="timeline-{{ contact_data.contact_info.id }}" class="timeline-container"></div>
+                    <div class="timeline-wrapper">
+                        <div class="timeline-labels">
+                            <div class="timeline-label">Exclusion Periods</div>
+                            <div class="timeline-label">Birthdays</div>
+                            <div class="timeline-label">Effective Dates</div>
+                            <div class="timeline-label">Scheduled Emails</div>
+                            <div class="timeline-label">Skipped Emails</div>
+                        </div>
+                        <div class="timeline-content">
+                            <div id="timeline-exclusions-{{ contact_data.contact_info.id }}" class="timeline-row"></div>
+                            <div id="timeline-birthdays-{{ contact_data.contact_info.id }}" class="timeline-row"></div>
+                            <div id="timeline-effective-dates-{{ contact_data.contact_info.id }}" class="timeline-row"></div>
+                            <div id="timeline-scheduled-{{ contact_data.contact_info.id }}" class="timeline-row"></div>
+                            <div id="timeline-skipped-{{ contact_data.contact_info.id }}" class="timeline-row"></div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -115,29 +195,41 @@
 {% block scripts %}
 <script src="/static/vis-timeline-graph2d.min.js"></script>
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    {% for contact_id, contact_data in contacts.items() %}
-    (function() {
-        const container = document.getElementById('timeline-{{ contact_data.contact_info.id }}');
-        const items = new vis.DataSet({{ contact_data.timeline_data | tojson | safe }});
-        const options = {
-            start: '{{ current_date }}',
-            end: '{{ end_date }}',
-            height: '300px',
-            zoomMin: 1000 * 60 * 60 * 24 * 30,
-            zoomMax: 1000 * 60 * 60 * 24 * 365 * 3,
-            tooltip: {
-                followMouse: true,
-                overflowMethod: 'cap'
-            },
-            template: function(item) {
-                return item.content;
+function createTimeline(containerId, items, options) {
+    var container = document.getElementById(containerId);
+    var dataset = new vis.DataSet(items);
+    var timeline = new vis.Timeline(container, dataset, options);
+    
+    timeline.on('mouseOver', function(properties) {
+        var item = dataset.get(properties.item);
+        if (item && item.tooltip) {
+            var element = document.getElementById(properties.item);
+            if (element) {
+                element.title = item.tooltip;
             }
-        };
-        const timeline = new vis.Timeline(container, items, options);
-    })();
-    {% endfor %}
-});
+        }
+    });
+}
+
+var baseOptions = {
+    start: '{{ current_date }}',
+    end: '{{ end_date }}',
+    height: '60px',
+    zoomable: false,
+    selectable: false,
+    showCurrentTime: false,
+    stack: false,
+    verticalScroll: false,
+    horizontalScroll: true
+};
+
+{% for contact_id, contact_data in contacts.items() %}
+createTimeline('timeline-exclusions-{{ contact_data.contact_info.id }}', {{ contact_data.timeline_exclusions | tojson }}, Object.assign({}, baseOptions));
+createTimeline('timeline-birthdays-{{ contact_data.contact_info.id }}', {{ contact_data.timeline_birthdays | tojson }}, Object.assign({}, baseOptions));
+createTimeline('timeline-effective-dates-{{ contact_data.contact_info.id }}', {{ contact_data.timeline_effective_dates | tojson }}, Object.assign({}, baseOptions));
+createTimeline('timeline-scheduled-{{ contact_data.contact_info.id }}', {{ contact_data.timeline_scheduled | tojson }}, Object.assign({}, baseOptions));
+createTimeline('timeline-skipped-{{ contact_data.contact_info.id }}', {{ contact_data.timeline_skipped | tojson }}, Object.assign({}, baseOptions));
+{% endfor %}
 
 async function resampleContacts() {
     const button = document.querySelector('button');
