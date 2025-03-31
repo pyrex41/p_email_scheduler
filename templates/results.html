@@ -1,274 +1,251 @@
 {% extends "base.html" %}
 
 {% block head %}
-<!-- Add vis-timeline CSS -->
-<link rel="stylesheet" href="/static/vis-timeline-graph2d.min.css">
+<!-- Add vis-timeline CSS and JS -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis.min.js"></script>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis.min.css" rel="stylesheet" type="text/css" />
+
 <style>
-.timeline-container { 
-    margin-top: 20px; 
-    height: 300px; 
+.vis-timeline {
+    border: none;
+    font-family: system-ui, -apple-system, sans-serif;
 }
-.date-birthday { 
-    background-color: #ffd700 !important; /* yellow */ 
-}
-.date-effective { 
-    background-color: #ffa500 !important; /* orange */ 
-}
-.exclusion { 
-    background-color: #ff0000 !important; /* red */
-    opacity: 0.3; 
-}
-.email-birthday { 
-    background-color: #008000 !important; /* green */ 
-}
-.email-effective-date { 
-    background-color: #0000ff !important; /* blue */ 
-}
-.email-aep { 
-    background-color: #800080 !important; /* purple */ 
-}
-.email-post-window { 
-    background-color: #00ffff !important; /* cyan */ 
-}
-.timeline-wrapper {
-    display: flex;
-    margin-top: 20px;
-}
-.timeline-labels {
-    width: 150px;
-    padding-right: 10px;
-}
-.timeline-label {
-    height: 60px;
-    line-height: 60px;
+
+.timeline-birthday {
+    color: #FF69B4;
     font-weight: bold;
-    text-align: right;
-    padding-right: 10px;
 }
-.timeline-content {
-    flex: 1;
+
+.timeline-effective {
+    color: #4169E1;
+    font-weight: bold;
 }
-.timeline-row {
-    height: 60px;
-    margin-bottom: 5px;
+
+.timeline-email-birthday {
+    color: #FF1493;
+    background-color: #FFE4E1;
+    border-color: #FF69B4;
 }
-.date-birthday {
-    background-color: #ffd700 !important;
-    border-color: #b8860b !important;
+
+.timeline-email-effective_date {
+    color: #0000CD;
+    background-color: #E6E6FA;
+    border-color: #4169E1;
 }
-.date-effective {
-    background-color: #ffa500 !important;
-    border-color: #8b4513 !important;
+
+.timeline-email-aep {
+    color: #228B22;
+    background-color: #F0FFF0;
+    border-color: #32CD32;
 }
-.exclusion {
-    background-color: rgba(255, 0, 0, 0.3) !important;
-    border-color: #8b0000 !important;
+
+.timeline-email-post_window {
+    color: #8B4513;
+    background-color: #FFF8DC;
+    border-color: #DEB887;
 }
-.email-birthday {
-    background-color: #32cd32 !important;
-    border-color: #006400 !important;
+
+.timeline-aep-window {
+    background-color: rgba(144, 238, 144, 0.2);
 }
-.email-effective-date {
-    background-color: #4169e1 !important;
-    border-color: #00008b !important;
+
+.timeline-exclusion-window {
+    background-color: rgba(211, 211, 211, 0.3);
 }
-.email-aep {
-    background-color: #9370db !important;
-    border-color: #4b0082 !important;
+
+.vis-item.vis-background.timeline-exclusion-window {
+    background-color: rgba(169, 169, 169, 0.2);
 }
-.email-post-window {
-    background-color: #00ffff !important;
-    border-color: #008b8b !important;
+
+.vis-item.vis-background.timeline-aep-window {
+    background-color: rgba(144, 238, 144, 0.15);
 }
-.email-skipped {
-    background-color: #808080 !important;
-    border-color: #2f4f4f !important;
+
+.vis-group-level-0 {
+    font-weight: bold;
+    font-size: 14px;
 }
-.vis-item {
-    border-width: 2px !important;
-    border-radius: 5px !important;
-}
+
 .vis-item.vis-point {
-    border-width: 3px !important;
+    border-width: 2px;
+    border-radius: 5px;
+    padding: 5px;
 }
-.vis-item.vis-selected {
-    border-color: #000000 !important;
-    background-color: inherit !important;
+
+.vis-item.vis-point.vis-selected {
+    background-color: #FFF;
+    border-width: 3px;
+}
+
+.year-divider {
+    background-color: #f8f9fa !important;
+    border-top: 2px solid #dee2e6;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.year-divider td {
+    padding: 0.5rem 1rem !important;
+    font-weight: 500;
+    color: #495057;
+}
+
+.first-row-of-year {
+    border-top: 1px solid #dee2e6;
 }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="mb-4">
-    <h2>{{ org_name }} (ID: {{ org_id }})</h2>
-    <p class="text-muted">
-        Showing {{ sample_size }} contacts out of {{ total_contacts }} total contacts
-        {% if selected_state %}
-        (Filtered by state: {{ selected_state }})
-        {% elif special_rules_only %}
-        (Showing only states with special rules)
-        {% endif %}
-        {% if contact_search %}
-        (Searching for: {{ contact_search }})
-        {% endif %}
-    </p>
+<div class="container mt-4">
+    <h1>{{ org_name }} (ID: {{ org_id }})</h1>
+    <p>Showing {{ sample_size }} contacts out of {{ total_contacts }} total contacts</p>
     
-    <form action="/check" method="post" class="d-inline">
-        <input type="hidden" name="org_id" value="{{ org_id }}">
-        <input type="hidden" name="state" value="{{ selected_state }}">
-        <input type="hidden" name="special_rules_only" value="{{ 'true' if special_rules_only else 'false' }}">
-        <select class="form-select form-select-sm d-inline w-auto" name="sample_size" onchange="this.form.submit()">
-            {% for size in sample_sizes %}
-            <option value="{{ size }}" {% if size == sample_size %}selected{% endif %}>Show {{ size }} contacts</option>
-            {% endfor %}
-        </select>
-    </form>
-    
-    <button class="btn btn-primary btn-sm ms-2" onclick="resampleContacts()">
-        <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
-        Resample Contacts
-    </button>
-</div>
+    <!-- Controls -->
+    <div class="row mb-4">
+        <div class="col">
+            <form action="/check" method="post" class="form-inline">
+                <input type="hidden" name="org_id" value="{{ org_id }}">
+                <div class="form-group mr-2">
+                    <label for="sample_size" class="mr-2">Show</label>
+                    <select name="sample_size" id="sample_size" class="form-control">
+                        {% for size in sample_sizes %}
+                        <option value="{{ size }}" {% if size == sample_size %}selected{% endif %}>{{ size }} contacts</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary">Resample Contacts</button>
+            </form>
+        </div>
+    </div>
 
-<div id="contacts-container">
-    {% for contact_id, contact_data in contacts.items() %}
-    <div class="card contact-card mb-4">
+    <!-- Search -->
+    <div class="row mb-4">
+        <div class="col">
+            <form action="/check" method="post" class="form-inline">
+                <input type="hidden" name="org_id" value="{{ org_id }}">
+                <div class="form-group mr-2">
+                    <label for="contact_search" class="mr-2">Search by Email or Contact ID</label>
+                    <input type="text" class="form-control" id="contact_search" name="contact_search" 
+                           placeholder="Enter email address or contact ID" value="{{ contact_search }}">
+                </div>
+                <button type="submit" class="btn btn-secondary">Search</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Contact Cards -->
+    {% for contact_id, contact in contacts.items() %}
+    <div class="card mb-4">
         <div class="card-header">
-            <h5 class="card-title mb-0">
-                {{ contact_data.contact_info.name }}
-                <small class="text-muted">(ID: {{ contact_data.contact_info.id }})</small>
+            <h5 class="mb-0">
+                {{ contact.contact_info.name }} (ID: {{ contact.contact_info.id }})
             </h5>
         </div>
         <div class="card-body">
-            <div class="row mb-3">
-                <div class="col-md-4">
-                    <strong>Email:</strong> {{ contact_data.contact_info.email }}
-                </div>
-                <div class="col-md-4">
-                    <strong>Birth Date:</strong> {{ contact_data.contact_info.birth_date or 'N/A' }}
-                </div>
-                <div class="col-md-4">
-                    <strong>Effective Date:</strong> {{ contact_data.contact_info.effective_date or 'N/A' }}
-                </div>
-            </div>
-            
             <div class="row">
                 <div class="col-md-4">
-                    {% include "state_info.html" %}
+                    <p><strong>Email:</strong> {{ contact.contact_info.email }}</p>
+                    <p><strong>Birth Date:</strong> {{ contact.contact_info.birth_date }}</p>
+                    <p><strong>Effective Date:</strong> {{ contact.contact_info.effective_date }}</p>
                 </div>
                 <div class="col-md-8">
-                    {% include "email_table.html" %}
-                </div>
-            </div>
-            
-            <div class="row mt-4">
-                <div class="col-12">
-                    <h6>Timeline View:</h6>
-                    <div class="timeline-wrapper">
-                        <div class="timeline-labels">
-                            <div class="timeline-label">Exclusion Periods</div>
-                            <div class="timeline-label">Birthdays</div>
-                            <div class="timeline-label">Effective Dates</div>
-                            <div class="timeline-label">Scheduled Emails</div>
-                            <div class="timeline-label">Skipped Emails</div>
-                        </div>
-                        <div class="timeline-content">
-                            <div id="timeline-exclusions-{{ contact_data.contact_info.id }}" class="timeline-row"></div>
-                            <div id="timeline-birthdays-{{ contact_data.contact_info.id }}" class="timeline-row"></div>
-                            <div id="timeline-effective-dates-{{ contact_data.contact_info.id }}" class="timeline-row"></div>
-                            <div id="timeline-scheduled-{{ contact_data.contact_info.id }}" class="timeline-row"></div>
-                            <div id="timeline-skipped-{{ contact_data.contact_info.id }}" class="timeline-row"></div>
-                        </div>
+                    <div class="alert alert-info">
+                        <h6>State: {{ contact.contact_info.state }} {% if contact.contact_info.state in special_rule_states %}<span class="badge badge-warning">Special Rules Apply</span>{% endif %}</h6>
+                        {% if contact.scheduling_rules %}
+                        <ul class="mb-0">
+                            {% for rule in contact.scheduling_rules %}
+                            <li>{{ rule }}</li>
+                            {% endfor %}
+                        </ul>
+                        {% endif %}
                     </div>
                 </div>
             </div>
+
+            <h6 class="mt-3">Scheduled Emails:</h6>
+            <table class="table table-sm table-hover">
+                <thead class="thead-light">
+                    <tr>
+                        <th style="width: 20%">Type</th>
+                        <th style="width: 15%">Date</th>
+                        <th style="width: 15%">Default Date</th>
+                        <th style="width: 15%">Status</th>
+                        <th style="width: 35%">Details</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% set ns = namespace(current_year=none) %}
+                    {% for email in contact.timeline_data.email_list %}
+                        {% set email_year = email.start.year if email.start is not string else email.start.split('-')[0] %}
+                        {% if email_year != ns.current_year %}
+                            {% if not loop.first %}
+                                <tr><td colspan="5" style="padding: 0.5rem 0;"></td></tr>
+                            {% endif %}
+                            {% set ns.current_year = email_year %}
+                            <tr class="year-divider">
+                                <td colspan="5">
+                                    <i class="fas fa-calendar-alt mr-2"></i>
+                                    <strong>{{ email_year }}</strong>
+                                </td>
+                            </tr>
+                        {% endif %}
+                        <tr {% if email.skipped %}class="table-warning{% if loop.first or email_year != prev_year %} first-row-of-year{% endif %}"
+                            {% else %}class="{% if loop.first or email_year != prev_year %}first-row-of-year{% endif %}"{% endif %}>
+                            <td>
+                                <span class="badge {% if email.type == 'birthday' %}bg-info
+                                               {% elif email.type == 'effective_date' %}bg-primary
+                                               {% elif email.type == 'aep' %}bg-success
+                                               {% elif email.type == 'post_window' %}bg-warning
+                                               {% else %}bg-secondary{% endif %}"
+                                      style="font-size: 90%; padding: 5px 10px;">
+                                    {{ email.type_display }}
+                                </span>
+                            </td>
+                            <td>
+                                <strong>{{ email.start.strftime('%b %d') if email.start is not string else email.start.split('-')[1:]|join(' ')|replace('-', ' ') }}</strong>
+                            </td>
+                            <td>
+                                {% if email.default_date %}
+                                    {% if email.default_date is string %}
+                                        <small class="text-muted">{{ email.default_date }}</small>
+                                    {% else %}
+                                        <small class="text-muted">{{ email.default_date.strftime('%b %d, %Y') if email.default_date is not string else email.default_date }}</small>
+                                    {% endif %}
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if email.skipped %}
+                                <span class="badge bg-danger">Cancelled</span>
+                                {% else %}
+                                <span class="badge bg-success">Scheduled</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if email.skipped %}
+                                    <span class="text-danger">
+                                        <i class="fas fa-info-circle"></i>
+                                        {{ email.reason if email.reason and email.reason != 'nan' else 'Cancelled - No reason provided' }}
+                                    </span>
+                                {% else %}
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <span class="text-success">
+                                            <i class="fas fa-check-circle"></i>
+                                            Will be sent as scheduled
+                                        </span>
+                                        {% if email.link %}
+                                        <a href="{{ email.link }}" class="btn btn-sm btn-outline-primary">
+                                            <i class="fas fa-envelope"></i> View
+                                        </a>
+                                        {% endif %}
+                                    </div>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
     </div>
     {% endfor %}
 </div>
-
-<div class="mt-4 mb-4">
-    <a href="/" class="btn btn-secondary">Check Another Organization</a>
-</div>
-{% endblock %}
-
-{% block scripts %}
-<script src="/static/vis-timeline-graph2d.min.js"></script>
-<script>
-function createTimeline(containerId, items, options) {
-    var container = document.getElementById(containerId);
-    var dataset = new vis.DataSet(items);
-    var timeline = new vis.Timeline(container, dataset, options);
-    
-    timeline.on('mouseOver', function(properties) {
-        var item = dataset.get(properties.item);
-        if (item && item.tooltip) {
-            var element = document.getElementById(properties.item);
-            if (element) {
-                element.title = item.tooltip;
-            }
-        }
-    });
-}
-
-var baseOptions = {
-    start: '{{ current_date }}',
-    end: '{{ end_date }}',
-    height: '60px',
-    zoomable: false,
-    selectable: false,
-    showCurrentTime: false,
-    stack: false,
-    verticalScroll: false,
-    horizontalScroll: true
-};
-
-{% for contact_id, contact_data in contacts.items() %}
-createTimeline('timeline-exclusions-{{ contact_data.contact_info.id }}', {{ contact_data.timeline_exclusions | tojson }}, Object.assign({}, baseOptions));
-createTimeline('timeline-birthdays-{{ contact_data.contact_info.id }}', {{ contact_data.timeline_birthdays | tojson }}, Object.assign({}, baseOptions));
-createTimeline('timeline-effective-dates-{{ contact_data.contact_info.id }}', {{ contact_data.timeline_effective_dates | tojson }}, Object.assign({}, baseOptions));
-createTimeline('timeline-scheduled-{{ contact_data.contact_info.id }}', {{ contact_data.timeline_scheduled | tojson }}, Object.assign({}, baseOptions));
-createTimeline('timeline-skipped-{{ contact_data.contact_info.id }}', {{ contact_data.timeline_skipped | tojson }}, Object.assign({}, baseOptions));
-{% endfor %}
-
-async function resampleContacts() {
-    const button = document.querySelector('button');
-    const spinner = button.querySelector('.spinner-border');
-    const container = document.getElementById('contacts-container');
-    const sampleSize = document.querySelector('select[name="sample_size"]').value;
-    const state = '{{ selected_state or "" }}';
-    const specialRulesOnly = {{ 'true' if special_rules_only else 'false' }};
-    const contactSearch = '{{ contact_search or "" }}';
-    
-    button.disabled = true;
-    spinner.classList.remove('d-none');
-    
-    try {
-        let url = `/resample/{{ org_id }}?sample_size=${sampleSize}`;
-        if (state) {
-            url += `&state=${state}`;
-        }
-        url += `&special_rules_only=${specialRulesOnly}`;
-        if (contactSearch) {
-            url += `&contact_search=${encodeURIComponent(contactSearch)}`;
-        }
-        
-        const response = await fetch(url, {
-            method: 'POST'
-        });
-        
-        if (!response.ok) {
-            throw new Error('Failed to resample contacts');
-        }
-        
-        location.reload();
-    } catch (error) {
-        console.error('Error resampling contacts:', error);
-        alert('Failed to resample contacts. Please try again.');
-    } finally {
-        button.disabled = false;
-        spinner.classList.add('d-none');
-    }
-}
-</script>
 {% endblock %}

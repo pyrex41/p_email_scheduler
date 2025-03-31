@@ -1,5 +1,36 @@
 {% extends "base.html" %}
 
+{% block head %}
+<style>
+    .year-divider {
+        background-color: #f8f9fa !important;
+        border-top: 2px solid #dee2e6;
+        border-bottom: 1px solid #dee2e6;
+    }
+    
+    .year-divider td {
+        padding: 0.5rem 1rem !important;
+        font-weight: 500;
+        color: #495057;
+    }
+    
+    .first-row-of-year {
+        border-top: 1px solid #dee2e6;
+    }
+    
+    #results {
+        display: none;
+    }
+    
+    .state-rules {
+        margin-top: 1rem;
+        padding: 1rem;
+        background-color: #e3f2fd;
+        border-radius: 0.25rem;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container">
     <h1 class="mb-4">Email Scheduler Simulator</h1>
@@ -33,12 +64,12 @@
                         
                         <div class="mb-3">
                             <label for="birth_date" class="form-label">Birth Date</label>
-                            <input type="date" class="form-control" id="birth_date" name="birth_date" required>
+                            <input type="date" class="form-control" id="birth_date" name="birth_date" value="1955-01-01" required>
                         </div>
                         
                         <div class="mb-3">
                             <label for="effective_date" class="form-label">Effective Date</label>
-                            <input type="date" class="form-control" id="effective_date" name="effective_date">
+                            <input type="date" class="form-control" id="effective_date" name="effective_date" value="2022-01-01">
                             <div class="form-text">Policy effective/anniversary date</div>
                         </div>
                         
@@ -101,6 +132,46 @@
         </div>
         
         <div class="col-md-7 mt-3 mt-md-0">
+            <!-- New Results Container that matches our JavaScript -->
+            <div id="results" class="card">
+                <div class="card-header bg-success text-white">
+                    <h5 class="card-title mb-0">Simulation Results</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <h6>Contact Details</h6>
+                            <p><strong>State:</strong> <span id="result-state"></span></p>
+                            <p><strong>Birth Date:</strong> <span id="result-birth-date"></span></p>
+                            <p><strong>Effective Date:</strong> <span id="result-effective-date"></span></p>
+                        </div>
+                        <div class="col-md-8">
+                            <div class="state-rules">
+                                <h6>State Rules</h6>
+                                <ul id="state-rules-list"></ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <h6 class="mt-4">Scheduled Emails:</h6>
+                    <table class="table table-sm table-hover">
+                        <thead class="thead-light">
+                            <tr>
+                                <th style="width: 20%">Type</th>
+                                <th style="width: 15%">Date</th>
+                                <th style="width: 15%">Default Date</th>
+                                <th style="width: 15%">Status</th>
+                                <th style="width: 35%">Details</th>
+                            </tr>
+                        </thead>
+                        <tbody id="email-results">
+                            <!-- Email results will be inserted here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- Keep the old results container for backward compatibility -->
             <div id="resultsContainer" class="d-none">
                 <div class="card">
                     <div class="card-header bg-success text-white">
@@ -142,12 +213,51 @@
                     </div>
                 </div>
             </div>
+            
+            <!-- Debug info panel -->
+            <div class="card mt-4">
+                <div class="card-header bg-dark text-white">
+                    <h5 class="card-title mb-0">Debug Information</h5>
+                </div>
+                <div class="card-body">
+                    <div id="debug-panel">
+                        <pre id="debug-output" style="max-height: 200px; overflow-y: auto;"></pre>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 </div>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    // Debugging helper
+    function debugLog(message, data) {
+        const debugOutput = document.getElementById('debug-output');
+        const timestamp = new Date().toISOString().substring(11, 19);
+        
+        if (typeof data === 'object') {
+            debugOutput.innerHTML += `[${timestamp}] ${message}:\n${JSON.stringify(data, null, 2)}\n\n`;
+        } else {
+            debugOutput.innerHTML += `[${timestamp}] ${message}: ${data}\n`;
+        }
+        
+        // Auto-scroll to bottom
+        debugOutput.scrollTop = debugOutput.scrollHeight;
+        
+        // Also log to console
+        console.log(`[${timestamp}] ${message}:`, data);
+    }
+
+    debugLog('Page loaded', 'Simulator initialized');
+    
+    // Check if all necessary elements exist
+    ['results', 'result-state', 'result-birth-date', 'result-effective-date', 
+     'state-rules-list', 'email-results'].forEach(id => {
+        const element = document.getElementById(id);
+        debugLog(`Element #${id} exists`, element ? 'Yes' : 'No');
+    });
+    
     // Show loading spinner on form submit
     document.getElementById('simulatorForm').addEventListener('submit', function(e) {
         e.preventDefault();
@@ -159,6 +269,9 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Collect form data
         const formData = new FormData(this);
+        const jsonData = Object.fromEntries(formData);
+        
+        debugLog('Form submitted with data', jsonData);
         
         // Make API call to calculate scheduled emails
         fetch('/simulate', {
@@ -166,16 +279,20 @@ document.addEventListener('DOMContentLoaded', function() {
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify(Object.fromEntries(formData)),
+            body: JSON.stringify(jsonData),
         })
-        .then(response => response.json())
+        .then(response => {
+            debugLog('Response status', response.status);
+            return response.json();
+        })
         .then(data => {
+            debugLog('Response data received', data);
             displayResults(data);
             button.disabled = false;
             spinner.classList.add('d-none');
         })
         .catch(error => {
-            console.error('Error:', error);
+            debugLog('Error in fetch', error.toString());
             alert('An error occurred while calculating scheduled emails.');
             button.disabled = false;
             spinner.classList.add('d-none');
@@ -189,6 +306,13 @@ document.addEventListener('DOMContentLoaded', function() {
         const hasEffectiveDateRule = selectedOption.getAttribute('data-effective') === 'true';
         const hasYearRoundEnrollment = selectedOption.getAttribute('data-yearround') === 'true';
         const stateCode = this.value;
+        
+        debugLog('State selected', {
+            state: stateCode,
+            hasBirthdayRule,
+            hasEffectiveDateRule,
+            hasYearRoundEnrollment
+        });
         
         // Show state rules card
         document.getElementById('stateRules').classList.remove('d-none');
@@ -252,134 +376,180 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Function to display simulation results
     function displayResults(data) {
-        // Show results container
-        document.getElementById('resultsContainer').classList.remove('d-none');
+        debugLog('DisplayResults called with data', data);
         
-        // Display scheduled emails
-        const emailResultsDiv = document.getElementById('emailResults');
-        if (data.emails.length > 0) {
-            let emailsHtml = '<div class="table-responsive"><table class="table table-striped">';
-            emailsHtml += '<thead><tr><th>Type</th><th>Date</th><th>Notes</th></tr></thead><tbody>';
+        try {
+            // Show results section
+            const resultsElement = document.getElementById('results');
+            if (resultsElement) {
+                resultsElement.style.display = 'block';
+                debugLog('Results element displayed', 'Success');
+            } else {
+                debugLog('Results element not found', 'ERROR');
+            }
             
-            data.emails.forEach(email => {
-                const formattedDate = new Date(email.date).toLocaleDateString('en-US', {
-                    year: 'numeric',
-                    month: 'short',
-                    day: 'numeric'
+            // Update contact details
+            const stateElement = document.getElementById('result-state');
+            const birthDateElement = document.getElementById('result-birth-date');
+            const effectiveDateElement = document.getElementById('result-effective-date');
+            
+            if (stateElement && data.contact_info && data.contact_info.state) {
+                stateElement.textContent = data.contact_info.state;
+                debugLog('Updated state', data.contact_info.state);
+            } else {
+                debugLog('State update failed', {
+                    elementExists: !!stateElement,
+                    contactInfoExists: !!data.contact_info,
+                    stateExists: data.contact_info && !!data.contact_info.state
                 });
-                
-                const badgeClass = {
-                    'birthday': 'bg-primary',
-                    'effective_date': 'bg-success',
-                    'aep': 'bg-info',
-                    'post_window': 'bg-warning text-dark'
-                }[email.type] || 'bg-secondary';
-                
-                const typeName = {
-                    'birthday': 'Birthday',
-                    'effective_date': 'Effective Date',
-                    'aep': 'AEP',
-                    'post_window': 'Post-Window'
-                }[email.type] || email.type;
-                
-                emailsHtml += `<tr>
-                    <td><span class="badge ${badgeClass}">${typeName}</span></td>
-                    <td>${formattedDate}</td>
-                    <td>${email.reason || 'Normal scheduling rule'}</td>
-                </tr>`;
+            }
+            
+            if (birthDateElement && data.contact_info) {
+                birthDateElement.textContent = data.contact_info.birth_date;
+                debugLog('Updated birth date', data.contact_info.birth_date);
+            }
+            
+            if (effectiveDateElement && data.contact_info) {
+                effectiveDateElement.textContent = data.contact_info.effective_date || 'Not set';
+                debugLog('Updated effective date', data.contact_info.effective_date || 'Not set');
+            }
+            
+            // Update state rules
+            const rulesListElement = document.getElementById('state-rules-list');
+            if (rulesListElement && data.scheduling_rules) {
+                rulesListElement.innerHTML = data.scheduling_rules.map(rule => `<li>${rule}</li>`).join('');
+                debugLog('Updated rules list', data.scheduling_rules);
+            } else {
+                debugLog('Rules list update failed', {
+                    elementExists: !!rulesListElement,
+                    rulesExist: !!data.scheduling_rules
+                });
+            }
+            
+            // Update email results
+            const emailResultsElement = document.getElementById('email-results');
+            if (!emailResultsElement) {
+                debugLog('Email results element not found', 'ERROR');
+                return;
+            }
+            
+            emailResultsElement.innerHTML = '';
+            debugLog('Cleared email results', 'Success');
+            
+            // Check if email_list exists and has items
+            const emailList = data.timeline_data && data.timeline_data.email_list ? data.timeline_data.email_list : [];
+            debugLog('Email list', {
+                exists: !!(data.timeline_data && data.timeline_data.email_list),
+                length: emailList.length
             });
             
-            emailsHtml += '</tbody></table></div>';
-            emailResultsDiv.innerHTML = emailsHtml;
-        } else {
-            emailResultsDiv.innerHTML = '<div class="alert alert-warning">No emails scheduled for this contact.</div>';
-        }
-        
-        // Display exclusion periods
-        const exclusionResultsDiv = document.getElementById('exclusionResults');
-        if (data.exclusion_periods.length > 0) {
-            let exclusionHtml = '<div class="table-responsive"><table class="table table-striped">';
-            exclusionHtml += '<thead><tr><th>Start Date</th><th>End Date</th><th>Duration</th><th>Type</th></tr></thead><tbody>';
+            if (emailList.length === 0) {
+                emailResultsElement.innerHTML = '<tr><td colspan="5" class="text-center">No emails scheduled for this contact.</td></tr>';
+                debugLog('No emails in list', 'Added placeholder row');
+                return;
+            }
             
-            data.exclusion_periods.forEach(period => {
-                const startDate = new Date(period.start_date).toLocaleDateString('en-US', {
-                    year: 'numeric',
-                    month: 'short',
-                    day: 'numeric'
-                });
-                
-                const endDate = new Date(period.end_date).toLocaleDateString('en-US', {
-                    year: 'numeric',
-                    month: 'short',
-                    day: 'numeric'
-                });
-                
-                // Calculate duration in days
-                const start = new Date(period.start_date);
-                const end = new Date(period.end_date);
-                const diffTime = Math.abs(end - start);
-                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; // +1 to include both start and end dates
-                
-                exclusionHtml += `<tr>
-                    <td>${startDate}</td>
-                    <td>${endDate}</td>
-                    <td>${diffDays} days</td>
-                    <td>${period.type || 'Standard'}</td>
-                </tr>`;
+            let currentYear = null;
+            
+            emailList.forEach((email, index) => {
+                try {
+                    // Extract year from the email date
+                    const emailDate = new Date(email.start);
+                    const emailYear = emailDate.getFullYear();
+                    
+                    debugLog(`Processing email ${index}`, {
+                        type: email.type,
+                        date: email.start,
+                        year: emailYear
+                    });
+                    
+                    if (emailYear !== currentYear) {
+                        if (index > 0) {
+                            emailResultsElement.innerHTML += `
+                                <tr><td colspan="5" style="padding: 0.5rem 0;"></td></tr>
+                            `;
+                        }
+                        
+                        emailResultsElement.innerHTML += `
+                            <tr class="year-divider">
+                                <td colspan="5">
+                                    <i class="fas fa-calendar-alt mr-2"></i>
+                                    <strong>${emailYear}</strong>
+                                </td>
+                            </tr>
+                        `;
+                        currentYear = emailYear;
+                        debugLog(`Added year divider for ${emailYear}`, 'Success');
+                    }
+                    
+                    const formattedDate = emailDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    
+                    let defaultDate = email.default_date;
+                    if (defaultDate && typeof defaultDate !== 'string') {
+                        defaultDate = new Date(defaultDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                    }
+                    
+                    const typeDisplay = email.type_display || email.type;
+                    const badgeClass = getBadgeClass(email.type);
+                    
+                    emailResultsElement.innerHTML += `
+                        <tr class="${email.skipped ? 'table-warning' : ''} ${index === 0 || emailYear !== currentYear ? 'first-row-of-year' : ''}">
+                            <td>
+                                <span class="badge ${badgeClass}" style="font-size: 90%; padding: 5px 10px;">
+                                    ${typeDisplay}
+                                </span>
+                            </td>
+                            <td>
+                                <strong>${formattedDate}</strong>
+                            </td>
+                            <td>
+                                <small class="text-muted">${defaultDate || ''}</small>
+                            </td>
+                            <td>
+                                <span class="badge ${email.skipped ? 'bg-danger' : 'bg-success'}">
+                                    ${email.skipped ? 'Cancelled' : 'Scheduled'}
+                                </span>
+                            </td>
+                            <td>
+                                ${email.skipped ? 
+                                    `<span class="text-danger">
+                                        <i class="fas fa-info-circle"></i>
+                                        ${email.reason || 'No reason provided'}
+                                    </span>` :
+                                    `<div class="d-flex justify-content-between align-items-center">
+                                        <span class="text-success">
+                                            <i class="fas fa-check-circle"></i>
+                                            Will be sent as scheduled
+                                        </span>
+                                        ${email.link ? 
+                                            `<a href="${email.link}" class="btn btn-sm btn-outline-primary">
+                                                <i class="fas fa-envelope"></i> View
+                                            </a>` : ''
+                                        }
+                                    </div>`
+                                }
+                            </td>
+                        </tr>
+                    `;
+                    debugLog(`Added email row for ${email.type}`, 'Success');
+                } catch (rowError) {
+                    debugLog(`Error processing email row ${index}`, rowError.toString());
+                }
             });
-            
-            exclusionHtml += '</tbody></table></div>';
-            exclusionResultsDiv.innerHTML = exclusionHtml;
-        } else {
-            exclusionResultsDiv.innerHTML = '<div class="alert alert-info">No exclusion periods defined for this contact.</div>';
+        } catch (error) {
+            debugLog('Error in displayResults', error.toString());
+            throw error;
         }
-        
-        // Display birthday dates
-        const birthdayDatesDiv = document.getElementById('birthdayDatesList');
-        if (data.birthdays.length > 0) {
-            const birthdaysList = data.birthdays.map(date => {
-                return new Date(date).toLocaleDateString('en-US', {
-                    year: 'numeric',
-                    month: 'short',
-                    day: 'numeric'
-                });
-            }).join('</li><li>');
-            
-            birthdayDatesDiv.innerHTML = `<ul><li>${birthdaysList}</li></ul>`;
-        } else {
-            birthdayDatesDiv.innerHTML = '<p class="text-muted">No birthdays in the selected period.</p>';
-        }
-        
-        // Display effective dates
-        const effectiveDatesDiv = document.getElementById('effectiveDatesList');
-        if (data.effective_dates.length > 0) {
-            const effectiveDatesList = data.effective_dates.map(date => {
-                return new Date(date).toLocaleDateString('en-US', {
-                    year: 'numeric',
-                    month: 'short',
-                    day: 'numeric'
-                });
-            }).join('</li><li>');
-            
-            effectiveDatesDiv.innerHTML = `<ul><li>${effectiveDatesList}</li></ul>`;
-        } else {
-            effectiveDatesDiv.innerHTML = '<p class="text-muted">No effective dates in the selected period.</p>';
-        }
-        
-        // Display AEP dates
-        const aepDatesDiv = document.getElementById('aepDatesList');
-        if (data.aep_dates.length > 0) {
-            const aepDatesList = data.aep_dates.map(date => {
-                return new Date(date).toLocaleDateString('en-US', {
-                    year: 'numeric',
-                    month: 'short',
-                    day: 'numeric'
-                });
-            }).join('</li><li>');
-            
-            aepDatesDiv.innerHTML = `<ul><li>${aepDatesList}</li></ul>`;
-        } else {
-            aepDatesDiv.innerHTML = '<p class="text-muted">No AEP dates in the selected period or not applicable.</p>';
+    }
+
+    function getBadgeClass(type) {
+        debugLog('Getting badge class for type', type);
+        switch (type) {
+            case 'birthday': return 'bg-info';
+            case 'effective_date': return 'bg-primary';
+            case 'aep': return 'bg-success';
+            case 'post_window': return 'bg-warning';
+            default: return 'bg-secondary';
         }
     }
 });

@@ -118,6 +118,7 @@ class AsyncEmailProcessor:
                     "reason": f"Processing error: {str(e)}"
                 }]
             }
+        
 
 async def main_async(contacts: List[Dict[str, Any]], current_date: Optional[date] = None, 
                     end_date: Optional[date] = None, batch_size: int = 100) -> List[Dict[str, Any]]:
