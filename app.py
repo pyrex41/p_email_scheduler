@@ -46,6 +46,7 @@ from org_utils import (
     get_organization_details,
     get_contacts_from_org_db,
     format_contact_data,
+    get_filtered_contacts_from_org_db,
 )
 
 # Database paths setup
@@ -951,6 +952,278 @@ async def check_schedules(
                 "error": f"Unexpected error: {str(e)}\nTrace:\n{error_trace}"
             }
         )
+
+@app.post("/get_universe_contacts")
+async def get_universe_contacts(
+    org_id: int = Form(...),
+    effective_date_age_years: Optional[int] = Form(None),
+    effective_date_start: Optional[str] = Form(None),
+    effective_date_end: Optional[str] = Form(None),
+    states: List[str] = Form([])
+):
+    """Fetch filtered contacts based on effective date range and states"""
+    try:
+        logger.debug("Starting get_universe_contacts with org_id=%s, effective_date_range=%s to %s, states=%s", 
+                    org_id, effective_date_start, effective_date_end, states)
+        
+        # Get organization details and construct DB path
+        org = get_organization_details(main_db, org_id)
+        org_db_path = os.path.join(org_db_dir, f"org-{org_id}.db")
+        
+        # Call the filtered contacts function with either legacy or new range parameters
+        contacts = get_filtered_contacts_from_org_db(
+            org_db_path, 
+            org_id, 
+            effective_date_age_years=effective_date_age_years if not (effective_date_start and effective_date_end) else None,
+            effective_date_start=effective_date_start,
+            effective_date_end=effective_date_end,
+            states=states if states else None
+        )
+        
+        # Format the contacts for the frontend
+        formatted_contacts = format_contact_data(contacts)
+        
+        # Pre-encode content with custom encoder, then return as JSONResponse
+        content = {
+            "contacts": formatted_contacts,
+            "total": len(formatted_contacts),
+            "org_name": org['name']
+        }
+        json_content = json.dumps(content, cls=CustomJSONEncoder)
+        
+        return JSONResponse(content=json.loads(json_content))
+    except Exception as e:
+        logger.exception("Error in get_universe_contacts")
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
+
+@app.post("/process_universe")
+async def process_universe(
+    request: Request,
+    org_id: int = Form(...),
+    contact_ids: List[str] = Form(...),
+    start_date: str = Form(...),
+    end_date: str = Form(...)
+):
+    """Process selected contacts for email scheduling"""
+    try:
+        logger.debug("Starting process_universe with org_id=%s, contact_ids=%s", 
+                    org_id, contact_ids)
+        
+        # Parse dates
+        try:
+            start = datetime.strptime(start_date, "%Y-%m-%d").date()
+            end = datetime.strptime(end_date, "%Y-%m-%d").date()
+        except ValueError:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Invalid date format. Please use YYYY-MM-DD format."}
+            )
+        
+        # Get organization details and refresh database if needed
+        await refresh_databases(org_id)
+        org = get_organization_details(main_db, org_id)
+        org_db_path = os.path.join(org_db_dir, f"org-{org_id}.db")
+        
+        # Get all contacts for the organization
+        contacts = get_contacts_from_org_db(org_db_path, org_id)
+        formatted_contacts = format_contact_data(contacts)
+        
+        # Filter contacts to only include those with IDs in the contact_ids list
+        selected_contacts = [c for c in formatted_contacts if str(c['id']) in contact_ids]
+        
+        if not selected_contacts:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "No valid contacts selected for processing"}
+            )
+        
+        # Process the selected contacts
+        contact_count = len(selected_contacts)
+        logger.debug("Processing %d selected contacts", contact_count)
+        
+        # Choose processing method based on number of contacts
+        if contact_count < 100:
+            results = main_sync(selected_contacts, start, end)
+        else:
+            results = await main_async(selected_contacts, start, end, batch_size=min(contact_count // 10, 1000))
+        
+        # Convert results to DataFrame for easier filtering and organization
+        df_data = []
+        for result in results:
+            contact_id = result['contact_id']
+            contact = next((c for c in selected_contacts if c['id'] == contact_id), None)
+            if contact:
+                # Add scheduled emails
+                for email in result.get('scheduled', []):
+                    df_data.append({
+                        'contact_id': contact_id,
+                        'first_name': contact.get('first_name', ''),
+                        'last_name': contact.get('last_name', ''),
+                        'email': contact.get('email', ''),
+                        'state': contact.get('state', ''),
+                        'birth_date': contact.get('birth_date'),
+                        'effective_date': contact.get('effective_date'),
+                        'email_type': email['type'],
+                        'email_date': email['date'],
+                        'skipped': 'No',
+                        'reason': '',
+                        'link': f"/contact/{contact_id}/email/{email['type']}/{email['date']}"
+                    })
+                
+                # Add skipped emails
+                for email in result.get('skipped', []):
+                    df_data.append({
+                        'contact_id': contact_id,
+                        'first_name': contact.get('first_name', ''),
+                        'last_name': contact.get('last_name', ''),
+                        'email': contact.get('email', ''),
+                        'state': contact.get('state', ''),
+                        'birth_date': contact.get('birth_date'),
+                        'effective_date': contact.get('effective_date'),
+                        'email_type': email['type'],
+                        'email_date': email.get('date', start),
+                        'skipped': 'Yes',
+                        'reason': email.get('reason', ''),
+                        'link': ''
+                    })
+
+        # Create DataFrame and store in memory
+        df = pd.DataFrame(df_data)
+        org_data_store[org_id] = df
+        
+        # Prepare contact data for display
+        contacts_data = {}
+        for contact_id in contact_ids:
+            contact_rows = df[df['contact_id'] == contact_id]
+            if len(contact_rows) == 0:
+                continue
+
+            first_row = contact_rows.iloc[0]
+            state_code = first_row['state']
+            
+            # Initialize contact data structure
+            contacts_data[contact_id] = {
+                'contact_info': {
+                    'id': contact_id,
+                    'name': f"{first_row['first_name']} {first_row['last_name']}",
+                    'email': first_row['email'],
+                    'state': state_code,
+                    'birth_date': first_row['birth_date'],
+                    'effective_date': first_row['effective_date']
+                },
+                'timeline_data': {
+                    'email_list': []
+                }
+            }
+
+            # Add applicable scheduling rules based on state
+            rules = []
+            if state_code in BIRTHDAY_RULE_STATES:
+                window = BIRTHDAY_RULE_STATES[state_code]
+                rules.append(f"Birthday emails: {window.get('window_before', 0)} days before to {window.get('window_after', 0)} days after birthday")
+            if state_code in EFFECTIVE_DATE_RULE_STATES:
+                window = EFFECTIVE_DATE_RULE_STATES[state_code]
+                rules.append(f"Effective date emails: {window.get('window_before', 0)} days before to {window.get('window_after', 0)} days after anniversary")
+            if state_code in YEAR_ROUND_ENROLLMENT_STATES:
+                rules.append("Year-round enrollment state - no scheduled emails")
+            else:
+                rules.append("AEP emails: Distributed across August/September")
+                rules.append("Post-window emails: Day after exclusion period")
+            contacts_data[contact_id]['scheduling_rules'] = rules
+
+            # Add emails to timeline data
+            email_list = []
+            for _, row in contact_rows.iterrows():
+                email_type = row['email_type']
+                # Map email types to human-readable names and determine default dates
+                email_info = {
+                    'type': email_type,
+                    'type_display': {
+                        'birthday': 'Birthday Email',
+                        'effective_date': 'Anniversary Email',
+                        'aep': 'AEP Email',
+                        'post_window': 'Post-Window Email'
+                    }.get(email_type, email_type.replace('_', ' ').title()),
+                    'start': row['email_date'],
+                    'skipped': row['skipped'] == 'Yes',
+                    'reason': row['reason'] if row['skipped'] == 'Yes' else '',
+                    'link': row['link'],
+                    'default_date': None  # Will be populated based on type
+                }
+                
+                # Set default dates based on type
+                if email_type == 'birthday' and first_row['birth_date']:
+                    email_info['default_date'] = first_row['birth_date']
+                elif email_type == 'effective_date' and first_row['effective_date']:
+                    email_info['default_date'] = first_row['effective_date']
+                elif email_type == 'aep':
+                    email_info['default_date'] = 'AEP Window'
+                elif email_type == 'post_window':
+                    email_info['default_date'] = 'Post Exclusion Period'
+                
+                email_list.append(email_info)
+            
+            # Sort email list by date
+            email_list.sort(key=lambda x: x['start'])
+            contacts_data[contact_id]['timeline_data']['email_list'] = email_list
+        
+        return templates.TemplateResponse(
+            "results.html",
+            {
+                "request": request,
+                "org_name": org['name'],
+                "org_id": org_id,
+                "contacts": contacts_data,
+                "total_contacts": len(df.groupby('contact_id')),
+                "sample_size": len(contacts_data),
+                "sample_sizes": [5, 10, 25, 50, 100],
+                "special_rule_states": SPECIAL_RULE_STATES,
+                "current_date": start.isoformat(),
+                "end_date": end.isoformat()
+            }
+        )
+        
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        logger.error("Error in process_universe: %s\n%s", str(e), error_trace)
+        return templates.TemplateResponse(
+            "error.html",
+            {
+                "request": request,
+                "error": f"Error processing contacts: {str(e)}\nTrace:\n{error_trace}"
+            }
+        )
+
+@app.get("/universe", response_class=HTMLResponse)
+async def universe_selection(request: Request):
+    """Display the universe selection page"""
+    # Default dates
+    today = date.today()
+    next_year = today + timedelta(days=365)
+    
+    return templates.TemplateResponse(
+        "universe_selection.html",
+        {
+            "request": request,
+            "title": "Universe Selection",
+            "all_states": ALL_STATES,
+            "special_rule_states": SPECIAL_RULE_STATES,
+            "state_rules": {
+                state: {
+                    "has_birthday_rule": state in BIRTHDAY_RULE_STATES,
+                    "has_effective_date_rule": state in EFFECTIVE_DATE_RULE_STATES,
+                    "has_year_round_enrollment": state in YEAR_ROUND_ENROLLMENT_STATES
+                }
+                for state in ALL_STATES
+            },
+            "today": today.isoformat(),
+            "next_year": next_year.isoformat()
+        }
+    )
 
 if __name__ == "__main__":
     import uvicorn

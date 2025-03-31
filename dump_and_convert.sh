@@ -74,6 +74,22 @@ convert_to_sqlite() {
     fi
 }
 
+# Function to normalize dates in a SQLite database
+normalize_dates() {
+    local sqlite_file=$1
+    
+    echo -e "${YELLOW}Normalizing dates in database: ${sqlite_file}...${NC}"
+    
+    # Call the Python script to normalize dates using uv run
+    if uv run normalize_dates.py "${sqlite_file}"; then
+        echo -e "${GREEN}Successfully normalized dates in database: ${sqlite_file}${NC}"
+        return 0
+    else
+        echo -e "${RED}Failed to normalize dates in database: ${sqlite_file}${NC}"
+        return 1
+    fi
+}
+
 # Function to extract database ID from URL
 extract_db_id() {
     local url=$1
@@ -100,7 +116,7 @@ else
     ORG_DATA=$(sqlite3 main.db "SELECT id, name, turso_db_url, turso_auth_token FROM organizations WHERE turso_db_url IS NOT NULL;")
 fi
 
-# Step 4: Dump each organization database and convert to SQLite
+# Step 4: Dump each organization database, convert to SQLite, and normalize dates
 echo -e "${YELLOW}Processing organization databases...${NC}"
 echo "${ORG_DATA}" | while IFS='|' read -r org_id name url token; do
     # Skip if any field is empty
@@ -126,10 +142,13 @@ echo "${ORG_DATA}" | while IFS='|' read -r org_id name url token; do
     ORG_DB="org_dbs/org-${org_id}.db"
     convert_to_sqlite "${ORG_DUMP}" "${ORG_DB}"
     
+    # Normalize dates in the SQLite database
+    normalize_dates "${ORG_DB}"
+    
     echo -e "${GREEN}Processed organization ${org_id} (${name}) using database ${db_id}${NC}"
 done
 
-echo -e "${GREEN}All databases have been dumped and converted!${NC}"
+echo -e "${GREEN}All databases have been dumped, converted, and normalized!${NC}"
 echo -e "${YELLOW}Summary:${NC}"
 echo -e "- Medicare Portal database: main.db"
 if [ -n "$TARGET_ORG_ID" ]; then
