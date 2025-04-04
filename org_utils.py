@@ -6,6 +6,7 @@ from typing import List, Dict, Any, Optional
 import logging
 from dotenv import load_dotenv
 from datetime import date, datetime
+import pandas as pd
 
 # Load environment variables from .env file
 load_dotenv()
@@ -78,102 +79,125 @@ def get_state_from_zip(zip_code: str) -> str:
         return None
         
     try:
-        # Ensure we're working with just the first 5 digits and pad
-        zip_code = str(zip_code)[:5].zfill(5)
-        return ZIP_DATA.get(zip_code, {}).get('state')
+        # Clean and format the ZIP code
+        zip_str = str(zip_code).strip()
+        
+        # Handle ZIP+4 format
+        if '-' in zip_str:
+            zip_str = zip_str.split('-')[0]
+            
+        # Remove any non-numeric characters
+        zip_str = ''.join(c for c in zip_str if c.isdigit())
+        
+        # Ensure 5 digits with leading zeros
+        zip_str = zip_str[:5].zfill(5)
+        
+        # Look up state
+        state = ZIP_DATA.get(zip_str, {}).get('state')
+        if state:
+            logger.debug(f"Found state {state} for ZIP code {zip_str}")
+            return state
+        else:
+            logger.warning(f"No state found for ZIP code {zip_str}")
+            return None
     except Exception as e:
         logger.error(f"Error looking up state for ZIP code {zip_code}: {e}")
         return None
-
-def get_contacts_from_org_db(org_db_path: str, org_id: int) -> List[Dict[str, Any]]:
-    """
-    Get contacts from the organization's database
     
-    Args:
-        org_db_path: Path to the organization's database
-        org_id: Organization ID
+def get_n_contacts_from_org_db(org_db_path: str, org_id: int, n: int) -> List[Dict[str, Any]]:
+    """
+    Get n contacts from an organization's database
+    """
+    with sqlite3.connect(org_db_path) as conn:
+        """
+        Get n random contact IDs from the organization's database
         
-    Returns:
-        List of contacts as dictionaries
-    """
-    logger.info(f"Getting contacts from organization database: {org_db_path}")
-    
-    conn = connect_to_db(org_db_path)
-    try:
+        Args:
+            org_db_path: Path to the organization's SQLite database
+            org_id: Organization ID
+            n: Number of random contacts to retrieve
+            
+        Returns:
+            List of n random contact dictionaries
+        """
+        conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
-        # Check if the contacts table exists and has the required columns
-        cursor.execute("PRAGMA table_info(contacts)")
-        columns = {column['name']: True for column in cursor.fetchall()}
+        # Get n random contact IDs
+        cursor.execute("""
+            SELECT id FROM contacts
+            ORDER BY RANDOM()
+            LIMIT ?
+        """, (n,))
         
-        # Verify critical columns exist
-        if 'email' not in columns:
-            raise ValueError("Missing critical column 'email' in contacts table")
+        rows = cursor.fetchall()
+        n_contact_ids = [row['id'] for row in rows]
+        
+        if not n_contact_ids:
+            logger.warning(f"No contacts found in database for org_id: {org_id}")
+            return []
+    
+    return get_contacts_from_org_db(org_db_path, org_id, contact_ids=n_contact_ids)
+
+def get_contacts_from_org_db(org_db_path: str, org_id: int, contact_ids: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    """
+    Get contacts from an organization's database
+    
+    Args:
+        org_db_path: Path to the organization's SQLite database
+        org_id: Organization ID
+        contact_ids: Optional list of contact IDs to filter by
+        
+    Returns:
+        List of contact dictionaries
+    """
+    contacts = []
+    
+    # Build the SQL query
+    sql = """
+        SELECT id, first_name, last_name, email, state, birth_date, effective_date
+        FROM contacts
+        WHERE 1=1
+    """
+    params = []
+    
+    # Add contact ID filter if provided
+    if contact_ids:
+        # Convert all IDs to strings for comparison
+        str_ids = [str(cid) for cid in contact_ids]
+        sql += " AND CAST(id AS TEXT) IN ({})".format(','.join(['?' for _ in str_ids]))
+        params.extend(str_ids)
+    
+    try:
+        with sqlite3.connect(org_db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(sql, params)
+            rows = cursor.fetchall()
             
-        # Build query with filtering for valid data
-        query_parts = []
-        
-        # Handle ID column specially
-        if 'id' in columns:
-            query_parts.append('id')
-        else:
-            query_parts.append('rowid as id')
-            
-        # Add email (required)
-        query_parts.append('email')
-        
-        # Add all required columns if they exist
-        required_columns = ['first_name', 'last_name', 'birth_date', 'effective_date', 'zip_code', 'gender']
-        for col in required_columns:
-            if col in columns:
-                query_parts.append(col)
-        
-        # Add state if it exists (optional - we'll derive from zip if missing)
-        if 'state' in columns:
-            query_parts.append('state')
-        
-        # Simplified WHERE clause - only check for critical data
-        where_conditions = ['email IS NOT NULL AND email != ""']
-        
-        # Build the query
-        query = f"""
-            SELECT {', '.join(query_parts)} 
-            FROM contacts 
-            WHERE {' AND '.join(where_conditions)}
-        """
-        
-        cursor.execute(query)
-        
-        contacts = []
-        # Process rows in batches of 1000
-        while True:
-            rows = cursor.fetchmany(1000)
-            if not rows:
-                break
-                
             for row in rows:
                 contact = dict(row)
-                contact['organization_id'] = org_id
-                
-                # Process state from zip code if needed
-                if (contact.get('state') is None or contact['state'] == '') and contact.get('zip_code'):
-                    contact['state'] = get_state_from_zip(contact['zip_code'])
-                
+                # Convert dates to ISO format strings if they exist
+                if contact.get('birth_date'):
+                    contact['birth_date'] = pd.to_datetime(contact['birth_date']).date().isoformat()
+                if contact.get('effective_date'):
+                    contact['effective_date'] = pd.to_datetime(contact['effective_date']).date().isoformat()
                 contacts.append(contact)
-            
-        logger.info(f"Retrieved {len(contacts)} contacts from organization database")
-        return contacts
+                
     except sqlite3.Error as e:
-        logger.error(f"Error retrieving contacts: {e}")
-        raise
-    finally:
-        conn.close()
+        print(f"Database error: {e}")
+        return []
+    except Exception as e:
+        print(f"Error: {e}")
+        return []
+        
+    return contacts
 
 def get_filtered_contacts_from_org_db(org_db_path: str, org_id: int, 
                                       effective_date_age_years: Optional[int] = None,
                                       effective_date_start: Optional[str] = None,
                                       effective_date_end: Optional[str] = None,
-                                      states: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+                                      states: Optional[List[str]] = None, n: Optional[int] = None, is_random: bool = False) -> List[Dict[str, Any]]:
     """
     Get contacts from the organization's database with filtering by effective date range and states
     
@@ -186,12 +210,18 @@ def get_filtered_contacts_from_org_db(org_db_path: str, org_id: int,
                                  Zero means "this year" (current year)
         effective_date_start: Start of effective date range in format "YYYY-MM" (e.g., "2018-01")
         effective_date_end: End of effective date range in format "YYYY-MM" (e.g., "2020-12")
+                          When using months-ago format:
+                          - effective_date_start is the OLDER date (e.g., 36 months ago)
+                          - effective_date_end is the NEWER date (e.g., 24 months ago or -1 for unlimited)
         states: Filter contacts to include only those in the specified states
+        n: Optional limit on number of results to return
+        is_random: If True and n is provided, randomly sample n results
         
     Returns:
         List of contacts as dictionaries
     """
     logger.info(f"Getting filtered contacts from organization database: {org_db_path}")
+    logger.debug(f"Filter params - effective_date_start: {effective_date_start}, effective_date_end: {effective_date_end}, states: {states}, n: {n}, is_random: {is_random}")
     
     conn = connect_to_db(org_db_path)
     try:
@@ -205,6 +235,7 @@ def get_filtered_contacts_from_org_db(org_db_path: str, org_id: int,
         # Check if the contacts table exists and has the required columns
         cursor.execute("PRAGMA table_info(contacts)")
         columns = {column['name']: True for column in cursor.fetchall()}
+        logger.debug(f"Available columns in contacts table: {list(columns.keys())}")
         
         # Verify critical columns exist
         if 'email' not in columns:
@@ -228,134 +259,66 @@ def get_filtered_contacts_from_org_db(org_db_path: str, org_id: int,
             if col in columns:
                 query_parts.append(col)
         
-        # Add state if it exists (optional - we'll derive from zip if missing)
-        if 'state' in columns:
-            query_parts.append('state')
-        
         # Basic WHERE clause - only check for critical data
         where_conditions = ['email IS NOT NULL AND email != ""']
-        
-        # Get sample dates for debugging
-        cursor.execute("""
-            SELECT effective_date FROM contacts 
-            WHERE effective_date IS NOT NULL AND effective_date != '' 
-            LIMIT 10
-        """)
-        sample_dates = cursor.fetchall()
-        if sample_dates:
-            logger.info(f"Sample effective dates in database: {[row[0] for row in sample_dates]}")
-        else:
-            logger.warning("No effective dates found in database!")
+        params = []
 
-        # Check for exact date range filtering
-        if effective_date_start and effective_date_end and 'effective_date' in columns:
-            logger.info(f"Applying effective date range filter: {effective_date_start} to {effective_date_end}")
+        # Add effective date filtering
+        if effective_date_start is not None or effective_date_end is not None:
+            # Add effective date column to query if not already included
+            if 'effective_date' not in query_parts:
+                query_parts.append('effective_date')
             
-            # Extract year and month from the range parameters
-            start_year, start_month = effective_date_start.split('-')
-            end_year, end_month = effective_date_end.split('-')
+            # Add effective date range conditions
+            if effective_date_start is not None:
+                # For months-ago format, effective_date_start is the OLDER date
+                # So we want effective_date <= start_date (older than or equal to start_date)
+                where_conditions.append('date(effective_date) <= date(?)')
+                params.append(f"{effective_date_start}-01")  # Add day for proper date comparison
+                logger.debug(f"Added start date filter: <= {effective_date_start}-01")
+            if effective_date_end is not None and effective_date_end != "-1":
+                # For months-ago format, effective_date_end is the NEWER date
+                # So we want effective_date >= end_date (newer than or equal to end_date)
+                where_conditions.append('date(effective_date) >= date(?)')
+                params.append(f"{effective_date_end}-01")  # Add day for proper date comparison
+                logger.debug(f"Added end date filter: >= {effective_date_end}-01")
+        elif effective_date_age_years is not None:
+            # Add effective date column to query if not already included
+            if 'effective_date' not in query_parts:
+                query_parts.append('effective_date')
             
-            # Create date range condition based on different date formats
-            where_conditions.append(f"""
-                effective_date IS NOT NULL 
-                AND effective_date != '' 
-                AND (
-                    -- Format YYYY-MM-DD
-                    (effective_date LIKE '____-__-__' AND 
-                     substr(effective_date, 1, 7) >= '{effective_date_start}' AND 
-                     substr(effective_date, 1, 7) <= '{effective_date_end}')
-                    
-                    -- Format MM/DD/YYYY
-                    OR (effective_date LIKE '__/__/____' AND 
-                        (CAST(substr(effective_date, 7, 4) AS INTEGER) > {start_year} OR 
-                         (CAST(substr(effective_date, 7, 4) AS INTEGER) = {start_year} AND 
-                          CAST(substr(effective_date, 1, 2) AS INTEGER) >= {start_month}))
-                        AND
-                        (CAST(substr(effective_date, 7, 4) AS INTEGER) < {end_year} OR 
-                         (CAST(substr(effective_date, 7, 4) AS INTEGER) = {end_year} AND 
-                          CAST(substr(effective_date, 1, 2) AS INTEGER) <= {end_month}))
-                    )
-                    
-                    -- Format M/D/YYYY
-                    OR (effective_date LIKE '_/_/____' AND 
-                        (CAST(substr(effective_date, 5, 4) AS INTEGER) > {start_year} OR 
-                         (CAST(substr(effective_date, 5, 4) AS INTEGER) = {start_year} AND 
-                          CAST(substr(effective_date, 1, 1) AS INTEGER) >= {start_month}))
-                        AND
-                        (CAST(substr(effective_date, 5, 4) AS INTEGER) < {end_year} OR 
-                         (CAST(substr(effective_date, 5, 4) AS INTEGER) = {end_year} AND 
-                          CAST(substr(effective_date, 1, 1) AS INTEGER) <= {end_month}))
-                    )
-                    
-                    -- Format YYYY/MM/DD
-                    OR (effective_date LIKE '____/__/__' AND 
-                        substr(effective_date, 1, 7) >= '{start_year}/{start_month.zfill(2)}' AND 
-                        substr(effective_date, 1, 7) <= '{end_year}/{end_month.zfill(2)}')
-                )
-            """)
-            
-        # Check for legacy effective_date_age_years parameter
-        elif effective_date_age_years is not None and 'effective_date' in columns:
-            # Get current year for comparison
-            current_year = datetime.now().year
-            
-            logger.info(f"Applying effective date age filter with parameter: {effective_date_age_years}")
-            
-            # Handle different filtering based on parameter value
-            if effective_date_age_years == 0:
-                # This year - effective date in current year
-                where_conditions.append(f"""
-                    effective_date IS NOT NULL 
-                    AND effective_date != '' 
-                    AND (
-                        instr(effective_date, '{current_year}') > 0 
-                        OR substr(effective_date, -4) = '{current_year}'
-                        OR substr(effective_date, 1, 4) = '{current_year}'
-                    )
-                """)
-                logger.info(f"Filtering for effective dates in current year ({current_year})")
-            
-            elif effective_date_age_years > 0:
-                # Past dates - effective date is X or more years old
-                years_ago = current_year - effective_date_age_years
-                where_conditions.append(f"""
-                    effective_date IS NOT NULL 
-                    AND effective_date != '' 
-                    AND (
-                        (CAST(substr(effective_date, -4) AS INTEGER) <= {years_ago} AND substr(effective_date, -4) BETWEEN '1900' AND '{years_ago}')
-                        OR
-                        (CAST(substr(effective_date, 1, 4) AS INTEGER) <= {years_ago} AND substr(effective_date, 1, 4) BETWEEN '1900' AND '{years_ago}')
-                        OR 
-                        (instr(effective_date, '/') > 0 AND 
-                         CAST(substr(effective_date, instr(effective_date, '/') + 1, 4) AS INTEGER) <= {years_ago} AND 
-                         substr(effective_date, instr(effective_date, '/') + 1, 4) BETWEEN '1900' AND '{years_ago}')
-                    )
-                """)
-                logger.info(f"Filtering for effective dates {effective_date_age_years}+ years old (before or in {years_ago})")
-            
+            # Calculate date range based on current year
+            current_year = date.today().year
+            if effective_date_age_years > 0:
+                # Filter for contacts with effective date older than X years
+                target_year = current_year - effective_date_years
+                where_conditions.append('strftime("%Y", effective_date) <= ?')
+                params.append(str(target_year))
             elif effective_date_age_years < 0:
-                # Future dates - effective date is within next X years
-                future_year = current_year + abs(effective_date_age_years)
-                where_conditions.append(f"""
-                    effective_date IS NOT NULL 
-                    AND effective_date != '' 
-                    AND (
-                        (CAST(substr(effective_date, -4) AS INTEGER) >= {current_year} AND substr(effective_date, -4) BETWEEN '{current_year}' AND '{future_year}')
-                        OR
-                        (CAST(substr(effective_date, 1, 4) AS INTEGER) >= {current_year} AND substr(effective_date, 1, 4) BETWEEN '{current_year}' AND '{future_year}')
-                        OR 
-                        (instr(effective_date, '/') > 0 AND 
-                         CAST(substr(effective_date, instr(effective_date, '/') + 1, 4) AS INTEGER) >= {current_year} AND 
-                         CAST(substr(effective_date, instr(effective_date, '/') + 1, 4) AS INTEGER) <= {future_year})
-                    )
-                """)
-                logger.info(f"Filtering for effective dates within next {abs(effective_date_age_years)} years (between {current_year} and {future_year})")
-        
-        # Add states filter if provided
-        if states and len(states) > 0 and 'state' in columns:
-            placeholders = ','.join(['?' for _ in states])
-            where_conditions.append(f"state IN ({placeholders})")
-            logger.info(f"Filtering by states: {states}")
+                # Filter for contacts with effective date within next X years
+                target_year = current_year - effective_date_years
+                where_conditions.append('strftime("%Y", effective_date) >= ?')
+                params.append(str(target_year))
+            else:
+                # Filter for contacts with effective date in current year
+                where_conditions.append('strftime("%Y", effective_date) = ?')
+                params.append(str(current_year))
+
+        # If states are provided, filter by ZIP codes that map to those states
+        if states and len(states) > 0:
+            # Get all ZIP codes that map to the requested states
+            state_zip_codes = []
+            for zip_code, data in ZIP_DATA.items():
+                if data.get('state') in states:
+                    state_zip_codes.append(zip_code)
+            
+            if state_zip_codes:
+                zip_placeholders = ','.join(['?' for _ in state_zip_codes])
+                where_conditions.append(f'zip_code IN ({zip_placeholders})')
+                params.extend(state_zip_codes)
+            else:
+                logger.warning(f"No ZIP codes found for states: {states}")
+                return []
         
         # Build the query
         query = f"""
@@ -364,13 +327,19 @@ def get_filtered_contacts_from_org_db(org_db_path: str, org_id: int,
             WHERE {' AND '.join(where_conditions)}
         """
         
-        logger.debug(f"Executing SQL query: {query}")
+        # Add ORDER BY RANDOM() if is_random is True and n is provided
+        if n is not None and is_random:
+            query += " ORDER BY RANDOM()"
+            
+        # Add LIMIT if n is provided
+        if n is not None:
+            query += f" LIMIT {n}"
         
-        # Execute with or without state parameters
-        if states and len(states) > 0 and 'state' in columns:
-            cursor.execute(query, states)
-        else:
-            cursor.execute(query)
+        logger.debug(f"Executing SQL query: {query}")
+        logger.debug(f"Query parameters: {params}")
+        
+        # Execute query
+        cursor.execute(query, params)
         
         contacts = []
         # Process rows in batches of 1000
@@ -383,11 +352,16 @@ def get_filtered_contacts_from_org_db(org_db_path: str, org_id: int,
                 contact = dict(row)
                 contact['organization_id'] = org_id
                 
-                # Process state from zip code if needed
-                if (contact.get('state') is None or contact['state'] == '') and contact.get('zip_code'):
-                    contact['state'] = get_state_from_zip(contact['zip_code'])
-                
-                contacts.append(contact)
+                # Always try to determine state from ZIP code
+                if contact.get('zip_code'):
+                    state = get_state_from_zip(contact['zip_code'])
+                    if state:
+                        contact['state'] = state
+                        contacts.append(contact)
+                    else:
+                        logger.debug(f"Could not determine state from ZIP code {contact.get('zip_code')} for contact {contact.get('id')}")
+                else:
+                    logger.debug(f"No ZIP code found for contact {contact.get('id')}")
             
         logger.info(f"Retrieved {len(contacts)} contacts from organization database with filters")
         return contacts
@@ -554,10 +528,10 @@ def format_contact_data(contacts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         if not state:
             state = contact.get('state')
         
-        # Default to CA if we still don't have a valid state
+        # Skip contacts without a valid state
         if not state:
-            logger.error(f"Could not determine valid state for contact {contact.get('id')}")
-            raise ValueError(f"Missing valid state for contact {contact.get('id')}")
+            logger.warning(f"Skipping contact {contact.get('id')}: Missing valid state")
+            continue
         
         # Ensure required fields exist
         formatted_contact = {
@@ -580,18 +554,138 @@ def format_contact_data(contacts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         # Convert date fields if needed
         for date_field in ['birth_date', 'effective_date']:
             if formatted_contact[date_field]:
+                logger.debug(f"Processing {date_field}: {formatted_contact[date_field]}")
                 if not isinstance(formatted_contact[date_field], date):
                     if isinstance(formatted_contact[date_field], str):
                         parsed_date = parse_date_flexible(formatted_contact[date_field])
                         if parsed_date:
                             formatted_contact[date_field] = parsed_date.isoformat()
+                            logger.debug(f"Parsed {date_field} to {formatted_contact[date_field]}")
                         else:
                             logger.warning(f"Could not parse {date_field} for contact {formatted_contact['id']}: {formatted_contact[date_field]}")
                             formatted_contact[date_field] = None
                     else:
                         formatted_contact[date_field] = formatted_contact[date_field].isoformat()
+                        logger.debug(f"Converted {date_field} to ISO format: {formatted_contact[date_field]}")
                 
+        logger.debug(f"Final formatted contact: {formatted_contact}")
         formatted_contacts.append(formatted_contact)
         
     logger.info(f"Formatted {len(formatted_contacts)} contacts for scheduling")
     return formatted_contacts
+
+def update_states_from_zip_codes(org_db_path: str) -> None:
+    """
+    Update state information in the database using ZIP codes.
+    This function will:
+    1. Find all contacts with missing/empty states but valid ZIP codes
+    2. Update their state based on the ZIP data
+    
+    Args:
+        org_db_path: Path to the organization's database
+    """
+    logger.info(f"Updating state information from ZIP codes in database: {org_db_path}")
+    
+    conn = connect_to_db(org_db_path)
+    try:
+        cursor = conn.cursor()
+        
+        # First, get count of contacts with missing states but valid ZIP codes
+        cursor.execute("""
+            SELECT COUNT(*) 
+            FROM contacts 
+            WHERE (state IS NULL OR state = '') 
+            AND zip_code IS NOT NULL 
+            AND zip_code != ''
+        """)
+        missing_states_count = cursor.fetchone()[0]
+        logger.info(f"Found {missing_states_count} contacts with missing states but valid ZIP codes")
+        
+        if missing_states_count == 0:
+            logger.info("No contacts need state updates")
+            return
+            
+        # Get all contacts that need updating
+        cursor.execute("""
+            SELECT id, zip_code 
+            FROM contacts 
+            WHERE (state IS NULL OR state = '') 
+            AND zip_code IS NOT NULL 
+            AND zip_code != ''
+        """)
+        
+        # Process in batches to avoid memory issues
+        batch_size = 1000
+        updates = []
+        total_updated = 0
+        
+        while True:
+            rows = cursor.fetchmany(batch_size)
+            if not rows:
+                break
+                
+            for row in rows:
+                contact_id = row['id']
+                zip_code = str(row['zip_code'])[:5].zfill(5)  # Ensure 5-digit format
+                state = get_state_from_zip(zip_code)
+                
+                if state:
+                    updates.append((state, contact_id))
+                    
+            # Execute batch update
+            if updates:
+                cursor.executemany(
+                    "UPDATE contacts SET state = ? WHERE id = ?",
+                    updates
+                )
+                total_updated += len(updates)
+                updates = []  # Clear for next batch
+                
+        conn.commit()
+        logger.info(f"Updated state information for {total_updated} contacts")
+        
+        # Verify results
+        cursor.execute("""
+            SELECT state, COUNT(*) as count 
+            FROM contacts 
+            WHERE state IS NOT NULL AND state != '' 
+            GROUP BY state
+        """)
+        state_counts = cursor.fetchall()
+        logger.info("State distribution after update:")
+        for row in state_counts:
+            logger.info(f"  {row['state']}: {row['count']} contacts")
+            
+    except sqlite3.Error as e:
+        logger.error(f"Database error while updating states: {e}")
+        raise
+    finally:
+        conn.close()
+
+def update_all_org_dbs_states() -> None:
+    """
+    Update state information in all organization databases.
+    This function will scan the org_dbs directory and update each database.
+    """
+    logger.info("Starting state update for all organization databases")
+    
+    # Get list of all org databases
+    org_db_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "org_dbs")
+    if not os.path.exists(org_db_dir):
+        logger.warning(f"Organization database directory not found: {org_db_dir}")
+        return
+        
+    org_dbs = [f for f in os.listdir(org_db_dir) if f.startswith('org-') and f.endswith('.db')]
+    logger.info(f"Found {len(org_dbs)} organization databases")
+    
+    for org_db in org_dbs:
+        try:
+            org_db_path = os.path.join(org_db_dir, org_db)
+            org_id = int(org_db.replace('org-', '').replace('.db', ''))
+            logger.info(f"Processing organization {org_id} ({org_db})")
+            update_states_from_zip_codes(org_db_path)
+        except Exception as e:
+            logger.error(f"Error processing {org_db}: {e}")
+            continue
+            
+    logger.info("Completed state updates for all organization databases")

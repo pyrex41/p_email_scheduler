@@ -1,0 +1,332 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>{{ org_name }} (ID: {{ org_id }})</h1>
+    <p>
+        {% if show_all %}
+            Showing all {{ total_contacts }} contacts
+            {% if effective_date_filter != "none" %}
+                with effective date filter applied
+            {% endif %}
+        {% else %}
+            Showing {{ sample_size }} contacts out of {{ total_contacts }} total contacts
+        {% endif %}
+    </p>
+    
+    <!-- Controls -->
+    <div class="row mb-4">
+        <div class="col">
+            <form action="/check" method="post" class="form-inline">
+                <input type="hidden" name="org_id" value="{{ org_id }}">
+                <input type="hidden" name="effective_date_filter" value="{{ effective_date_filter }}">
+                {% if effective_date_years %}
+                <input type="hidden" name="effective_date_years" value="{{ effective_date_years }}">
+                {% endif %}
+                {% if effective_date_start %}
+                <input type="hidden" name="effective_date_start" value="{{ effective_date_start }}">
+                {% endif %}
+                {% if effective_date_end %}
+                <input type="hidden" name="effective_date_end" value="{{ effective_date_end }}">
+                {% endif %}
+                
+                <div class="form-group mr-2">
+                    <label for="show_all" class="mr-2">Display:</label>
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="checkbox" id="show_all" name="show_all" value="true" 
+                               {% if show_all %}checked{% endif %}>
+                        <label class="form-check-label" for="show_all">Show All</label>
+                    </div>
+                    
+                    <select name="sample_size" id="sample_size" class="form-control ml-2" {% if show_all %}disabled{% endif %}>
+                        {% for size in sample_sizes %}
+                        <option value="{{ size }}" {% if size == sample_size %}selected{% endif %}>{{ size }} contacts</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary">Update Display</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Search -->
+    <div class="row mb-4">
+        <div class="col">
+            <form action="/check" method="post" class="form-inline">
+                <input type="hidden" name="org_id" value="{{ org_id }}">
+                <input type="hidden" name="show_all" value="{{ 'true' if show_all else 'false' }}">
+                <input type="hidden" name="effective_date_filter" value="{{ effective_date_filter }}">
+                {% if effective_date_years %}
+                <input type="hidden" name="effective_date_years" value="{{ effective_date_years }}">
+                {% endif %}
+                {% if effective_date_start %}
+                <input type="hidden" name="effective_date_start" value="{{ effective_date_start }}">
+                {% endif %}
+                {% if effective_date_end %}
+                <input type="hidden" name="effective_date_end" value="{{ effective_date_end }}">
+                {% endif %}
+                
+                <div class="form-group mr-2">
+                    <label for="contact_search" class="mr-2">Search by Email or Contact ID</label>
+                    <input type="text" class="form-control" id="contact_search" name="contact_search" 
+                           placeholder="Enter email address or contact ID" value="{{ contact_search }}">
+                </div>
+                <button type="submit" class="btn btn-secondary">Search</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Pagination (only show if showing all contacts) -->
+    {% if show_all and total_contacts > 50 %}
+    <div class="row mb-4">
+        <div class="col">
+            <nav aria-label="Contact navigation">
+                <ul class="pagination justify-content-center">
+                    <!-- First page -->
+                    <li class="page-item {% if current_page == 1 %}disabled{% endif %}">
+                        <a class="page-link" href="#" data-page="1" aria-label="First">
+                            <span aria-hidden="true">&laquo;</span>
+                        </a>
+                    </li>
+                    
+                    <!-- Previous page -->
+                    <li class="page-item {% if not has_previous %}disabled{% endif %}">
+                        <a class="page-link" href="#" data-page="{{ current_page - 1 }}" aria-label="Previous">
+                            <span aria-hidden="true">&lsaquo;</span>
+                        </a>
+                    </li>
+
+                    <!-- Page numbers -->
+                    {% set window_size = 2 %}
+                    {% set window_start = [current_page - window_size, 1]|max %}
+                    {% set window_end = [current_page + window_size, total_pages]|min %}
+
+                    {% if window_start > 1 %}
+                        <li class="page-item"><a class="page-link" href="#" data-page="1">1</a></li>
+                        {% if window_start > 2 %}
+                            <li class="page-item disabled"><span class="page-link">...</span></li>
+                        {% endif %}
+                    {% endif %}
+
+                    {% for page in range(window_start, window_end + 1) %}
+                        <li class="page-item {% if page == current_page %}active{% endif %}">
+                            <a class="page-link" href="#" data-page="{{ page }}">{{ page }}</a>
+                        </li>
+                    {% endfor %}
+
+                    {% if window_end < total_pages %}
+                        {% if window_end < total_pages - 1 %}
+                            <li class="page-item disabled"><span class="page-link">...</span></li>
+                        {% endif %}
+                        <li class="page-item">
+                            <a class="page-link" href="#" data-page="{{ total_pages }}">{{ total_pages }}</a>
+                        </li>
+                    {% endif %}
+
+                    <!-- Next page -->
+                    <li class="page-item {% if not has_next %}disabled{% endif %}">
+                        <a class="page-link" href="#" data-page="{{ current_page + 1 }}" aria-label="Next">
+                            <span aria-hidden="true">&rsaquo;</span>
+                        </a>
+                    </li>
+
+                    <!-- Last page -->
+                    <li class="page-item {% if current_page == total_pages %}disabled{% endif %}">
+                        <a class="page-link" href="#" data-page="{{ total_pages }}" aria-label="Last">
+                            <span aria-hidden="true">&raquo;</span>
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Contact Cards -->
+    <div class="row" id="contact-cards">
+        {% for contact in contacts %}
+        <div class="col-12 mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <button class="btn btn-link" type="button" data-bs-toggle="collapse" 
+                                data-bs-target="#contact-{{ contact.contact_info.id }}">
+                            {{ contact.contact_info.name }} ({{ contact.contact_info.state }})
+                        </button>
+                    </h5>
+                </div>
+                
+                <div class="collapse {% if loop.first %}show{% endif %}" id="contact-{{ contact.contact_info.id }}">
+                    <div class="contact-content">
+                        <div class="contact-info">
+                            <p><strong>Email:</strong> {{ contact.contact_info.email }}</p>
+                            <p><strong>Birth Date:</strong> {{ contact.contact_info.birth_date }}</p>
+                            <p><strong>Effective Date:</strong> {{ contact.contact_info.effective_date }}</p>
+                            <div class="link-section">
+                                <strong>Generated Link:</strong>
+                                {% set link = generate_link(org_id, contact.contact_info.id, 'effective_date', contact.contact_info.effective_date) %}
+                                <a href="{{ link }}" target="_blank" class="btn btn-sm btn-primary">View Quote</a>
+                            </div>
+                        </div>
+
+                        <div class="state-info">
+                            <h4>State Rules</h4>
+                            <ul class="mb-0">
+                                {% for rule in contact.scheduling_rules %}
+                                <li>{{ rule }}</li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+
+                        <div class="timeline mt-4">
+                            <h4>Scheduled Emails</h4>
+                            <div class="table-responsive">
+                                <table class="table table-striped">
+                                    <thead>
+                                        <tr>
+                                            <th>Email Type</th>
+                                            <th>Date</th>
+                                            <th>Status</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for email in contact.timeline_data.email_list %}
+                                        <tr>
+                                            <td>{{ email.type_display }}</td>
+                                            <td>{{ email.start }}</td>
+                                            <td>
+                                                {% if email.skipped %}
+                                                <span class="badge bg-warning text-dark">Skipped</span>
+                                                <br>
+                                                <small class="text-muted">{{ email.reason }}</small>
+                                                {% else %}
+                                                <span class="badge bg-success">Scheduled</span>
+                                                {% endif %}
+                                            </td>
+                                            <td>
+                                                {% if not email.skipped %}
+                                                <button class="btn btn-sm btn-outline-primary preview-email" 
+                                                        data-contact-id="{{ contact.contact_info.id }}"
+                                                        data-email-type="{{ email.type }}"
+                                                        data-email-date="{{ email.start }}">
+                                                    Preview
+                                                </button>
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Email Preview Modal -->
+<div class="modal fade" id="emailPreviewModal" tabindex="-1">
+    <div class="modal-dialog modal-lg" style="max-width: 800px; max-height: 90vh; width: 90%; height: 90vh;">
+        <div class="modal-content" style="height: 100%;">
+            <div class="modal-header">
+                <h5 class="modal-title">Email Preview</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" style="height: calc(100% - 60px);">
+                <iframe id="emailPreviewFrame" style="width: 100%; height: 100%; border: none;"></iframe>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add custom CSS for the modal -->
+<style>
+    .modal-dialog.modal-lg {
+        margin: 1.75rem auto;
+    }
+    @media (max-width: 768px) {
+        .modal-dialog.modal-lg {
+            max-width: 95%;
+            width: 95%;
+            margin: 0.5rem auto;
+        }
+    }
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Handle show all checkbox
+    const showAllCheckbox = document.getElementById('show_all');
+    const sampleSizeSelect = document.getElementById('sample_size');
+    
+    if (showAllCheckbox) {
+        showAllCheckbox.addEventListener('change', function() {
+            sampleSizeSelect.disabled = this.checked;
+        });
+    }
+    
+    // Handle pagination clicks
+    document.querySelectorAll('.pagination .page-link').forEach(link => {
+        link.addEventListener('click', function(e) {
+            e.preventDefault();
+            const page = this.getAttribute('data-page');
+            if (!page) return; // Skip if no page number (like in ellipsis)
+            
+            // Create a form with all current parameters
+            const form = document.createElement('form');
+            form.method = 'post';
+            form.action = '/check';
+
+            // Add all current hidden inputs
+            const currentForm = document.querySelector('form');
+            const hiddenInputs = currentForm.querySelectorAll('input[type="hidden"]');
+            hiddenInputs.forEach(input => {
+                const newInput = document.createElement('input');
+                newInput.type = 'hidden';
+                newInput.name = input.name;
+                newInput.value = input.value;
+                form.appendChild(newInput);
+            });
+
+            // Add show_all status
+            const showAllInput = document.createElement('input');
+            showAllInput.type = 'hidden';
+            showAllInput.name = 'show_all';
+            showAllInput.value = 'true';
+            form.appendChild(showAllInput);
+
+            // Add the page number
+            const pageInput = document.createElement('input');
+            pageInput.type = 'hidden';
+            pageInput.name = 'page';
+            pageInput.value = page;
+            form.appendChild(pageInput);
+
+            // Submit the form
+            document.body.appendChild(form);
+            form.submit();
+        });
+    });
+    
+    // Handle email preview
+    document.querySelectorAll('.preview-email').forEach(button => {
+        button.addEventListener('click', function() {
+            const contactId = this.getAttribute('data-contact-id');
+            const emailType = this.getAttribute('data-email-type');
+            const emailDate = this.getAttribute('data-email-date');
+            const orgId = document.querySelector('input[name="org_id"]').value;
+            
+            const previewUrl = `/preview_email?org_id=${orgId}&contact_id=${contactId}&email_type=${emailType}&email_date=${emailDate}`;
+            document.getElementById('emailPreviewFrame').src = previewUrl;
+            
+            const modal = new bootstrap.Modal(document.getElementById('emailPreviewModal'));
+            modal.show();
+        });
+    });
+});
+</script>
+{% endblock %} 

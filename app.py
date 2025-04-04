@@ -2,6 +2,7 @@ from fastapi import FastAPI, Request, Form, Body
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.exceptions import HTTPException
 from pydantic import BaseModel
 import pandas as pd
 import tempfile
@@ -12,6 +13,9 @@ from typing import Optional, List, Dict, Any
 import random
 import json
 import logging
+from utils import generate_link
+from email_template_engine import EmailTemplateEngine
+import aiosqlite
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -44,9 +48,11 @@ from email_scheduler_common import (
 # Import our database and formatting functions
 from org_utils import (
     get_organization_details,
-    get_contacts_from_org_db,
+    get_n_contacts_from_org_db,
     format_contact_data,
     get_filtered_contacts_from_org_db,
+    update_all_org_dbs_states,
+    get_contacts_from_org_db,
 )
 
 # Database paths setup
@@ -86,8 +92,19 @@ async def refresh_databases(org_id: int) -> None:
     else:
         print(f"Skipping database refresh for org {org_id}")
 
-
 app = FastAPI(title="Email Schedule Checker")
+
+@app.on_event("startup")
+async def startup_event():
+    """Run database updates when the application starts"""
+    logger.info("Running startup tasks...")
+    try:
+        # Update states in all organization databases
+        update_all_org_dbs_states()
+        logger.info("Successfully updated states in all organization databases")
+    except Exception as e:
+        logger.error(f"Error during startup state update: {e}")
+        # Don't raise the exception - allow the app to start even if this fails
 
 # Set up Jinja2 templates
 templates = Jinja2Templates(directory="templates")
@@ -418,7 +435,7 @@ async def simulate_emails(data: SimulationRequest):
                     'type': email.get('type', 'unknown'),
                     'type_display': {
                         'birthday': 'Birthday Email',
-                        'effective_date': 'Anniversary Email',
+                        'anniversary': 'Anniversary Email',
                         'aep': 'AEP Email',
                         'post_window': 'Post-Window Email'
                     }.get(email.get('type', 'unknown'), email.get('type', 'unknown').replace('_', ' ').title()),
@@ -432,7 +449,7 @@ async def simulate_emails(data: SimulationRequest):
                 # Set default dates based on type
                 if email.get('type') == 'birthday':
                     email_info['default_date'] = birth_date.isoformat()
-                elif email.get('type') == 'effective_date':
+                elif email.get('type') == 'anniversary':
                     email_info['default_date'] = effective_date.isoformat() if effective_date else None
                 elif email.get('type') == 'aep':
                     email_info['default_date'] = 'AEP Window'
@@ -456,7 +473,7 @@ async def simulate_emails(data: SimulationRequest):
                     'type': email.get('type', 'unknown'),
                     'type_display': {
                         'birthday': 'Birthday Email',
-                        'effective_date': 'Anniversary Email',
+                        'anniversary': 'Anniversary Email',
                         'aep': 'AEP Email',
                         'post_window': 'Post-Window Email'
                     }.get(email.get('type', 'unknown'), email.get('type', 'unknown').replace('_', ' ').title()),
@@ -470,7 +487,7 @@ async def simulate_emails(data: SimulationRequest):
                 # Set default dates based on type
                 if email.get('type') == 'birthday':
                     email_info['default_date'] = birth_date.isoformat()
-                elif email.get('type') == 'effective_date':
+                elif email.get('type') == 'anniversary':
                     email_info['default_date'] = effective_date.isoformat() if effective_date else None
                 elif email.get('type') == 'aep':
                     email_info['default_date'] = 'AEP Window'
@@ -718,51 +735,190 @@ async def check_schedules(
     sample_size: int = Form(10),
     state: Optional[str] = Form(default=None),
     special_rules_only: bool = Form(default=False),
-    contact_search: Optional[str] = Form(default=None)
+    contact_search: Optional[str] = Form(default=None),
+    show_all: bool = Form(default=False),
+    effective_date_filter: str = Form(default="none"),
+    effective_date_years: Optional[int] = Form(default=None),
+    effective_date_start: Optional[str] = Form(default=None),
+    effective_date_end: Optional[str] = Form(default=None),
+    page: int = Form(default=1)
 ):
     """Process organization's contacts and display sample results"""
     try:
+        # Convert effective date values to integers, handling -1 case
+        effective_date_start_int = None
+        effective_date_end_int = None
+        
+        if effective_date_start is not None:
+            try:
+                effective_date_start_int = int(effective_date_start)
+            except ValueError:
+                logger.error(f"Invalid effective_date_start value: {effective_date_start}")
+                return templates.TemplateResponse(
+                    "error.html",
+                    {
+                        "request": request,
+                        "error": "Invalid start date value provided"
+                    }
+                )
+                
+        if effective_date_end is not None:
+            try:
+                effective_date_end_int = int(effective_date_end)
+            except ValueError:
+                logger.error(f"Invalid effective_date_end value: {effective_date_end}")
+                return templates.TemplateResponse(
+                    "error.html",
+                    {
+                        "request": request,
+                        "error": "Invalid end date value provided"
+                    }
+                )
+
         # Set date range
         current_date = date.today()
         end_date = date(current_date.year + 2, current_date.month, current_date.day)
 
         await refresh_databases(org_id)
         
-        # Get organization details and contacts
+        # Get organization details
         org = get_organization_details(main_db, org_id)
         org_db_path = os.path.join(org_db_dir, f"org-{org_id}.db")
-        contacts = get_contacts_from_org_db(org_db_path, org_id)
-        formatted_contacts = format_contact_data(contacts)
+        
+        # Calculate effective date range if filter is active
+        effective_date_age_years = None
+        effective_date_range_start = None
+        effective_date_range_end = None
+        
+        if effective_date_filter == "single" and effective_date_years:
+            effective_date_age_years = effective_date_years
+        elif effective_date_filter == "range" and effective_date_start_int is not None:
+            # Calculate date range based on first day of current month
+            today = date.today()
+            first_of_month = date(today.year, today.month, 1)
+            
+            # Handle start date (this will be the earlier/older date)
+            if effective_date_start_int == -1:
+                # No start limit
+                effective_date_range_start = None
+            else:
+                # Calculate start date (earlier/older date)
+                effective_date_range_start = first_of_month - timedelta(days=effective_date_start_int * 30)  # Using 30 days per month for consistency
+                effective_date_range_start = effective_date_range_start.strftime("%Y-%m")
+            
+            # Handle end date (this will be the later/newer date)
+            if effective_date_end_int is not None and effective_date_end_int != -1:
+                # Calculate end date (later/newer date)
+                effective_date_range_end = first_of_month - timedelta(days=effective_date_end_int * 30)
+                effective_date_range_end = effective_date_range_end.strftime("%Y-%m")
+            else:
+                # No end limit
+                effective_date_range_end = None
+                
+            # Swap start and end dates if needed (since larger months-ago number means earlier date)
+            if (effective_date_range_start is not None and effective_date_range_end is not None and 
+                effective_date_range_start < effective_date_range_end):
+                effective_date_range_start, effective_date_range_end = effective_date_range_end, effective_date_range_start
+        
+        # Determine states to filter by
+        states_to_filter = None
+        if special_rules_only:
+            states_to_filter = SPECIAL_RULE_STATES
+            logger.debug(f"Filtering by special rules states: {states_to_filter}")
+        elif state and state.strip():
+            states_to_filter = [state]
+            logger.debug(f"Filtering by specific state: {states_to_filter}")
+
+        # First, get the filtered universe of contacts based on criteria
+        logger.debug(f"Getting filtered universe with states={states_to_filter}, effective_date_start={effective_date_range_start}, effective_date_end={effective_date_range_end}")
+        filtered_contacts = get_filtered_contacts_from_org_db(
+            org_db_path, 
+            org_id,
+            states=states_to_filter,
+            n=None,  # No limit when getting universe
+            is_random=False,  # No randomization when getting universe
+            effective_date_age_years=effective_date_age_years,
+            effective_date_start=effective_date_range_start,
+            effective_date_end=effective_date_range_end
+        )
+        
+        # If searching for a specific contact, filter the universe further
+        if contact_search and contact_search.strip():
+            logger.debug(f"Filtering universe for contact search: {contact_search}")
+            search_term = contact_search.strip().lower()
+            filtered_contacts = [
+                contact for contact in filtered_contacts 
+                if search_term in contact.get('email', '').lower() or 
+                str(contact.get('id', '')) == search_term
+            ]
+            
+            if not filtered_contacts:
+                return templates.TemplateResponse(
+                    "error.html",
+                    {
+                        "request": request,
+                        "error": f"No contact found with email or ID: {contact_search}"
+                    }
+                )
+        
+        # Now handle sampling from the filtered universe if not showing all
+        if not show_all and not contact_search:
+            logger.debug(f"Sampling {sample_size} contacts from universe of {len(filtered_contacts)}")
+            if len(filtered_contacts) > sample_size:
+                filtered_contacts = random.sample(filtered_contacts, sample_size)
+            
+        logger.debug(f"Processing {len(filtered_contacts)} contacts")
+        formatted_contacts = format_contact_data(filtered_contacts)
 
         if not formatted_contacts:
+            error_msg = "No valid contacts found for scheduling"
+            if state:
+                error_msg += f" in state {state}"
+            elif special_rules_only:
+                error_msg += " in states with special rules"
+            if effective_date_filter != "none":
+                error_msg += " with the specified effective date filter"
+            logger.warning(error_msg)
             return templates.TemplateResponse(
                 "error.html",
                 {
                     "request": request,
-                    "error": "No valid contacts found for scheduling"
+                    "error": error_msg
                 }
             )
 
-        # Ensure dates are in ISO string format for the scheduler
-        for contact in formatted_contacts:
-            if contact.get('birth_date') and not isinstance(contact['birth_date'], str):
-                contact['birth_date'] = contact['birth_date'].isoformat()
-            if contact.get('effective_date') and not isinstance(contact['effective_date'], str):
-                contact['effective_date'] = contact['effective_date'].isoformat()
+        # Handle pagination when showing all contacts
+        total_contacts = len(formatted_contacts)
+        contacts_per_page = 50  # Number of contacts to show per page
+        total_pages = (total_contacts + contacts_per_page - 1) // contacts_per_page if show_all else 1
+        
+        if show_all and total_contacts > contacts_per_page:
+            # Calculate pagination
+            page = max(1, min(page, total_pages))  # Ensure page is within valid range
+            start_idx = (page - 1) * contacts_per_page
+            end_idx = min(start_idx + contacts_per_page, total_contacts)
+            
+            # Slice contacts for current page
+            current_contacts = formatted_contacts[start_idx:end_idx]
+            has_previous = page > 1
+            has_next = page < total_pages
+        else:
+            current_contacts = formatted_contacts
+            page = 1
+            has_previous = False
+            has_next = False
+            total_pages = 1
 
         # Process contacts using the simplified async approach
         try:
-            sample_ids = random.sample(range(len(formatted_contacts)), sample_size)
-            sampled_contacts = [formatted_contacts[i] for i in sample_ids]
-            if sample_size < 100:
-                results = main_sync(sampled_contacts, current_date, end_date)
-            elif sample_size < 1000:
-                results = await main_async(sampled_contacts, current_date, end_date, batch_size=sample_size // 10)
+            if len(current_contacts) < 100:
+                results = main_sync(current_contacts, current_date, end_date)
             else:
-                results = await main_async(sampled_contacts, current_date, end_date, batch_size=1000)
+                results = await main_async(current_contacts, current_date, end_date, batch_size=min(len(current_contacts) // 10, 1000))
         except Exception as e:
             import traceback
             error_trace = traceback.format_exc()
+            logger.error(f"Failed to process contacts: {str(e)}\n{error_trace}")
             return templates.TemplateResponse(
                 "error.html",
                 {
@@ -771,11 +927,11 @@ async def check_schedules(
                 }
             )
 
-        # Convert results to DataFrame for easier filtering and sampling
+        # Convert results to DataFrame for easier filtering and organization
         df_data = []
         for result in results:
             contact_id = result['contact_id']
-            contact = next((c for c in formatted_contacts if c['id'] == contact_id), None)
+            contact = next((c for c in current_contacts if c['id'] == contact_id), None)
             if contact:
                 # Add scheduled emails
                 for email in result.get('scheduled', []):
@@ -815,7 +971,7 @@ async def check_schedules(
         df = pd.DataFrame(df_data)
         org_data_store[org_id] = df
 
-        # Apply filtering and sampling
+        # Filter contacts if searching
         if contact_search and contact_search.strip():
             search_term = contact_search.strip()
             filtered_df = df[(df['email'].str.lower() == search_term.lower()) | 
@@ -829,31 +985,12 @@ async def check_schedules(
                         "error": f"No contact found with email or ID: {search_term}"
                     }
                 )
-        else:
-            filtered_df = df.copy()
-            if special_rules_only:
-                filtered_df = filtered_df[filtered_df['state'].isin(SPECIAL_RULE_STATES)]
-            elif state and state.strip():
-                filtered_df = filtered_df[filtered_df['state'] == state]
-
-        # Sample contacts
-        unique_contacts = filtered_df.groupby('contact_id').first().reset_index()
-        if len(unique_contacts) == 0:
-            return templates.TemplateResponse(
-                "error.html",
-                {
-                    "request": request,
-                    "error": "No contacts found matching the filter criteria."
-                }
-            )
-
-        sample_ids = sample_contacts_from_states(unique_contacts, sample_size, state if state and state.strip() else None)
-        filtered_df = filtered_df[filtered_df['contact_id'].isin(sample_ids)]
+            df = filtered_df
 
         # Prepare contact data for display
         contacts_data = {}
-        for contact_id in sample_ids:
-            contact_rows = filtered_df[filtered_df['contact_id'] == contact_id]
+        for contact_id in df['contact_id'].unique():
+            contact_rows = df[df['contact_id'] == contact_id]
             if len(contact_rows) == 0:
                 continue
 
@@ -899,7 +1036,7 @@ async def check_schedules(
                     'type': email_type,
                     'type_display': {
                         'birthday': 'Birthday Email',
-                        'effective_date': 'Anniversary Email',
+                        'anniversary': 'Anniversary Email',
                         'aep': 'AEP Email',
                         'post_window': 'Post-Window Email'
                     }.get(email_type, email_type.replace('_', ' ').title()),
@@ -913,7 +1050,7 @@ async def check_schedules(
                 # Set default dates based on type
                 if email_type == 'birthday' and first_row['birth_date']:
                     email_info['default_date'] = first_row['birth_date']
-                elif email_type == 'effective_date' and first_row['effective_date']:
+                elif email_type == 'anniversary' and first_row['effective_date']:
                     email_info['default_date'] = first_row['effective_date']
                 elif email_type == 'aep':
                     email_info['default_date'] = 'AEP Window'
@@ -926,25 +1063,35 @@ async def check_schedules(
             email_list.sort(key=lambda x: x['start'])
             contacts_data[contact_id]['timeline_data']['email_list'] = email_list
 
+        # Return template response with generate_link function in context
         return templates.TemplateResponse(
-            "results.html",
+            "check.html",
             {
                 "request": request,
-                "org_name": org['name'],
+                "contacts": list(contacts_data.values()),
                 "org_id": org_id,
-                "contacts": contacts_data,
-                "total_contacts": len(df.groupby('contact_id')),
+                "org_name": org.get('name', f'Organization {org_id}'),
                 "sample_size": len(contacts_data),
-                "sample_sizes": [5, 10, 25, 50, 100],
-                "special_rule_states": SPECIAL_RULE_STATES,
-                "current_date": current_date.isoformat(),
-                "end_date": end_date.isoformat()
+                "total_contacts": total_contacts,
+                "sample_sizes": [10, 25, 50, 100, 250, 500],
+                "contact_search": contact_search if contact_search else "",
+                "generate_link": generate_link,
+                "show_all": show_all,
+                "effective_date_filter": effective_date_filter,
+                "effective_date_years": effective_date_years,
+                "effective_date_start": effective_date_start,
+                "effective_date_end": effective_date_end,
+                "current_page": page,
+                "total_pages": total_pages,
+                "has_previous": has_previous,
+                "has_next": has_next
             }
         )
         
     except Exception as e:
         import traceback
         error_trace = traceback.format_exc()
+        logger.error(f"Unexpected error in check_schedules: {str(e)}\n{error_trace}")
         return templates.TemplateResponse(
             "error.html",
             {
@@ -959,12 +1106,25 @@ async def get_universe_contacts(
     effective_date_age_years: Optional[int] = Form(None),
     effective_date_start: Optional[str] = Form(None),
     effective_date_end: Optional[str] = Form(None),
-    states: List[str] = Form([])
+    states: List[str] = Form([]),
+    n: Optional[int] = Form(None),
+    is_random: bool = Form(False)
 ):
-    """Fetch filtered contacts based on effective date range and states"""
+    """
+    Fetch filtered contacts based on effective date range and states
+    
+    Args:
+        org_id: Organization ID
+        effective_date_age_years: Legacy filter for effective date age
+        effective_date_start: Start of effective date range (YYYY-MM)
+        effective_date_end: End of effective date range (YYYY-MM)
+        states: List of states to filter by
+        n: Optional limit on number of results
+        is_random: If True and n is provided, randomly sample n results
+    """
     try:
-        logger.debug("Starting get_universe_contacts with org_id=%s, effective_date_range=%s to %s, states=%s", 
-                    org_id, effective_date_start, effective_date_end, states)
+        logger.debug("Starting get_universe_contacts with org_id=%s, effective_date_range=%s to %s, states=%s, n=%s, is_random=%s", 
+                    org_id, effective_date_start, effective_date_end, states, n, is_random)
         
         # Get organization details and construct DB path
         org = get_organization_details(main_db, org_id)
@@ -977,7 +1137,9 @@ async def get_universe_contacts(
             effective_date_age_years=effective_date_age_years if not (effective_date_start and effective_date_end) else None,
             effective_date_start=effective_date_start,
             effective_date_end=effective_date_end,
-            states=states if states else None
+            states=states if states else None,
+            n=n,
+            is_random=is_random
         )
         
         # Format the contacts for the frontend
@@ -987,7 +1149,8 @@ async def get_universe_contacts(
         content = {
             "contacts": formatted_contacts,
             "total": len(formatted_contacts),
-            "org_name": org['name']
+            "org_name": org['name'],
+            "is_random_sample": is_random and n is not None
         }
         json_content = json.dumps(content, cls=CustomJSONEncoder)
         
@@ -1143,7 +1306,7 @@ async def process_universe(
                     'type': email_type,
                     'type_display': {
                         'birthday': 'Birthday Email',
-                        'effective_date': 'Anniversary Email',
+                        'anniversary': 'Anniversary Email',
                         'aep': 'AEP Email',
                         'post_window': 'Post-Window Email'
                     }.get(email_type, email_type.replace('_', ' ').title()),
@@ -1157,7 +1320,7 @@ async def process_universe(
                 # Set default dates based on type
                 if email_type == 'birthday' and first_row['birth_date']:
                     email_info['default_date'] = first_row['birth_date']
-                elif email_type == 'effective_date' and first_row['effective_date']:
+                elif email_type == 'anniversary' and first_row['effective_date']:
                     email_info['default_date'] = first_row['effective_date']
                 elif email_type == 'aep':
                     email_info['default_date'] = 'AEP Window'
@@ -1224,6 +1387,133 @@ async def universe_selection(request: Request):
             "next_year": next_year.isoformat()
         }
     )
+
+@app.get("/preview_email")
+async def preview_email(
+    request: Request,
+    org_id: int,
+    contact_id: str,
+    email_type: str,
+    email_date: str
+):
+    """Preview an email template for a specific contact"""
+    try:
+        logger.debug(f"Previewing email for org_id={org_id}, contact_id={contact_id}, type={email_type}, date={email_date}")
+        
+        # Get contact directly from the org database
+        org_db_path = os.path.join(org_db_dir, f'org-{org_id}.db')
+        if not os.path.exists(org_db_path):
+            logger.error(f"Organization database not found: {org_db_path}")
+            raise HTTPException(status_code=404, detail="Organization database not found")
+            
+        contacts = get_contacts_from_org_db(org_db_path, org_id, contact_ids=[contact_id])
+        if not contacts:
+            logger.error(f"Contact {contact_id} not found in organization {org_id}")
+            raise HTTPException(status_code=404, detail="Contact not found in organization")
+            
+        formatted_contacts = format_contact_data(contacts)
+        if not formatted_contacts:
+            logger.error(f"Failed to format contact data for contact {contact_id}")
+            raise HTTPException(status_code=500, detail="Failed to format contact data")
+            
+        contact = formatted_contacts[0]
+        logger.debug(f"Found contact: {contact}")
+        
+        # Get organization details from database
+        try:
+            async with aiosqlite.connect('main.db') as db:
+                db.row_factory = aiosqlite.Row
+                async with db.execute(
+                    """SELECT id, name, phone, website, logo_url, primary_color, secondary_color, logo_data 
+                       FROM organizations WHERE id = ?""", 
+                    (org_id,)
+                ) as cursor:
+                    org_data = await cursor.fetchone()
+                    if not org_data:
+                        logger.error(f"Organization {org_id} not found in main database")
+                        raise HTTPException(status_code=404, detail="Organization not found")
+                    
+                    # Create organization dict with correct keys for template
+                    organization = dict(org_data)
+                    logger.debug(f"Found organization details: {organization}")
+        except Exception as e:
+            logger.error(f"Error fetching organization details for org_id={org_id}: {e}")
+            raise HTTPException(status_code=500, detail=f"Error fetching organization details: {e}")
+        
+        # Parse email date
+        try:
+            parsed_email_date = datetime.strptime(email_date, "%Y-%m-%d").date()
+            logger.debug(f"Parsed email date: {parsed_email_date}")
+        except ValueError as e:
+            logger.error(f"Invalid email date format: {email_date}")
+            raise HTTPException(status_code=400, detail=f"Invalid date format: {e}")
+        
+        # Initialize template engine
+        template_engine = EmailTemplateEngine()
+        
+        # Generate quote link
+        try:
+            logger.info(f"Generating quote link with org_id={org_id}, contact_id={contact_id}, email_type={email_type}, email_date={email_date}")
+            quote_link = generate_link(org_id, contact_id, email_type, email_date)
+            logger.info(f"Generated quote link: {quote_link}")
+        except Exception as e:
+            logger.error(f"Error generating quote link: {e}")
+            quote_link = f"#error-generating-link-{str(e)}"
+        
+        # Verify the link generation by checking if quote_link contains the expected pattern
+        expected_pattern = f"{org_id}-{contact_id}-"
+        if expected_pattern not in quote_link:
+            logger.warning(f"Generated quote link doesn't contain expected pattern '{expected_pattern}': {quote_link}")
+        
+        # Create template_data dictionary with organization as a top-level key
+        template_data = {**contact}
+        template_data["organization"] = organization
+        template_data["quote_link"] = quote_link
+        template_data["email_date"] = parsed_email_date
+        logger.info(f"Template data keys: {template_data.keys()}")
+        logger.info(f"Quote link in template data: {template_data.get('quote_link')}")
+        
+        # Render HTML email
+        try:
+            html_content = template_engine.render_email(
+                template_type=email_type,
+                contact=template_data,
+                email_date=parsed_email_date,
+                html=True
+            )
+            logger.debug("Successfully rendered email template")
+            return HTMLResponse(content=html_content)
+        except Exception as e:
+            logger.error(f"Error rendering email template: {e}")
+            raise HTTPException(status_code=500, detail=f"Error rendering template: {e}")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error previewing email: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+async def get_contact_by_id(contact_id: str) -> dict:
+    """Get contact details by ID from the database"""
+    # Convert contact_id to string for comparison
+    contact_id_str = str(contact_id)
+    
+    # Since we store contacts in memory after processing, we can search through org_data_store
+    for org_df in org_data_store.values():
+        # Convert contact_id column to string for comparison
+        contact_mask = org_df['contact_id'].astype(str) == contact_id_str
+        if contact_mask.any():
+            contact_data = org_df[contact_mask].iloc[0].to_dict()
+            return {
+                'id': str(contact_data['contact_id']),
+                'first_name': contact_data['first_name'],
+                'last_name': contact_data['last_name'],
+                'email': contact_data['email'],
+                'state': contact_data['state'],
+                'birth_date': contact_data['birth_date'],
+                'effective_date': contact_data['effective_date']
+            }
+    return None
 
 if __name__ == "__main__":
     import uvicorn

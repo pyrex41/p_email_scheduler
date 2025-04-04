@@ -24,6 +24,14 @@
                         {% endfor %}
                     </select>
                 </div>
+                <div class="col-md-4">
+                    <div class="form-check mt-4">
+                        <input class="form-check-input" type="checkbox" id="show_all" name="show_all" value="true">
+                        <label class="form-check-label" for="show_all">
+                            Show All Contacts
+                        </label>
+                    </div>
+                </div>
             </div>
             
             <div class="mb-3">
@@ -34,40 +42,80 @@
             
             <div class="mb-3">
                 <label class="form-label">State Filter</label>
-                <div class="form-check mb-2">
+                <div class="form-check">
                     <input class="form-check-input" type="radio" name="filter_type" id="filter_none" value="none" checked>
                     <label class="form-check-label" for="filter_none">
                         Show all states
                     </label>
                 </div>
-                <div class="form-check mb-2">
-                    <input class="form-check-input" type="radio" name="filter_type" id="filter_state" value="state">
-                    <label class="form-check-label" for="filter_state">
-                        Filter by specific state
-                    </label>
-                </div>
-                <div class="form-check mb-2">
+                <div class="form-check">
                     <input class="form-check-input" type="radio" name="filter_type" id="filter_special" value="special">
                     <label class="form-check-label" for="filter_special">
                         Show only states with special rules
                     </label>
                 </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="filter_type" id="filter_state" value="state">
+                    <label class="form-check-label" for="filter_state">
+                        Filter by specific state
+                    </label>
+                </div>
+                
                 <select class="form-select mt-2" id="state" name="state" disabled>
                     <option value="">Select a state...</option>
                     {% for state in all_states %}
-                    <option value="{{ state }}">
-                        {{ state }}
-                        {% if state in special_rule_states %}
-                            (Special Rules:
-                            {% if state_rules[state].has_birthday_rule %}Birthday{% endif %}
-                            {% if state_rules[state].has_effective_date_rule %}Effective Date{% endif %}
-                            {% if state_rules[state].has_year_round_enrollment %}Year-Round{% endif %}
-                            )
-                        {% endif %}
-                    </option>
+                    <option value="{{ state }}">{{ state }}</option>
                     {% endfor %}
                 </select>
-                <input type="hidden" name="special_rules_only" id="special_rules_only" value="false">
+                
+                <input type="hidden" id="special_rules_only" name="special_rules_only" value="false">
+            </div>
+            
+            <div class="mb-3">
+                <label class="form-label">Effective Date Filter</label>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="effective_date_filter" id="effective_date_none" value="none" checked>
+                    <label class="form-check-label" for="effective_date_none">
+                        No effective date filter
+                    </label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="effective_date_filter" id="effective_date_range" value="range">
+                    <label class="form-check-label" for="effective_date_range">
+                        Filter by months ago
+                    </label>
+                </div>
+                
+                <div class="mt-2" id="effective_date_range_options" style="display: none;">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <label class="form-label">From</label>
+                            <select class="form-select" id="effective_date_start" name="effective_date_start">
+                                <option value="0">Now (0 months ago)</option>
+                                <option value="12">12 months ago</option>
+                                <option value="24">24 months ago</option>
+                                <option value="36">36 months ago</option>
+                                <option value="48">48 months ago</option>
+                                <option value="60">60 months ago</option>
+                                <option value="-1">No limit</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">To</label>
+                            <select class="form-select" id="effective_date_end" name="effective_date_end" disabled>
+                                <option value="-1">No limit</option>
+                                <option value="12">12 months ago</option>
+                                <option value="24">24 months ago</option>
+                                <option value="36">36 months ago</option>
+                                <option value="48">48 months ago</option>
+                                <option value="60">60 months ago</option>
+                            </select>
+                        </div>
+                    </div>
+                    <small class="form-text text-muted mt-2">
+                        This will find contacts with effective dates between the selected months ago. For example, "From Now To 12 months ago" means contacts from the last year. Select "No limit" to include all contacts before/after the selected date.
+                    </small>
+                </div>
             </div>
             
             <button type="submit" class="btn btn-primary" id="submitBtn">
@@ -90,7 +138,7 @@
                         <th>State</th>
                         <th>Birthday Rule</th>
                         <th>Effective Date Rule</th>
-                        <th>Year-Round Enrollment</th>
+                        <th>Year-Round GI - Skip</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -117,9 +165,9 @@
                         </td>
                         <td>
                             {% if state_rules[state].has_year_round_enrollment %}
-                            <span class="badge bg-warning">No</span>
+                            <span class="badge bg-warning">Yes</span>
                             {% else %}
-                            <span class="text-muted">Yes</span>
+                            <span class="text-muted">No</span>
                             {% endif %}
                         </td>
                     </tr>
@@ -153,6 +201,29 @@
 </div>
 
 <script>
+// Reset form and clear any pending state when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    // Reset form
+    const form = document.getElementById('scheduleForm');
+    form.reset();
+    
+    // Reset button and spinner state
+    const button = document.getElementById('submitBtn');
+    const spinner = button.querySelector('.spinner-border');
+    button.disabled = false;
+    spinner.classList.add('d-none');
+    
+    // Reset state select
+    const stateSelect = document.getElementById('state');
+    stateSelect.disabled = true;
+    stateSelect.required = false;
+    stateSelect.value = '';
+    
+    // Reset radio buttons
+    document.getElementById('filter_none').checked = true;
+    document.getElementById('special_rules_only').value = 'false';
+});
+
 document.getElementById('scheduleForm').addEventListener('submit', function(e) {
     // Show loading spinner
     const button = document.getElementById('submitBtn');
@@ -181,6 +252,26 @@ document.getElementById('scheduleForm').addEventListener('submit', function(e) {
             return;
         }
     }
+
+    // Handle effective date filter options
+    const effectiveDateFilter = document.querySelector('input[name="effective_date_filter"]:checked').value;
+    if (effectiveDateFilter === 'range') {
+        const start = document.getElementById('effective_date_start').value;
+        const end = document.getElementById('effective_date_end').value;
+        
+        // Only validate if neither value is -1 (unlimited)
+        if (start !== '-1' && end !== '-1') {
+            const startValue = parseInt(start);
+            const endValue = parseInt(end);
+            if (startValue >= endValue) {
+                e.preventDefault();
+                alert('Start month must be before end month in the effective date range');
+                button.disabled = false;
+                spinner.classList.add('d-none');
+                return;
+            }
+        }
+    }
 });
 
 // Handle radio button changes
@@ -198,7 +289,79 @@ document.querySelectorAll('input[name="filter_type"]').forEach(radio => {
     });
 });
 
+// Handle effective date filter options
+document.querySelectorAll('input[name="effective_date_filter"]').forEach(radio => {
+    radio.addEventListener('change', function() {
+        const rangeOptions = document.getElementById('effective_date_range_options');
+        const endSelect = document.getElementById('effective_date_end');
+        
+        if (this.value === 'range') {
+            rangeOptions.style.display = 'block';
+            endSelect.disabled = false;
+        } else {
+            rangeOptions.style.display = 'none';
+            endSelect.disabled = true;
+        }
+    });
+});
+
+// Handle start date changes to update end date options
+document.getElementById('effective_date_start').addEventListener('change', function() {
+    const endSelect = document.getElementById('effective_date_end');
+    const startValue = this.value;
+    
+    // Clear existing options except unlimited
+    while (endSelect.options.length > 1) {
+        endSelect.remove(1);
+    }
+    
+    if (startValue === '-1') {
+        // If start is unlimited, only show unlimited in end
+        endSelect.value = '-1';
+        endSelect.disabled = true;
+    } else {
+        const startMonths = parseInt(startValue);
+        // Add new options based on start value
+        const possibleEnds = [12, 24, 36, 48, 60];
+        possibleEnds.forEach(months => {
+            if (months > startMonths) {
+                const option = new Option(`${months} months ago`, months);
+                endSelect.add(option);
+            }
+        });
+        endSelect.disabled = false;
+    }
+});
+
+// Handle show all checkbox
+document.getElementById('show_all').addEventListener('change', function() {
+    const sampleSizeSelect = document.getElementById('sample_size');
+    sampleSizeSelect.disabled = this.checked;
+});
+
 // Initialize state select state
 document.getElementById('state').disabled = true;
+
+// Handle page visibility changes
+document.addEventListener('visibilitychange', function() {
+    if (!document.hidden) {
+        // Reset form and state when page becomes visible again
+        const form = document.getElementById('scheduleForm');
+        form.reset();
+        
+        const button = document.getElementById('submitBtn');
+        const spinner = button.querySelector('.spinner-border');
+        button.disabled = false;
+        spinner.classList.add('d-none');
+        
+        const stateSelect = document.getElementById('state');
+        stateSelect.disabled = true;
+        stateSelect.required = false;
+        stateSelect.value = '';
+        
+        document.getElementById('filter_none').checked = true;
+        document.getElementById('special_rules_only').value = 'false';
+    }
+});
 </script>
 {% endblock %}

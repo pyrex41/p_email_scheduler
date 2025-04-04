@@ -114,3 +114,4 @@ def is_month_end(date_obj):
     
     # If the date is the day before the first of next month, it's the last day
     return (next_month - timedelta(days=1)) == date_obj
+
