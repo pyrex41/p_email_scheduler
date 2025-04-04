@@ -1,485 +1,251 @@
 {% extends "base.html" %}
 
-{% block content %}
-<div class="mb-4">
-    <h2>{{ org_name }} (ID: {{ org_id }})</h2>
-    <p class="text-muted">
-        Showing {{ sample_size }} contacts out of {{ total_contacts }} total contacts
-        {% if selected_state %}
-        (Filtered by state: {{ selected_state }})
-        {% elif special_rules_only %}
-        (Showing only states with special rules)
-        {% endif %}
-        {% if contact_search %}
-        (Searching for: {{ contact_search }})
-        {% endif %}
-        <form action="/check" method="post" class="d-inline ms-3">
-            <input type="hidden" name="org_id" value="{{ org_id }}">
-            <input type="hidden" name="state" value="{{ selected_state }}">
-            <input type="hidden" name="special_rules_only" value="{{ 'true' if special_rules_only else 'false' }}">
-            <select class="form-select form-select-sm d-inline w-auto" name="sample_size" onchange="this.form.submit()">
-                {% for size in sample_sizes %}
-                <option value="{{ size }}" {% if size == sample_size %}selected{% endif %}>Show {{ size }} contacts</option>
-                {% endfor %}
-            </select>
-        </form>
-        <button class="btn btn-primary btn-sm ms-2" onclick="resampleContacts()">
-            <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
-            Resample Contacts
-        </button>
-    </p>
-    
-    <!-- Contact search form -->
-    <form action="/check" method="post" class="row g-3 align-items-end mb-4">
-        <input type="hidden" name="org_id" value="{{ org_id }}">
-        <input type="hidden" name="sample_size" value="{{ sample_size }}">
-        <input type="hidden" name="state" value="{{ selected_state }}">
-        <input type="hidden" name="special_rules_only" value="{{ 'true' if special_rules_only else 'false' }}">
-        <div class="col-md-8">
-            <label for="contact_search" class="form-label">Search by Email or Contact ID</label>
-            <input type="text" class="form-control" id="contact_search" name="contact_search" value="{{ contact_search }}" placeholder="Enter email address or contact ID">
-        </div>
-        <div class="col-md-4">
-            <button type="submit" class="btn btn-primary">Search</button>
-            {% if contact_search %}
-            <a href="/check" class="btn btn-secondary ms-2" onclick="event.preventDefault(); document.getElementById('reset-form').submit();">Clear Search</a>
-            {% endif %}
-        </div>
-    </form>
-    
-    <!-- Hidden form for resetting search -->
-    {% if contact_search %}
-    <form id="reset-form" action="/check" method="post">
-        <input type="hidden" name="org_id" value="{{ org_id }}">
-        <input type="hidden" name="sample_size" value="{{ sample_size }}">
-        <input type="hidden" name="state" value="{{ selected_state }}">
-        <input type="hidden" name="special_rules_only" value="{{ 'true' if special_rules_only else 'false' }}">
-    </form>
-    {% endif %}
-</div>
+{% block head %}
+<!-- Add vis-timeline CSS and JS -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis.min.js"></script>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis.min.css" rel="stylesheet" type="text/css" />
 
-<div id="contacts-container">
-    {% for contact_id, contact_data in contacts.items() %}
-    <div class="card contact-card">
+<style>
+.vis-timeline {
+    border: none;
+    font-family: system-ui, -apple-system, sans-serif;
+}
+
+.timeline-birthday {
+    color: #FF69B4;
+    font-weight: bold;
+}
+
+.timeline-effective {
+    color: #4169E1;
+    font-weight: bold;
+}
+
+.timeline-email-birthday {
+    color: #FF1493;
+    background-color: #FFE4E1;
+    border-color: #FF69B4;
+}
+
+.timeline-email-effective_date {
+    color: #0000CD;
+    background-color: #E6E6FA;
+    border-color: #4169E1;
+}
+
+.timeline-email-aep {
+    color: #228B22;
+    background-color: #F0FFF0;
+    border-color: #32CD32;
+}
+
+.timeline-email-post_window {
+    color: #8B4513;
+    background-color: #FFF8DC;
+    border-color: #DEB887;
+}
+
+.timeline-aep-window {
+    background-color: rgba(144, 238, 144, 0.2);
+}
+
+.timeline-exclusion-window {
+    background-color: rgba(211, 211, 211, 0.3);
+}
+
+.vis-item.vis-background.timeline-exclusion-window {
+    background-color: rgba(169, 169, 169, 0.2);
+}
+
+.vis-item.vis-background.timeline-aep-window {
+    background-color: rgba(144, 238, 144, 0.15);
+}
+
+.vis-group-level-0 {
+    font-weight: bold;
+    font-size: 14px;
+}
+
+.vis-item.vis-point {
+    border-width: 2px;
+    border-radius: 5px;
+    padding: 5px;
+}
+
+.vis-item.vis-point.vis-selected {
+    background-color: #FFF;
+    border-width: 3px;
+}
+
+.year-divider {
+    background-color: #f8f9fa !important;
+    border-top: 2px solid #dee2e6;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.year-divider td {
+    padding: 0.5rem 1rem !important;
+    font-weight: 500;
+    color: #495057;
+}
+
+.first-row-of-year {
+    border-top: 1px solid #dee2e6;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>{{ org_name }} (ID: {{ org_id }})</h1>
+    <p>Showing {{ sample_size }} contacts out of {{ total_contacts }} total contacts</p>
+    
+    <!-- Controls -->
+    <div class="row mb-4">
+        <div class="col">
+            <form action="/check" method="post" class="form-inline">
+                <input type="hidden" name="org_id" value="{{ org_id }}">
+                <div class="form-group mr-2">
+                    <label for="sample_size" class="mr-2">Show</label>
+                    <select name="sample_size" id="sample_size" class="form-control">
+                        {% for size in sample_sizes %}
+                        <option value="{{ size }}" {% if size == sample_size %}selected{% endif %}>{{ size }} contacts</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary">Resample Contacts</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Search -->
+    <div class="row mb-4">
+        <div class="col">
+            <form action="/check" method="post" class="form-inline">
+                <input type="hidden" name="org_id" value="{{ org_id }}">
+                <div class="form-group mr-2">
+                    <label for="contact_search" class="mr-2">Search by Email or Contact ID</label>
+                    <input type="text" class="form-control" id="contact_search" name="contact_search" 
+                           placeholder="Enter email address or contact ID" value="{{ contact_search }}">
+                </div>
+                <button type="submit" class="btn btn-secondary">Search</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Contact Cards -->
+    {% for contact_id, contact in contacts.items() %}
+    <div class="card mb-4">
         <div class="card-header">
-            <h5 class="card-title mb-0">
-                {{ contact_data.contact_info.name }}
-                <small class="text-muted">(ID: {{ contact_data.contact_info.id }})</small>
+            <h5 class="mb-0">
+                {{ contact.contact_info.name }} (ID: {{ contact.contact_info.id }})
             </h5>
         </div>
         <div class="card-body">
-            <div class="row mb-3">
-                <div class="col-md-4">
-                    <strong>Email:</strong> {{ contact_data.contact_info.email }}
-                </div>
-                <div class="col-md-4">
-                    <strong>Birth Date:</strong> {{ contact_data.contact_info.birth_date or 'N/A' }}
-                </div>
-                <div class="col-md-4">
-                    <strong>Effective Date:</strong> {{ contact_data.contact_info.effective_date or 'N/A' }}
-                </div>
-            </div>
-            
             <div class="row">
-                <!-- State and Rule Info -->
                 <div class="col-md-4">
-                    <div class="card border-info mb-3">
-                        <div class="card-header bg-info text-white">
-                            <strong>State: {{ contact_data.contact_info.state }}</strong>
-                            {% if contact_data.contact_info.state_info.has_birthday_rule or 
-                                contact_data.contact_info.state_info.has_effective_date_rule or 
-                                contact_data.contact_info.state_info.has_year_round_enrollment %}
-                            <span class="badge bg-light text-dark">Special Rules Apply</span>
-                            {% endif %}
-                        </div>
-                        <div class="card-body">
-                            {% if contact_data.contact_info.state_info.has_year_round_enrollment %}
-                            <div class="alert alert-warning">
-                                <strong>Year-Round Enrollment State</strong>
-                                <p class="mb-0 small">All emails are skipped because this state allows year-round enrollment.</p>
-                            </div>
-                            {% endif %}
-                            
-                            {% if contact_data.contact_info.state_info.has_birthday_rule %}
-                            <div class="mb-2">
-                                <strong class="text-primary">Birthday Rule</strong>
-                                <p class="mb-0 small">
-                                    {% if contact_data.contact_info.state == "CA" %}
-                                    60-day exclusion period: 30 days before and 30 days after birthday.
-                                    {% elif contact_data.contact_info.state == "ID" %}
-                                    63-day exclusion period: Starting on birthday and ending 63 days after.
-                                    {% elif contact_data.contact_info.state == "IL" %}
-                                    45-day exclusion period: Starting on birthday and ending 45 days after.
-                                    {% elif contact_data.contact_info.state == "KY" %}
-                                    60-day exclusion period: Starting on birthday and ending 60 days after.
-                                    {% elif contact_data.contact_info.state == "LA" %}
-                                    93-day exclusion period: 30 days before and 63 days after birthday.
-                                    {% elif contact_data.contact_info.state == "MD" %}
-                                    31-day exclusion period: Starting on birthday and ending 31 days after.
-                                    {% elif contact_data.contact_info.state == "NV" %}
-                                    60-day exclusion period: Starting on first day of birth month.
-                                    {% elif contact_data.contact_info.state == "OK" %}
-                                    60-day exclusion period: Starting on birthday and ending 60 days after.
-                                    {% elif contact_data.contact_info.state == "OR" %}
-                                    31-day exclusion period: Starting on birthday and ending 31 days after.
-                                    {% endif %}
-                                </p>
-                            </div>
-                            {% endif %}
-                            
-                            {% if contact_data.contact_info.state_info.has_effective_date_rule %}
-                            <div class="mb-2">
-                                <strong class="text-success">Effective Date Rule</strong>
-                                <p class="mb-0 small">
-                                    {% if contact_data.contact_info.state == "MO" %}
-                                    63-day exclusion period: 30 days before and 33 days after the policy anniversary.
-                                    {% endif %}
-                                </p>
-                            </div>
-                            {% endif %}
-                            
-                            <div class="mb-0 small text-muted">
-                                <p class="mb-0"><strong>Standard Scheduling Rules:</strong></p>
-                                <ul class="ps-3 mb-0">
-                                    <li>Birthday emails: 14 days before birthday</li>
-                                    <li>Effective date emails: 30 days before anniversary</li>
-                                    <li>AEP emails: Distributed across August/September</li>
-                                    <li>Post-window emails: Day after exclusion period</li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
+                    <p><strong>Email:</strong> {{ contact.contact_info.email }}</p>
+                    <p><strong>Birth Date:</strong> {{ contact.contact_info.birth_date }}</p>
+                    <p><strong>Effective Date:</strong> {{ contact.contact_info.effective_date }}</p>
                 </div>
-                
-                <!-- Scheduled Emails Section -->
                 <div class="col-md-8">
-                    <h6>Scheduled Emails:</h6>
-                    <div class="table-responsive">
-                        <table class="table table-sm">
-                            <thead>
-                                <tr>
-                                    <th>Type</th>
-                                    <th>Date</th>
-                                    <th>Status</th>
-                                    <th>Default Date</th>
-                                    <th>Reason</th>
-                                    <th>Link</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for email in contact_data.emails %}
-                                <tr {% if email.skipped == 'Yes' %}class="table-danger"{% endif %}>
-                                    <td>
-                                        {% if email.type == 'birthday' %}
-                                        <span class="badge bg-primary">Birthday</span>
-                                        {% elif email.type == 'effective_date' %}
-                                        <span class="badge bg-success">Effective Date</span>
-                                        {% elif email.type == 'aep' %}
-                                        <span class="badge bg-info">AEP</span>
-                                        {% elif email.type == 'post_window' %}
-                                        <span class="badge bg-warning">Post Window</span>
-                                        {% else %}
-                                        {{ email.type }}
-                                        {% endif %}
-                                    </td>
-                                    <td>{{ email.date }}</td>
-                                    <td>
-                                        {% if email.skipped == 'Yes' %}
-                                        <span class="badge bg-danger">Skipped</span>
-                                        {% else %}
-                                        <span class="badge bg-success">Scheduled</span>
-                                        {% endif %}
-                                    </td>
-                                    <td>
-                                        {% if email.type == 'birthday' and contact_data.contact_info.birth_date %}
-                                        {% set birthday_parts = contact_data.contact_info.birth_date.split('-') %}
-                                        {% set current_year = email.date.split('-')[0] %}
-                                        {% set default_date = current_year + '-' + birthday_parts[1] + '-' + birthday_parts[2] %}
-                                        {% if email.date < default_date %}
-                                            {{ (default_date.split('-')[0]|int - 1)|string + '-' + default_date.split('-')[1] + '-' + default_date.split('-')[2] }}
-                                        {% else %}
-                                            {{ default_date }}
-                                        {% endif %}
-                                        {% elif email.type == 'effective_date' and contact_data.contact_info.effective_date %}
-                                        {% set effective_parts = contact_data.contact_info.effective_date.split('-') %}
-                                        {% set current_year = email.date.split('-')[0] %}
-                                        {% set default_date = current_year + '-' + effective_parts[1] + '-' + effective_parts[2] %}
-                                        {% if email.date < default_date %}
-                                            {{ (default_date.split('-')[0]|int - 1)|string + '-' + default_date.split('-')[1] + '-' + default_date.split('-')[2] }}
-                                        {% else %}
-                                            {{ default_date }}
-                                        {% endif %}
-                                        {% else %}
-                                        N/A
-                                        {% endif %}
-                                    </td>
-                                    <td>
-                                        {% if email.reason %}
-                                        <span class="text-danger">{{ email.reason }}</span>
-                                        {% elif email.skipped == 'Yes' %}
-                                        <span class="text-danger">Unknown</span>
-                                        {% else %}
-                                        <span class="text-success">Normal schedule</span>
-                                        {% endif %}
-                                    </td>
-                                    <td>
-                                        {% if email.link and email.skipped != 'Yes' %}
-                                        <a href="{{ email.link }}" target="_blank" class="btn btn-sm btn-primary">View</a>
-                                        {% endif %}
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
+                    <div class="alert alert-info">
+                        <h6>State: {{ contact.contact_info.state }} {% if contact.contact_info.state in special_rule_states %}<span class="badge badge-warning">Special Rules Apply</span>{% endif %}</h6>
+                        {% if contact.scheduling_rules %}
+                        <ul class="mb-0">
+                            {% for rule in contact.scheduling_rules %}
+                            <li>{{ rule }}</li>
+                            {% endfor %}
+                        </ul>
+                        {% endif %}
                     </div>
                 </div>
             </div>
+
+            <h6 class="mt-3">Scheduled Emails:</h6>
+            <table class="table table-sm table-hover">
+                <thead class="thead-light">
+                    <tr>
+                        <th style="width: 20%">Type</th>
+                        <th style="width: 15%">Date</th>
+                        <th style="width: 15%">Default Date</th>
+                        <th style="width: 15%">Status</th>
+                        <th style="width: 35%">Details</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% set ns = namespace(current_year=none) %}
+                    {% for email in contact.timeline_data.email_list %}
+                        {% set email_year = email.start.year if email.start is not string else email.start.split('-')[0] %}
+                        {% if email_year != ns.current_year %}
+                            {% if not loop.first %}
+                                <tr><td colspan="5" style="padding: 0.5rem 0;"></td></tr>
+                            {% endif %}
+                            {% set ns.current_year = email_year %}
+                            <tr class="year-divider">
+                                <td colspan="5">
+                                    <i class="fas fa-calendar-alt mr-2"></i>
+                                    <strong>{{ email_year }}</strong>
+                                </td>
+                            </tr>
+                        {% endif %}
+                        <tr {% if email.skipped %}class="table-warning{% if loop.first or email_year != prev_year %} first-row-of-year{% endif %}"
+                            {% else %}class="{% if loop.first or email_year != prev_year %}first-row-of-year{% endif %}"{% endif %}>
+                            <td>
+                                <span class="badge {% if email.type == 'birthday' %}bg-info
+                                               {% elif email.type == 'effective_date' %}bg-primary
+                                               {% elif email.type == 'aep' %}bg-success
+                                               {% elif email.type == 'post_window' %}bg-warning
+                                               {% else %}bg-secondary{% endif %}"
+                                      style="font-size: 90%; padding: 5px 10px;">
+                                    {{ email.type_display }}
+                                </span>
+                            </td>
+                            <td>
+                                <strong>{{ email.start.strftime('%b %d') if email.start is not string else email.start.split('-')[1:]|join(' ')|replace('-', ' ') }}</strong>
+                            </td>
+                            <td>
+                                {% if email.default_date %}
+                                    {% if email.default_date is string %}
+                                        <small class="text-muted">{{ email.default_date }}</small>
+                                    {% else %}
+                                        <small class="text-muted">{{ email.default_date.strftime('%b %d, %Y') if email.default_date is not string else email.default_date }}</small>
+                                    {% endif %}
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if email.skipped %}
+                                <span class="badge bg-danger">Cancelled</span>
+                                {% else %}
+                                <span class="badge bg-success">Scheduled</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if email.skipped %}
+                                    <span class="text-danger">
+                                        <i class="fas fa-info-circle"></i>
+                                        {{ email.reason if email.reason and email.reason != 'nan' else 'Cancelled - No reason provided' }}
+                                    </span>
+                                {% else %}
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <span class="text-success">
+                                            <i class="fas fa-check-circle"></i>
+                                            Will be sent as scheduled
+                                        </span>
+                                        {% if email.link %}
+                                        <a href="{{ email.link }}" class="btn btn-sm btn-outline-primary">
+                                            <i class="fas fa-envelope"></i> View
+                                        </a>
+                                        {% endif %}
+                                    </div>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
     </div>
     {% endfor %}
 </div>
-
-<div class="mt-4 mb-4">
-    <a href="/" class="btn btn-secondary">Check Another Organization</a>
-</div>
-
-<script>
-async function resampleContacts() {
-    const button = document.querySelector('button');
-    const spinner = button.querySelector('.spinner-border');
-    const container = document.getElementById('contacts-container');
-    const sampleSize = document.querySelector('select[name="sample_size"]').value;
-    const state = '{{ selected_state or "" }}';  // Handle null/None case
-    const specialRulesOnly = {{ 'true' if special_rules_only else 'false' }};
-    const contactSearch = '{{ contact_search or "" }}';
-    
-    // Show loading state
-    button.disabled = true;
-    spinner.classList.remove('d-none');
-    
-    try {
-        // Build URL with proper parameters
-        let url = `/resample/{{ org_id }}?sample_size=${sampleSize}`;
-        if (state) {
-            url += `&state=${state}`;
-        }
-        url += `&special_rules_only=${specialRulesOnly}`;
-        if (contactSearch) {
-            url += `&contact_search=${encodeURIComponent(contactSearch)}`;
-        }
-        
-        const response = await fetch(url, {
-            method: 'POST'
-        });
-        
-        if (!response.ok) {
-            throw new Error('Failed to resample contacts');
-        }
-        
-        const data = await response.json();
-        
-        // Build new HTML
-        let html = '';
-        for (const [contactId, contactData] of Object.entries(data.contacts)) {
-            const stateInfo = contactData.contact_info.state_info;
-            const hasSpecialRules = stateInfo.has_birthday_rule || 
-                                  stateInfo.has_effective_date_rule || 
-                                  stateInfo.has_year_round_enrollment;
-            
-            // Get birthday rule description based on state
-            let birthdayRuleDesc = "";
-            if (contactData.contact_info.state === "CA") birthdayRuleDesc = "60-day exclusion period: 30 days before and 30 days after birthday.";
-            else if (contactData.contact_info.state === "ID") birthdayRuleDesc = "63-day exclusion period: Starting on birthday and ending 63 days after.";
-            else if (contactData.contact_info.state === "IL") birthdayRuleDesc = "45-day exclusion period: Starting on birthday and ending 45 days after.";
-            else if (contactData.contact_info.state === "KY") birthdayRuleDesc = "60-day exclusion period: Starting on birthday and ending 60 days after.";
-            else if (contactData.contact_info.state === "LA") birthdayRuleDesc = "93-day exclusion period: 30 days before and 63 days after birthday.";
-            else if (contactData.contact_info.state === "MD") birthdayRuleDesc = "31-day exclusion period: Starting on birthday and ending 31 days after.";
-            else if (contactData.contact_info.state === "NV") birthdayRuleDesc = "60-day exclusion period: Starting on first day of birth month.";
-            else if (contactData.contact_info.state === "OK") birthdayRuleDesc = "60-day exclusion period: Starting on birthday and ending 60 days after.";
-            else if (contactData.contact_info.state === "OR") birthdayRuleDesc = "31-day exclusion period: Starting on birthday and ending 31 days after.";
-            
-            // Get effective date rule description
-            let effectiveDateRuleDesc = "";
-            if (contactData.contact_info.state === "MO") effectiveDateRuleDesc = "63-day exclusion period: 30 days before and 33 days after the policy anniversary.";
-            
-            // Build card HTML
-            let cardHTML = `
-                <div class="card contact-card">
-                    <div class="card-header">
-                        <h5 class="card-title mb-0">
-                            ${contactData.contact_info.name}
-                            <small class="text-muted">(ID: ${contactData.contact_info.id})</small>
-                        </h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="row mb-3">
-                            <div class="col-md-4">
-                                <strong>Email:</strong> ${contactData.contact_info.email}
-                            </div>
-                            <div class="col-md-4">
-                                <strong>Birth Date:</strong> ${contactData.contact_info.birth_date || 'N/A'}
-                            </div>
-                            <div class="col-md-4">
-                                <strong>Effective Date:</strong> ${contactData.contact_info.effective_date || 'N/A'}
-                            </div>
-                        </div>
-                        
-                        <div class="row">
-                            <!-- State and Rule Info -->
-                            <div class="col-md-4">
-                                <div class="card border-info mb-3">
-                                    <div class="card-header bg-info text-white">
-                                        <strong>State: ${contactData.contact_info.state}</strong>
-                                        ${hasSpecialRules ? '<span class="badge bg-light text-dark">Special Rules Apply</span>' : ''}
-                                    </div>
-                                    <div class="card-body">
-                                        ${stateInfo.has_year_round_enrollment ? `
-                                        <div class="alert alert-warning">
-                                            <strong>Year-Round Enrollment State</strong>
-                                            <p class="mb-0 small">All emails are skipped because this state allows year-round enrollment.</p>
-                                        </div>
-                                        ` : ''}
-                                        
-                                        ${stateInfo.has_birthday_rule ? `
-                                        <div class="mb-2">
-                                            <strong class="text-primary">Birthday Rule</strong>
-                                            <p class="mb-0 small">${birthdayRuleDesc}</p>
-                                        </div>
-                                        ` : ''}
-                                        
-                                        ${stateInfo.has_effective_date_rule ? `
-                                        <div class="mb-2">
-                                            <strong class="text-success">Effective Date Rule</strong>
-                                            <p class="mb-0 small">${effectiveDateRuleDesc}</p>
-                                        </div>
-                                        ` : ''}
-                                        
-                                        <div class="mb-0 small text-muted">
-                                            <p class="mb-0"><strong>Standard Scheduling Rules:</strong></p>
-                                            <ul class="ps-3 mb-0">
-                                                <li>Birthday emails: 14 days before birthday</li>
-                                                <li>Effective date emails: 30 days before anniversary</li>
-                                                <li>AEP emails: Distributed across August/September</li>
-                                                <li>Post-window emails: Day after exclusion period</li>
-                                            </ul>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <!-- Scheduled Emails Section -->
-                            <div class="col-md-8">
-                                <h6>Scheduled Emails:</h6>
-                                <div class="table-responsive">
-                                    <table class="table table-sm">
-                                        <thead>
-                                            <tr>
-                                                <th>Type</th>
-                                                <th>Date</th>
-                                                <th>Status</th>
-                                                <th>Default Date</th>
-                                                <th>Reason</th>
-                                                <th>Link</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-            `;
-            
-            // Add email rows
-            for (const email of contactData.emails) {
-                let defaultDate = "N/A";
-                
-                // Calculate default date for birthday emails
-                if (email.type === "birthday" && contactData.contact_info.birth_date) {
-                    const emailParts = email.date.split('-');
-                    const birthParts = contactData.contact_info.birth_date.split('-');
-                    const emailYear = emailParts[0];
-                    const calculatedDate = `${emailYear}-${birthParts[1]}-${birthParts[2]}`;
-                    
-                    if (email.date < calculatedDate) {
-                        defaultDate = `${parseInt(emailYear) - 1}-${birthParts[1]}-${birthParts[2]}`;
-                    } else {
-                        defaultDate = calculatedDate;
-                    }
-                }
-                
-                // Calculate default date for effective date emails
-                if (email.type === "effective_date" && contactData.contact_info.effective_date) {
-                    const emailParts = email.date.split('-');
-                    const effectiveParts = contactData.contact_info.effective_date.split('-');
-                    const emailYear = emailParts[0];
-                    const calculatedDate = `${emailYear}-${effectiveParts[1]}-${effectiveParts[2]}`;
-                    
-                    if (email.date < calculatedDate) {
-                        defaultDate = `${parseInt(emailYear) - 1}-${effectiveParts[1]}-${effectiveParts[2]}`;
-                    } else {
-                        defaultDate = calculatedDate;
-                    }
-                }
-                
-                // Determine badge type and label based on email type
-                let badgeType = "secondary";
-                let emailTypeLabel = email.type;
-                
-                if (email.type === "birthday") {
-                    badgeType = "primary";
-                    emailTypeLabel = "Birthday";
-                } else if (email.type === "effective_date") {
-                    badgeType = "success";
-                    emailTypeLabel = "Effective Date";
-                } else if (email.type === "aep") {
-                    badgeType = "info";
-                    emailTypeLabel = "AEP";
-                } else if (email.type === "post_window") {
-                    badgeType = "warning";
-                    emailTypeLabel = "Post Window";
-                }
-                
-                const isSkipped = email.skipped === 'Yes';
-                
-                // Add row HTML
-                cardHTML += `
-                    <tr ${isSkipped ? 'class="table-danger"' : ''}>
-                        <td><span class="badge bg-${badgeType}">${emailTypeLabel}</span></td>
-                        <td>${email.date}</td>
-                        <td>${isSkipped ? '<span class="badge bg-danger">Skipped</span>' : '<span class="badge bg-success">Scheduled</span>'}</td>
-                        <td>${defaultDate}</td>
-                        <td>${email.reason 
-                                ? `<span class="text-danger">${email.reason}</span>` 
-                                : (isSkipped 
-                                    ? '<span class="text-danger">Unknown</span>' 
-                                    : '<span class="text-success">Normal schedule</span>')}
-                        </td>
-                        <td>${(!isSkipped && email.link) ? `<a href="${email.link}" target="_blank" class="btn btn-sm btn-primary">View</a>` : ''}</td>
-                    </tr>
-                `;
-            }
-            
-            // Close HTML tags
-            cardHTML += `
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-            
-            html += cardHTML;
-        }
-        
-        // Update the DOM
-        container.innerHTML = html;
-        
-    } catch (error) {
-        console.error('Error resampling contacts:', error);
-        alert('Failed to resample contacts. Please try again.');
-    } finally {
-        // Reset loading state
-        button.disabled = false;
-        spinner.classList.add('d-none');
-    }
-}
-</script>
-{% endblock %} 
+{% endblock %}

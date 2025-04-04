@@ -1,0 +1,118 @@
+<div class="table-responsive">
+    <table class="table table-sm">
+        <thead>
+            <tr>
+                <th>Type</th>
+                <th>Date</th>
+                <th>Status</th>
+                <th>Default Date</th>
+                <th>Reason</th>
+                <th>Link</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for email in contact_data.emails %}
+            <tr {% if email.skipped == 'Yes' %}class="table-danger"{% endif %}>
+                <td>
+                    {% if email.type == 'birthday' %}
+                    <span class="badge bg-primary">Birthday</span>
+                    {% elif email.type == 'effective_date' %}
+                    <span class="badge bg-success">Effective Date</span>
+                    {% elif email.type == 'aep' %}
+                    <span class="badge bg-info">AEP</span>
+                    {% elif email.type == 'post_window' %}
+                    <span class="badge bg-warning">Post Window</span>
+                    {% else %}
+                    {{ email.type }}
+                    {% endif %}
+                </td>
+                <td>{{ email.date }}</td>
+                <td>
+                    {% if email.skipped == 'Yes' %}
+                    <span class="badge bg-danger">Skipped</span>
+                    {% else %}
+                    <span class="badge bg-success">Scheduled</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if email.type == 'birthday' and contact_data.contact_info.birth_date and '-' in contact_data.contact_info.birth_date %}
+                        {% set date_str = email.date|string %}
+                        {% if '-' in date_str %}
+                            {% set birthday_parts = contact_data.contact_info.birth_date.split('-') %}
+                            {% set current_year = date_str.split('-')[0] %}
+                            {% if birthday_parts|length >= 3 %}
+                                {% set default_date = current_year + '-' + birthday_parts[1] + '-' + birthday_parts[2] %}
+                                {% if email.date < default_date %}
+                                    {{ (current_year|int - 1)|string + '-' + birthday_parts[1] + '-' + birthday_parts[2] }}
+                                {% else %}
+                                    {{ default_date }}
+                                {% endif %}
+                            {% else %}
+                                N/A (birth date format error)
+                            {% endif %}
+                        {% else %}
+                            N/A (email date format error)
+                        {% endif %}
+                    {% elif email.type == 'effective_date' and contact_data.contact_info.effective_date and '-' in contact_data.contact_info.effective_date %}
+                        {% set date_str = email.date|string %}
+                        {% if '-' in date_str %}
+                            {% set effective_parts = contact_data.contact_info.effective_date.split('-') %}
+                            {% set current_year = date_str.split('-')[0] %}
+                            {% if effective_parts|length >= 3 %}
+                                {% set default_date = current_year + '-' + effective_parts[1] + '-' + effective_parts[2] %}
+                                {% if email.date < default_date %}
+                                    {{ (current_year|int - 1)|string + '-' + effective_parts[1] + '-' + effective_parts[2] }}
+                                {% else %}
+                                    {{ default_date }}
+                                {% endif %}
+                            {% else %}
+                                N/A (effective date format error)
+                            {% endif %}
+                        {% else %}
+                            N/A (email date format error)
+                        {% endif %}
+                    {% else %}
+                    N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if email.reason %}
+                    <span class="text-danger">{{ email.reason }}</span>
+                    {% elif email.skipped == 'Yes' %}
+                    <span class="text-danger">Unknown</span>
+                    {% else %}
+                    <span class="text-success">Normal schedule</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if email.link and email.skipped != 'Yes' %}
+                    <a href="{{ email.link }}" target="_blank" class="btn btn-sm btn-primary">View</a>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            
+            {% if not contact_data.emails|selectattr('type', 'equalto', 'birthday')|list and contact_data.contact_info.birth_date %}
+            <tr class="table-info">
+                <td><span class="badge bg-primary">Birthday</span></td>
+                <td>-</td>
+                <td><span class="badge bg-danger">Skipped</span></td>
+                <td>N/A</td>
+                <td><span class="text-danger">Check birthday calculation</span></td>
+                <td></td>
+            </tr>
+            {% endif %}
+            
+            {% if not contact_data.emails|selectattr('type', 'equalto', 'effective_date')|list and contact_data.contact_info.effective_date %}
+            <tr class="table-info">
+                <td><span class="badge bg-success">Effective Date</span></td>
+                <td>-</td>
+                <td><span class="badge bg-danger">Skipped</span></td>
+                <td>N/A</td>
+                <td><span class="text-danger">Check effective date calculation</span></td>
+                <td></td>
+            </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div> 

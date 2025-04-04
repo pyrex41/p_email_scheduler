@@ -1,26 +1,67 @@
-from fastapi import FastAPI, Request, Form
+from fastapi import FastAPI, Request, Form, Body
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.exceptions import HTTPException
+from pydantic import BaseModel
 import pandas as pd
 import tempfile
 import os
-from datetime import date
+from datetime import date, datetime, timedelta
 import asyncio
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import random
 import json
+import logging
+from utils import generate_link
+from email_template_engine import EmailTemplateEngine
+import aiosqlite
 
-# Import our email scheduling code
-from schedule_org_emails import (
-    get_organization_details,
-    get_contacts_from_org_db,
-    format_contact_data,
-    process_contacts_async,
-    BIRTHDAY_RULE_STATES,
-    EFFECTIVE_DATE_RULE_STATES,
-    YEAR_ROUND_ENROLLMENT_STATES
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+
+class CustomJSONEncoder(json.JSONEncoder):
+    """Custom JSON encoder to handle dates and other special types"""
+    def default(self, obj):
+        if isinstance(obj, (date, datetime)):
+            return obj.isoformat()
+        if isinstance(obj, type):
+            return str(obj)
+        if callable(obj):
+            return str(obj)
+        return super().default(obj)
+
+# Import our updated email scheduling code
+from email_scheduler_optimized import (
+    EmailScheduler,
+    AsyncEmailProcessor,
+    main_async,
+    main_sync
 )
+
+from contact_rule_engine import ContactRuleEngine
+from email_scheduler_common import (
+    ALL_STATES,
+)
+
+# Import our database and formatting functions
+from org_utils import (
+    get_organization_details,
+    get_n_contacts_from_org_db,
+    format_contact_data,
+    get_filtered_contacts_from_org_db,
+    update_all_org_dbs_states,
+    get_contacts_from_org_db,
+)
+
+# Database paths setup
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+main_db = os.path.join(BASE_DIR, "main.db")
+org_db_dir = os.path.join(BASE_DIR, "org_dbs")
+
+# Create org_dbs directory if it doesn't exist
+os.makedirs(org_db_dir, exist_ok=True)
 
 reload_db = False # set to True to refresh the database
 
@@ -51,8 +92,19 @@ async def refresh_databases(org_id: int) -> None:
     else:
         print(f"Skipping database refresh for org {org_id}")
 
-
 app = FastAPI(title="Email Schedule Checker")
+
+@app.on_event("startup")
+async def startup_event():
+    """Run database updates when the application starts"""
+    logger.info("Running startup tasks...")
+    try:
+        # Update states in all organization databases
+        update_all_org_dbs_states()
+        logger.info("Successfully updated states in all organization databases")
+    except Exception as e:
+        logger.error(f"Error during startup state update: {e}")
+        # Don't raise the exception - allow the app to start even if this fails
 
 # Set up Jinja2 templates
 templates = Jinja2Templates(directory="templates")
@@ -63,47 +115,48 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # Store DataFrames in memory (key: org_id)
 org_data_store = {}
 
-# Get list of states with special rules
-SPECIAL_RULE_STATES = sorted(set(
-    list(BIRTHDAY_RULE_STATES.keys()) + 
-    list(EFFECTIVE_DATE_RULE_STATES.keys()) + 
-    list(YEAR_ROUND_ENROLLMENT_STATES)
-))
+# Initialize our rule engine and scheduler
+rule_engine = ContactRuleEngine()
+email_scheduler = EmailScheduler()
 
-# All US states
-ALL_STATES = [
-    'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA',
-    'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD',
-    'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ',
-    'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC',
-    'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY',
-    'DC'
-]
+# Get list of states with special rules from rule engine
+SPECIAL_RULE_STATES = sorted(rule_engine.get_special_rule_states())
 
-# Load ZIP code data
-with open('zipData.json') as f:
-    ZIP_DATA = json.load(f)
+# Get state rules
+BIRTHDAY_RULE_STATES = {state: rule_engine.get_state_rule(state) for state in rule_engine.state_rules if rule_engine.get_state_rule(state).get('type') == 'birthday'}
+EFFECTIVE_DATE_RULE_STATES = {state: rule_engine.get_state_rule(state) for state in rule_engine.state_rules if rule_engine.get_state_rule(state).get('type') == 'effective_date'}
+YEAR_ROUND_ENROLLMENT_STATES = [state for state in rule_engine.state_rules if rule_engine.is_year_round_enrollment_state(state)]
 
-def get_state_from_zip(zip_code: str) -> str:
+def get_all_occurrences(base_date: date, start_date: date, end_date: date) -> List[date]:
     """
-    Get state from ZIP code using zipData.json
+    Get all yearly occurrences of a date between start_date and end_date
     
     Args:
-        zip_code: ZIP code as string
+        base_date: The reference date
+        start_date: Start of the range
+        end_date: End of the range
         
     Returns:
-        Two-letter state code, or None if not found
+        List of dates for each yearly occurrence
     """
-    try:
-        if not zip_code or not str(zip_code).strip():
-            return None
-        # Convert to string and take first 5 digits
-        zip_str = str(zip_code)[:5]
-        if zip_str in ZIP_DATA:
-            return ZIP_DATA[zip_str]['state']
-    except (KeyError, TypeError, ValueError):
-        pass
-    return None
+    if not base_date or not start_date or not end_date:
+        return []
+        
+    dates = []
+    current_year = start_date.year
+    while current_year <= end_date.year:
+        try:
+            yearly_date = date(current_year, base_date.month, base_date.day)
+            if start_date <= yearly_date <= end_date:
+                dates.append(yearly_date)
+        except ValueError:
+            # Handle Feb 29 in non-leap years
+            if base_date.month == 2 and base_date.day == 29:
+                yearly_date = date(current_year, 2, 28)
+                if start_date <= yearly_date <= end_date:
+                    dates.append(yearly_date)
+        current_year += 1
+    return dates
 
 def sample_contacts_from_states(unique_contacts: pd.DataFrame, sample_size: int, state: Optional[str] = None) -> List[str]:
     """
@@ -209,6 +262,293 @@ async def home(request: Request):
         }
     )
 
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard(request: Request):
+    """Display a live dashboard of scheduled emails by state"""
+    # Initialize data counters
+    email_counts_by_state = {state: {
+        "birthday": 0,
+        "effective_date": 0,
+        "aep": 0,
+        "post_window": 0,
+        "total": 0,
+        "skipped": 0,
+        "has_special_rule": state in SPECIAL_RULE_STATES
+    } for state in ALL_STATES}
+    
+    # Placeholder data - in a real app, this would come from database
+    total_emails = 0
+    total_skipped = 0
+    
+    # Add dummy data for demonstration
+    for state in SPECIAL_RULE_STATES:
+        email_counts_by_state[state]["birthday"] = random.randint(10, 50)
+        email_counts_by_state[state]["effective_date"] = random.randint(5, 40)
+        email_counts_by_state[state]["aep"] = random.randint(0, 30) if state not in YEAR_ROUND_ENROLLMENT_STATES else 0
+        email_counts_by_state[state]["post_window"] = random.randint(0, 20) if state not in YEAR_ROUND_ENROLLMENT_STATES else 0
+        email_counts_by_state[state]["skipped"] = random.randint(1, 10)
+        email_counts_by_state[state]["total"] = (
+            email_counts_by_state[state]["birthday"] + 
+            email_counts_by_state[state]["effective_date"] + 
+            email_counts_by_state[state]["aep"] + 
+            email_counts_by_state[state]["post_window"]
+        )
+        
+        total_emails += email_counts_by_state[state]["total"]
+        total_skipped += email_counts_by_state[state]["skipped"]
+    
+    # Add some data for non-special states
+    for i, state in enumerate(list(set(ALL_STATES) - set(SPECIAL_RULE_STATES))):
+        if i < 10:  # Only populate some non-special states
+            email_counts_by_state[state]["birthday"] = random.randint(5, 30)
+            email_counts_by_state[state]["effective_date"] = random.randint(3, 25)
+            email_counts_by_state[state]["aep"] = random.randint(0, 20)
+            email_counts_by_state[state]["post_window"] = random.randint(0, 15)
+            email_counts_by_state[state]["skipped"] = random.randint(0, 5)
+            email_counts_by_state[state]["total"] = (
+                email_counts_by_state[state]["birthday"] + 
+                email_counts_by_state[state]["effective_date"] + 
+                email_counts_by_state[state]["aep"] + 
+                email_counts_by_state[state]["post_window"]
+            )
+            
+            total_emails += email_counts_by_state[state]["total"]
+            total_skipped += email_counts_by_state[state]["skipped"]
+    
+    # Calculate percentages for total stats
+    email_type_totals = {
+        "birthday": sum(state_data["birthday"] for state_data in email_counts_by_state.values()),
+        "effective_date": sum(state_data["effective_date"] for state_data in email_counts_by_state.values()),
+        "aep": sum(state_data["aep"] for state_data in email_counts_by_state.values()),
+        "post_window": sum(state_data["post_window"] for state_data in email_counts_by_state.values()),
+    }
+    
+    return templates.TemplateResponse(
+        "dashboard.html",
+        {
+            "request": request,
+            "title": "Email Scheduling Dashboard",
+            "email_counts": email_counts_by_state,
+            "total_emails": total_emails,
+            "total_skipped": total_skipped,
+            "email_type_totals": email_type_totals,
+            "all_states": ALL_STATES,
+            "special_rule_states": SPECIAL_RULE_STATES,
+            "birthday_rule_states": BIRTHDAY_RULE_STATES,
+            "effective_date_rule_states": EFFECTIVE_DATE_RULE_STATES,
+            "year_round_enrollment_states": YEAR_ROUND_ENROLLMENT_STATES
+        }
+    )
+
+# Simulator data model
+class SimulationRequest(BaseModel):
+    state: str
+    birth_date: str
+    effective_date: Optional[str] = None
+    start_date: str
+    end_date: str
+
+@app.get("/simulator", response_class=HTMLResponse)
+async def simulator(request: Request):
+    """Display email scheduling simulator"""
+    # Default dates
+    today = date.today()
+    next_year = today + timedelta(days=365)
+    
+    return templates.TemplateResponse(
+        "simulator.html",
+        {
+            "request": request,
+            "title": "Email Scheduler Simulator",
+            "all_states": ALL_STATES,
+            "special_rule_states": SPECIAL_RULE_STATES,
+            "birthday_rule_states": BIRTHDAY_RULE_STATES,
+            "effective_date_rule_states": EFFECTIVE_DATE_RULE_STATES,
+            "year_round_enrollment_states": YEAR_ROUND_ENROLLMENT_STATES,
+            "today": today.isoformat(),
+            "next_year": next_year.isoformat()
+        }
+    )
+
+@app.post("/simulate")
+async def simulate_emails(data: SimulationRequest):
+    """Simulate email scheduling for a given contact"""
+    try:
+        # Parse dates - ensure we're working with date objects
+        try:
+            birth_date = datetime.strptime(data.birth_date, "%Y-%m-%d").date() if isinstance(data.birth_date, str) else data.birth_date
+            start_date = datetime.strptime(data.start_date, "%Y-%m-%d").date() if isinstance(data.start_date, str) else data.start_date
+            end_date = datetime.strptime(data.end_date, "%Y-%m-%d").date() if isinstance(data.end_date, str) else data.end_date
+            
+            effective_date = None
+            if data.effective_date:
+                effective_date = datetime.strptime(data.effective_date, "%Y-%m-%d").date() if isinstance(data.effective_date, str) else data.effective_date
+        except (TypeError, ValueError) as e:
+            logger.error(f"Date parsing error: {str(e)}")
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Invalid date format. Please use YYYY-MM-DD format."}
+            )
+            
+        # Set up contact data with dates as strings for the scheduler
+        contact = {
+            "id": "12345",  # Dummy ID
+            "birth_date": birth_date.isoformat() if birth_date else None,
+            "effective_date": effective_date.isoformat() if effective_date else None,
+            "state": data.state,
+            "first_name": "Test",
+            "last_name": "Contact",
+            "email": "test@example.com"
+        }
+        
+        logger.debug("Processing contact with birth_date=%s, effective_date=%s", 
+                    contact["birth_date"], contact["effective_date"])
+        
+        # Use the scheduler to process the contact
+        try:
+            result = email_scheduler.process_contact(contact, start_date, end_date)
+            if not result:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "No results returned from email scheduler"}
+                )
+            logger.debug("Scheduler result: %s", result)  # Add debug logging
+        except Exception as e:
+            logger.error(f"Scheduler error: {str(e)}")
+            return JSONResponse(
+                status_code=500,
+                content={"error": f"Error processing contact: {str(e)}"}
+            )
+        
+        # Format the result for the response
+        email_list = []
+        
+        # Add scheduled emails
+        for email in result.get("scheduled", []):
+            try:
+                email_date = email.get('scheduled_date') or email.get('date')
+                if not email_date:
+                    logger.warning(f"No date found in email data: {email}")
+                    continue
+                    
+                email_info = {
+                    'type': email.get('type', 'unknown'),
+                    'type_display': {
+                        'birthday': 'Birthday Email',
+                        'anniversary': 'Anniversary Email',
+                        'aep': 'AEP Email',
+                        'post_window': 'Post-Window Email'
+                    }.get(email.get('type', 'unknown'), email.get('type', 'unknown').replace('_', ' ').title()),
+                    'start': email_date.isoformat() if isinstance(email_date, date) else email_date,
+                    'skipped': False,
+                    'reason': '',
+                    'link': f"/contact/12345/email/{email.get('type', 'unknown')}/{email_date}",
+                    'default_date': None
+                }
+                
+                # Set default dates based on type
+                if email.get('type') == 'birthday':
+                    email_info['default_date'] = birth_date.isoformat()
+                elif email.get('type') == 'anniversary':
+                    email_info['default_date'] = effective_date.isoformat() if effective_date else None
+                elif email.get('type') == 'aep':
+                    email_info['default_date'] = 'AEP Window'
+                elif email.get('type') == 'post_window':
+                    email_info['default_date'] = 'Post Exclusion Period'
+                    
+                email_list.append(email_info)
+            except Exception as e:
+                logger.error(f"Error processing scheduled email: {e}\nEmail data: {email}")
+                continue
+            
+        # Add skipped emails
+        for email in result.get("skipped", []):
+            try:
+                email_date = email.get('scheduled_date') or email.get('date')
+                if not email_date:
+                    logger.warning(f"No date found in skipped email data: {email}")
+                    continue
+                    
+                email_info = {
+                    'type': email.get('type', 'unknown'),
+                    'type_display': {
+                        'birthday': 'Birthday Email',
+                        'anniversary': 'Anniversary Email',
+                        'aep': 'AEP Email',
+                        'post_window': 'Post-Window Email'
+                    }.get(email.get('type', 'unknown'), email.get('type', 'unknown').replace('_', ' ').title()),
+                    'start': email_date.isoformat() if isinstance(email_date, date) else email_date,
+                    'skipped': True,
+                    'reason': email.get('reason', 'No reason provided'),
+                    'link': '',
+                    'default_date': None
+                }
+                
+                # Set default dates based on type
+                if email.get('type') == 'birthday':
+                    email_info['default_date'] = birth_date.isoformat()
+                elif email.get('type') == 'anniversary':
+                    email_info['default_date'] = effective_date.isoformat() if effective_date else None
+                elif email.get('type') == 'aep':
+                    email_info['default_date'] = 'AEP Window'
+                elif email.get('type') == 'post_window':
+                    email_info['default_date'] = 'Post Exclusion Period'
+                    
+                email_list.append(email_info)
+            except Exception as e:
+                logger.error(f"Error processing skipped email: {e}\nEmail data: {email}")
+                continue
+        
+        # Sort email list by date
+        email_list.sort(key=lambda x: x['start'])
+        
+        # Get state rules
+        rules = []
+        if data.state in BIRTHDAY_RULE_STATES:
+            window = BIRTHDAY_RULE_STATES[data.state]
+            rules.append(f"Birthday emails: {window.get('window_before', 0)} days before to {window.get('window_after', 0)} days after birthday")
+        if data.state in EFFECTIVE_DATE_RULE_STATES:
+            window = EFFECTIVE_DATE_RULE_STATES[data.state]
+            rules.append(f"Effective date emails: {window.get('window_before', 0)} days before to {window.get('window_after', 0)} days after anniversary")
+        if data.state in YEAR_ROUND_ENROLLMENT_STATES:
+            rules.append("Year-round enrollment state - no scheduled emails")
+        else:
+            rules.append("AEP emails: Distributed across August/September")
+            rules.append("Post-window emails: Day after exclusion period")
+        
+        response = {
+            "contact_info": {
+                "id": "12345",
+                "name": "Test Contact",
+                "email": "test@example.com",
+                "state": data.state,
+                "birth_date": birth_date.isoformat(),
+                "effective_date": effective_date.isoformat() if effective_date else None
+            },
+            "timeline_data": {
+                "email_list": email_list
+            },
+            "scheduling_rules": rules,
+            "state_info": {
+                "code": data.state,
+                "has_birthday_rule": data.state in BIRTHDAY_RULE_STATES,
+                "has_effective_date_rule": data.state in EFFECTIVE_DATE_RULE_STATES,
+                "has_year_round_enrollment": data.state in YEAR_ROUND_ENROLLMENT_STATES
+            }
+        }
+        
+        return response
+        
+    except Exception as e:
+        # Log the error and return an error response
+        import traceback
+        error_trace = traceback.format_exc()
+        logger.error("Error in simulate_emails: %s\n%s", str(e), error_trace)
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"An error occurred while calculating scheduled emails: {str(e)}"}
+        )
+
 @app.post("/resample/{org_id}")
 async def resample_contacts(
     org_id: int, 
@@ -219,22 +559,33 @@ async def resample_contacts(
 ):
     """Resample contacts from existing data"""
     try:
+        logger.debug("Starting resample_contacts with org_id=%s, sample_size=%s, state=%s", 
+                    org_id, sample_size, state)
+        
+        # Set date range
+        current_date = date.today()
+        end_date = date(current_date.year + 2, current_date.month, current_date.day)
+        
         if org_id not in org_data_store:
+            logger.warning("Organization data not found for org_id=%s", org_id)
             return JSONResponse(
                 status_code=404,
                 content={"error": "Organization data not found. Please run the initial check first."}
             )
             
         df = org_data_store[org_id]
+        logger.debug("Retrieved dataframe with %d rows", len(df))
         
         # Apply contact search if provided
         if contact_search and contact_search.strip():
             search_term = contact_search.strip()
+            logger.debug("Applying contact search with term: %s", search_term)
             # Search by email (case insensitive) or by contact ID
             filtered_df = df[(df['email'].str.lower() == search_term.lower()) | 
                              (df['contact_id'].astype(str) == search_term)]
             
             if len(filtered_df) == 0:
+                logger.warning("No contacts found matching search term: %s", search_term)
                 return JSONResponse(
                     status_code=404,
                     content={"error": f"No contact found with email or ID: {search_term}"}
@@ -243,14 +594,18 @@ async def resample_contacts(
             # Apply state filtering
             filtered_df = df.copy()
             if special_rules_only:
+                logger.debug("Filtering for special rules states")
                 filtered_df = filtered_df[filtered_df['state'].isin(SPECIAL_RULE_STATES)]
-            elif state and state.strip():  # Only filter if state is explicitly selected
+            elif state and state.strip():
+                logger.debug("Filtering for state: %s", state)
                 filtered_df = filtered_df[filtered_df['state'] == state]
                 
             # Get unique contacts with their states
             unique_contacts = filtered_df.groupby('contact_id').first().reset_index()
+            logger.debug("Found %d unique contacts after filtering", len(unique_contacts))
             
             if len(unique_contacts) == 0:
+                logger.warning("No contacts found after state filtering")
                 return JSONResponse(
                     status_code=404,
                     content={"error": "No contacts found matching the state filter criteria."}
@@ -258,15 +613,19 @@ async def resample_contacts(
             
             # Sample contacts ensuring good state distribution
             sample_ids = sample_contacts_from_states(unique_contacts, sample_size, state if state and state.strip() else None)
+            logger.debug("Sampled %d contact IDs", len(sample_ids))
             
             # Filter dataframe to only include sampled contacts
             filtered_df = filtered_df[filtered_df['contact_id'].isin(sample_ids)]
         
         # Convert DataFrame to list of dicts, handling NaN values
         sample_data = filtered_df.replace({pd.NA: None}).to_dict('records')
+        logger.debug("Converted filtered data to %d records", len(sample_data))
         
-        # Group data by contact
+        # Group data by contact with improved organization
         contacts_data = {}
+        
+        # First pass: Initialize contact data and calculate dates
         for row in sample_data:
             contact_id = row['contact_id']
             if contact_id not in contacts_data:
@@ -275,9 +634,37 @@ async def resample_contacts(
                     "code": state_code,
                     "has_birthday_rule": state_code in BIRTHDAY_RULE_STATES,
                     "has_effective_date_rule": state_code in EFFECTIVE_DATE_RULE_STATES,
-                    "has_year_round_enrollment": state_code in YEAR_ROUND_ENROLLMENT_STATES
+                    "has_year_round_enrollment": state_code in YEAR_ROUND_ENROLLMENT_STATES,
+                    "rule_details": {
+                        "birthday": BIRTHDAY_RULE_STATES.get(state_code, {}),
+                        "effective_date": EFFECTIVE_DATE_RULE_STATES.get(state_code, {})
+                    }
                 }
                 
+                # Get birth_date and effective_date
+                birth_date = row.get('birth_date')
+                effective_date = row.get('effective_date')
+                
+                logger.debug("Processing contact %s with birth_date=%s, effective_date=%s", 
+                           contact_id, birth_date, effective_date)
+                
+                # Calculate birthdays and effective dates in range
+                birthdays = []
+                effective_dates = []
+                if birth_date:
+                    try:
+                        birthdays = get_all_occurrences(pd.to_datetime(birth_date).date(), current_date, end_date)
+                        logger.debug("Calculated %d birthdays for contact %s", len(birthdays), contact_id)
+                    except Exception as e:
+                        logger.error("Error calculating birthdays for contact %s: %s", contact_id, e)
+                if effective_date:
+                    try:
+                        effective_dates = get_all_occurrences(pd.to_datetime(effective_date).date(), current_date, end_date)
+                        logger.debug("Calculated %d effective dates for contact %s", len(effective_dates), contact_id)
+                    except Exception as e:
+                        logger.error("Error calculating effective dates for contact %s: %s", contact_id, e)
+                
+                # Initialize contact data structure
                 contacts_data[contact_id] = {
                     'contact_info': {
                         'id': contact_id,
@@ -285,27 +672,57 @@ async def resample_contacts(
                         'email': row['email'],
                         'state': state_code,
                         'state_info': state_info,
-                        'birth_date': row['birth_date'] if pd.notna(row['birth_date']) else None,
-                        'effective_date': row['effective_date'] if pd.notna(row['effective_date']) else None
+                        'birth_date': birth_date,
+                        'effective_date': effective_date
                     },
-                    'emails': []
+                    'timeline_data': {
+                        'groups': [
+                            {'id': 'key_dates', 'content': 'Key Dates'},
+                            {'id': 'emails', 'content': 'Scheduled Emails'},
+                            {'id': 'windows', 'content': 'Special Windows'}
+                        ],
+                        'items': []
+                    }
                 }
-            contacts_data[contact_id]['emails'].append({
-                'type': row['email_type'],
-                'date': row['email_date'],
-                'link': row['link'] if pd.notna(row['link']) else '',
-                'skipped': row['skipped'],
-                'reason': row['reason'] if pd.notna(row['reason']) else ''
-            })
-            
-        return {
+                
+                # Add applicable scheduling rules based on state
+                rules = []
+                if state_info['has_birthday_rule']:
+                    window = BIRTHDAY_RULE_STATES.get(state_code, {})
+                    rules.append(f"Birthday emails: {window.get('window_before', 0)} days before to {window.get('window_after', 0)} days after birthday")
+                if state_info['has_effective_date_rule']:
+                    window = EFFECTIVE_DATE_RULE_STATES.get(state_code, {})
+                    rules.append(f"Effective date emails: {window.get('window_before', 0)} days before to {window.get('window_after', 0)} days after anniversary")
+                if state_info['has_year_round_enrollment']:
+                    rules.append("Year-round enrollment state - no scheduled emails")
+                else:
+                    rules.append("AEP emails: Distributed across August/September")
+                    rules.append("Post-window emails: Day after exclusion period")
+                contacts_data[contact_id]['scheduling_rules'] = rules
+
+        logger.debug("Processed %d contacts into contacts_data", len(contacts_data))
+        
+        # Log the structure of contacts_data for one contact
+        if contacts_data:
+            sample_contact_id = next(iter(contacts_data))
+            logger.debug("Sample contact data structure: %s", 
+                        json.dumps(contacts_data[sample_contact_id], default=str))
+
+        # Use custom encoder for response
+        response_data = {
             "contacts": contacts_data,
             "total_contacts": len(df.groupby('contact_id')),
             "sample_size": len(contacts_data),
             "contact_search": contact_search if contact_search else ""
         }
         
+        return JSONResponse(
+            content=response_data,
+            encoder=CustomJSONEncoder
+        )
+        
     except Exception as e:
+        logger.exception("Error in resample_contacts")
         return JSONResponse(
             status_code=500,
             content={"error": str(e)}
@@ -318,61 +735,245 @@ async def check_schedules(
     sample_size: int = Form(10),
     state: Optional[str] = Form(default=None),
     special_rules_only: bool = Form(default=False),
-    contact_search: Optional[str] = Form(default=None)
+    contact_search: Optional[str] = Form(default=None),
+    show_all: bool = Form(default=False),
+    effective_date_filter: str = Form(default="none"),
+    effective_date_years: Optional[int] = Form(default=None),
+    effective_date_start: Optional[str] = Form(default=None),
+    effective_date_end: Optional[str] = Form(default=None),
+    page: int = Form(default=1)
 ):
     """Process organization's contacts and display sample results"""
     try:
-        # Set up paths
-        main_db = "main.db"
-        org_db_dir = "org_dbs"
+        # Convert effective date values to integers, handling -1 case
+        effective_date_start_int = None
+        effective_date_end_int = None
+        
+        if effective_date_start is not None:
+            try:
+                effective_date_start_int = int(effective_date_start)
+            except ValueError:
+                logger.error(f"Invalid effective_date_start value: {effective_date_start}")
+                return templates.TemplateResponse(
+                    "error.html",
+                    {
+                        "request": request,
+                        "error": "Invalid start date value provided"
+                    }
+                )
+                
+        if effective_date_end is not None:
+            try:
+                effective_date_end_int = int(effective_date_end)
+            except ValueError:
+                logger.error(f"Invalid effective_date_end value: {effective_date_end}")
+                return templates.TemplateResponse(
+                    "error.html",
+                    {
+                        "request": request,
+                        "error": "Invalid end date value provided"
+                    }
+                )
+
+        # Set date range
+        current_date = date.today()
+        end_date = date(current_date.year + 2, current_date.month, current_date.day)
 
         await refresh_databases(org_id)
         
         # Get organization details
         org = get_organization_details(main_db, org_id)
-        
-        # Get contacts from organization database
         org_db_path = os.path.join(org_db_dir, f"org-{org_id}.db")
-        contacts = get_contacts_from_org_db(org_db_path, org_id)
         
-        # Format contact data
-        formatted_contacts = format_contact_data(contacts)
+        # Calculate effective date range if filter is active
+        effective_date_age_years = None
+        effective_date_range_start = None
+        effective_date_range_end = None
         
+        if effective_date_filter == "single" and effective_date_years:
+            effective_date_age_years = effective_date_years
+        elif effective_date_filter == "range" and effective_date_start_int is not None:
+            # Calculate date range based on first day of current month
+            today = date.today()
+            first_of_month = date(today.year, today.month, 1)
+            
+            # Handle start date (this will be the earlier/older date)
+            if effective_date_start_int == -1:
+                # No start limit
+                effective_date_range_start = None
+            else:
+                # Calculate start date (earlier/older date)
+                effective_date_range_start = first_of_month - timedelta(days=effective_date_start_int * 30)  # Using 30 days per month for consistency
+                effective_date_range_start = effective_date_range_start.strftime("%Y-%m")
+            
+            # Handle end date (this will be the later/newer date)
+            if effective_date_end_int is not None and effective_date_end_int != -1:
+                # Calculate end date (later/newer date)
+                effective_date_range_end = first_of_month - timedelta(days=effective_date_end_int * 30)
+                effective_date_range_end = effective_date_range_end.strftime("%Y-%m")
+            else:
+                # No end limit
+                effective_date_range_end = None
+                
+            # Swap start and end dates if needed (since larger months-ago number means earlier date)
+            if (effective_date_range_start is not None and effective_date_range_end is not None and 
+                effective_date_range_start < effective_date_range_end):
+                effective_date_range_start, effective_date_range_end = effective_date_range_end, effective_date_range_start
+        
+        # Determine states to filter by
+        states_to_filter = None
+        if special_rules_only:
+            states_to_filter = SPECIAL_RULE_STATES
+            logger.debug(f"Filtering by special rules states: {states_to_filter}")
+        elif state and state.strip():
+            states_to_filter = [state]
+            logger.debug(f"Filtering by specific state: {states_to_filter}")
+
+        # First, get the filtered universe of contacts based on criteria
+        logger.debug(f"Getting filtered universe with states={states_to_filter}, effective_date_start={effective_date_range_start}, effective_date_end={effective_date_range_end}")
+        filtered_contacts = get_filtered_contacts_from_org_db(
+            org_db_path, 
+            org_id,
+            states=states_to_filter,
+            n=None,  # No limit when getting universe
+            is_random=False,  # No randomization when getting universe
+            effective_date_age_years=effective_date_age_years,
+            effective_date_start=effective_date_range_start,
+            effective_date_end=effective_date_range_end
+        )
+        
+        # If searching for a specific contact, filter the universe further
+        if contact_search and contact_search.strip():
+            logger.debug(f"Filtering universe for contact search: {contact_search}")
+            search_term = contact_search.strip().lower()
+            filtered_contacts = [
+                contact for contact in filtered_contacts 
+                if search_term in contact.get('email', '').lower() or 
+                str(contact.get('id', '')) == search_term
+            ]
+            
+            if not filtered_contacts:
+                return templates.TemplateResponse(
+                    "error.html",
+                    {
+                        "request": request,
+                        "error": f"No contact found with email or ID: {contact_search}"
+                    }
+                )
+        
+        # Now handle sampling from the filtered universe if not showing all
+        if not show_all and not contact_search:
+            logger.debug(f"Sampling {sample_size} contacts from universe of {len(filtered_contacts)}")
+            if len(filtered_contacts) > sample_size:
+                filtered_contacts = random.sample(filtered_contacts, sample_size)
+            
+        logger.debug(f"Processing {len(filtered_contacts)} contacts")
+        formatted_contacts = format_contact_data(filtered_contacts)
+
         if not formatted_contacts:
+            error_msg = "No valid contacts found for scheduling"
+            if state:
+                error_msg += f" in state {state}"
+            elif special_rules_only:
+                error_msg += " in states with special rules"
+            if effective_date_filter != "none":
+                error_msg += " with the specified effective date filter"
+            logger.warning(error_msg)
             return templates.TemplateResponse(
                 "error.html",
                 {
                     "request": request,
-                    "error": "No valid contacts found for scheduling"
+                    "error": error_msg
                 }
             )
+
+        # Handle pagination when showing all contacts
+        total_contacts = len(formatted_contacts)
+        contacts_per_page = 50  # Number of contacts to show per page
+        total_pages = (total_contacts + contacts_per_page - 1) // contacts_per_page if show_all else 1
         
-        # Set date range
-        current_date = date.today()
-        end_date = date(current_date.year + 2, current_date.month, current_date.day)
-        
-        # Process contacts
-        results = await process_contacts_async(formatted_contacts, current_date, end_date)
-        
-        # Create a temporary CSV file
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.csv') as tmp:
-            # Write results to CSV
-            from schedule_org_emails import write_results_to_csv
-            write_results_to_csv(results, formatted_contacts, org_id, tmp.name)
+        if show_all and total_contacts > contacts_per_page:
+            # Calculate pagination
+            page = max(1, min(page, total_pages))  # Ensure page is within valid range
+            start_idx = (page - 1) * contacts_per_page
+            end_idx = min(start_idx + contacts_per_page, total_contacts)
             
-            # Read the CSV with pandas
-            df = pd.read_csv(tmp.name)
-            
-            # Store the DataFrame in memory
-            org_data_store[org_id] = df
-        
-        # Clean up temp file
-        os.unlink(tmp.name)
-        
-        # Apply contact search if provided
+            # Slice contacts for current page
+            current_contacts = formatted_contacts[start_idx:end_idx]
+            has_previous = page > 1
+            has_next = page < total_pages
+        else:
+            current_contacts = formatted_contacts
+            page = 1
+            has_previous = False
+            has_next = False
+            total_pages = 1
+
+        # Process contacts using the simplified async approach
+        try:
+            if len(current_contacts) < 100:
+                results = main_sync(current_contacts, current_date, end_date)
+            else:
+                results = await main_async(current_contacts, current_date, end_date, batch_size=min(len(current_contacts) // 10, 1000))
+        except Exception as e:
+            import traceback
+            error_trace = traceback.format_exc()
+            logger.error(f"Failed to process contacts: {str(e)}\n{error_trace}")
+            return templates.TemplateResponse(
+                "error.html",
+                {
+                    "request": request,
+                    "error": f"Failed to process contacts: {str(e)}\nTrace:\n{error_trace}"
+                }
+            )
+
+        # Convert results to DataFrame for easier filtering and organization
+        df_data = []
+        for result in results:
+            contact_id = result['contact_id']
+            contact = next((c for c in current_contacts if c['id'] == contact_id), None)
+            if contact:
+                # Add scheduled emails
+                for email in result.get('scheduled', []):
+                    df_data.append({
+                        'contact_id': contact_id,
+                        'first_name': contact.get('first_name', ''),
+                        'last_name': contact.get('last_name', ''),
+                        'email': contact.get('email', ''),
+                        'state': contact.get('state', ''),
+                        'birth_date': contact.get('birth_date'),
+                        'effective_date': contact.get('effective_date'),
+                        'email_type': email['type'],
+                        'email_date': email['date'],
+                        'skipped': 'No',
+                        'reason': '',
+                        'link': f"/contact/{contact_id}/email/{email['type']}/{email['date']}"
+                    })
+                
+                # Add skipped emails
+                for email in result.get('skipped', []):
+                    df_data.append({
+                        'contact_id': contact_id,
+                        'first_name': contact.get('first_name', ''),
+                        'last_name': contact.get('last_name', ''),
+                        'email': contact.get('email', ''),
+                        'state': contact.get('state', ''),
+                        'birth_date': contact.get('birth_date'),
+                        'effective_date': contact.get('effective_date'),
+                        'email_type': email['type'],
+                        'email_date': email.get('date', current_date),
+                        'skipped': 'Yes',
+                        'reason': email.get('reason', ''),
+                        'link': ''
+                    })
+
+        # Create DataFrame and store in memory
+        df = pd.DataFrame(df_data)
+        org_data_store[org_id] = df
+
+        # Filter contacts if searching
         if contact_search and contact_search.strip():
             search_term = contact_search.strip()
-            # Search by email (case insensitive) or by contact ID
             filtered_df = df[(df['email'].str.lower() == search_term.lower()) | 
                              (df['contact_id'].astype(str) == search_term)]
             
@@ -384,67 +985,353 @@ async def check_schedules(
                         "error": f"No contact found with email or ID: {search_term}"
                     }
                 )
-        else:
-            # Apply state filtering
-            filtered_df = df.copy()
-            if special_rules_only:
-                filtered_df = filtered_df[filtered_df['state'].isin(SPECIAL_RULE_STATES)]
-            elif state and state.strip():  # Only filter if state is explicitly selected
-                filtered_df = filtered_df[filtered_df['state'] == state]
-                
-            # Get unique contacts with their states
-            unique_contacts = filtered_df.groupby('contact_id').first().reset_index()
-            
-            if len(unique_contacts) == 0:
-                return templates.TemplateResponse(
-                    "error.html",
-                    {
-                        "request": request,
-                        "error": "No contacts found matching the state filter criteria."
-                    }
-                )
-            
-            # Sample contacts ensuring good state distribution
-            sample_ids = sample_contacts_from_states(unique_contacts, sample_size, state if state and state.strip() else None)
-            
-            # Filter dataframe to only include sampled contacts
-            filtered_df = filtered_df[filtered_df['contact_id'].isin(sample_ids)]
-        
-        # Convert DataFrame to list of dicts for template
-        sample_data = filtered_df.to_dict('records')
-        
-        # Group data by contact
+            df = filtered_df
+
+        # Prepare contact data for display
         contacts_data = {}
-        for row in sample_data:
-            contact_id = row['contact_id']
-            if contact_id not in contacts_data:
-                state_code = row['state']
-                state_info = {
-                    "code": state_code,
-                    "has_birthday_rule": state_code in BIRTHDAY_RULE_STATES,
-                    "has_effective_date_rule": state_code in EFFECTIVE_DATE_RULE_STATES,
-                    "has_year_round_enrollment": state_code in YEAR_ROUND_ENROLLMENT_STATES
+        for contact_id in df['contact_id'].unique():
+            contact_rows = df[df['contact_id'] == contact_id]
+            if len(contact_rows) == 0:
+                continue
+
+            first_row = contact_rows.iloc[0]
+            state_code = first_row['state']
+            
+            # Initialize contact data structure
+            contacts_data[contact_id] = {
+                'contact_info': {
+                    'id': contact_id,
+                    'name': f"{first_row['first_name']} {first_row['last_name']}",
+                    'email': first_row['email'],
+                    'state': state_code,
+                    'birth_date': first_row['birth_date'],
+                    'effective_date': first_row['effective_date']
+                },
+                'timeline_data': {
+                    'email_list': []
+                }
+            }
+
+            # Add applicable scheduling rules based on state
+            rules = []
+            if state_code in BIRTHDAY_RULE_STATES:
+                window = BIRTHDAY_RULE_STATES[state_code]
+                rules.append(f"Birthday emails: {window.get('window_before', 0)} days before to {window.get('window_after', 0)} days after birthday")
+            if state_code in EFFECTIVE_DATE_RULE_STATES:
+                window = EFFECTIVE_DATE_RULE_STATES[state_code]
+                rules.append(f"Effective date emails: {window.get('window_before', 0)} days before to {window.get('window_after', 0)} days after anniversary")
+            if state_code in YEAR_ROUND_ENROLLMENT_STATES:
+                rules.append("Year-round enrollment state - no scheduled emails")
+            else:
+                rules.append("AEP emails: Distributed across August/September")
+                rules.append("Post-window emails: Day after exclusion period")
+            contacts_data[contact_id]['scheduling_rules'] = rules
+
+            # Add emails to timeline data
+            email_list = []
+            for _, row in contact_rows.iterrows():
+                email_type = row['email_type']
+                # Map email types to human-readable names and determine default dates
+                email_info = {
+                    'type': email_type,
+                    'type_display': {
+                        'birthday': 'Birthday Email',
+                        'anniversary': 'Anniversary Email',
+                        'aep': 'AEP Email',
+                        'post_window': 'Post-Window Email'
+                    }.get(email_type, email_type.replace('_', ' ').title()),
+                    'start': row['email_date'],
+                    'skipped': row['skipped'] == 'Yes',
+                    'reason': row['reason'] if row['skipped'] == 'Yes' else '',
+                    'link': row['link'],
+                    'default_date': None  # Will be populated based on type
                 }
                 
-                contacts_data[contact_id] = {
-                    'contact_info': {
-                        'id': contact_id,
-                        'name': f"{row['first_name']} {row['last_name']}",
-                        'email': row['email'],
-                        'state': state_code,
-                        'state_info': state_info,
-                        'birth_date': row['birth_date'],
-                        'effective_date': row['effective_date']
-                    },
-                    'emails': []
+                # Set default dates based on type
+                if email_type == 'birthday' and first_row['birth_date']:
+                    email_info['default_date'] = first_row['birth_date']
+                elif email_type == 'anniversary' and first_row['effective_date']:
+                    email_info['default_date'] = first_row['effective_date']
+                elif email_type == 'aep':
+                    email_info['default_date'] = 'AEP Window'
+                elif email_type == 'post_window':
+                    email_info['default_date'] = 'Post Exclusion Period'
+                
+                email_list.append(email_info)
+            
+            # Sort email list by date
+            email_list.sort(key=lambda x: x['start'])
+            contacts_data[contact_id]['timeline_data']['email_list'] = email_list
+
+        # Return template response with generate_link function in context
+        return templates.TemplateResponse(
+            "check.html",
+            {
+                "request": request,
+                "contacts": list(contacts_data.values()),
+                "org_id": org_id,
+                "org_name": org.get('name', f'Organization {org_id}'),
+                "sample_size": len(contacts_data),
+                "total_contacts": total_contacts,
+                "sample_sizes": [10, 25, 50, 100, 250, 500],
+                "contact_search": contact_search if contact_search else "",
+                "generate_link": generate_link,
+                "show_all": show_all,
+                "effective_date_filter": effective_date_filter,
+                "effective_date_years": effective_date_years,
+                "effective_date_start": effective_date_start,
+                "effective_date_end": effective_date_end,
+                "current_page": page,
+                "total_pages": total_pages,
+                "has_previous": has_previous,
+                "has_next": has_next
+            }
+        )
+        
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        logger.error(f"Unexpected error in check_schedules: {str(e)}\n{error_trace}")
+        return templates.TemplateResponse(
+            "error.html",
+            {
+                "request": request,
+                "error": f"Unexpected error: {str(e)}\nTrace:\n{error_trace}"
+            }
+        )
+
+@app.post("/get_universe_contacts")
+async def get_universe_contacts(
+    org_id: int = Form(...),
+    effective_date_age_years: Optional[int] = Form(None),
+    effective_date_start: Optional[str] = Form(None),
+    effective_date_end: Optional[str] = Form(None),
+    states: List[str] = Form([]),
+    n: Optional[int] = Form(None),
+    is_random: bool = Form(False)
+):
+    """
+    Fetch filtered contacts based on effective date range and states
+    
+    Args:
+        org_id: Organization ID
+        effective_date_age_years: Legacy filter for effective date age
+        effective_date_start: Start of effective date range (YYYY-MM)
+        effective_date_end: End of effective date range (YYYY-MM)
+        states: List of states to filter by
+        n: Optional limit on number of results
+        is_random: If True and n is provided, randomly sample n results
+    """
+    try:
+        logger.debug("Starting get_universe_contacts with org_id=%s, effective_date_range=%s to %s, states=%s, n=%s, is_random=%s", 
+                    org_id, effective_date_start, effective_date_end, states, n, is_random)
+        
+        # Get organization details and construct DB path
+        org = get_organization_details(main_db, org_id)
+        org_db_path = os.path.join(org_db_dir, f"org-{org_id}.db")
+        
+        # Call the filtered contacts function with either legacy or new range parameters
+        contacts = get_filtered_contacts_from_org_db(
+            org_db_path, 
+            org_id, 
+            effective_date_age_years=effective_date_age_years if not (effective_date_start and effective_date_end) else None,
+            effective_date_start=effective_date_start,
+            effective_date_end=effective_date_end,
+            states=states if states else None,
+            n=n,
+            is_random=is_random
+        )
+        
+        # Format the contacts for the frontend
+        formatted_contacts = format_contact_data(contacts)
+        
+        # Pre-encode content with custom encoder, then return as JSONResponse
+        content = {
+            "contacts": formatted_contacts,
+            "total": len(formatted_contacts),
+            "org_name": org['name'],
+            "is_random_sample": is_random and n is not None
+        }
+        json_content = json.dumps(content, cls=CustomJSONEncoder)
+        
+        return JSONResponse(content=json.loads(json_content))
+    except Exception as e:
+        logger.exception("Error in get_universe_contacts")
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e)}
+        )
+
+@app.post("/process_universe")
+async def process_universe(
+    request: Request,
+    org_id: int = Form(...),
+    contact_ids: List[str] = Form(...),
+    start_date: str = Form(...),
+    end_date: str = Form(...)
+):
+    """Process selected contacts for email scheduling"""
+    try:
+        logger.debug("Starting process_universe with org_id=%s, contact_ids=%s", 
+                    org_id, contact_ids)
+        
+        # Parse dates
+        try:
+            start = datetime.strptime(start_date, "%Y-%m-%d").date()
+            end = datetime.strptime(end_date, "%Y-%m-%d").date()
+        except ValueError:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Invalid date format. Please use YYYY-MM-DD format."}
+            )
+        
+        # Get organization details and refresh database if needed
+        await refresh_databases(org_id)
+        org = get_organization_details(main_db, org_id)
+        org_db_path = os.path.join(org_db_dir, f"org-{org_id}.db")
+        
+        # Get all contacts for the organization
+        contacts = get_contacts_from_org_db(org_db_path, org_id)
+        formatted_contacts = format_contact_data(contacts)
+        
+        # Filter contacts to only include those with IDs in the contact_ids list
+        selected_contacts = [c for c in formatted_contacts if str(c['id']) in contact_ids]
+        
+        if not selected_contacts:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "No valid contacts selected for processing"}
+            )
+        
+        # Process the selected contacts
+        contact_count = len(selected_contacts)
+        logger.debug("Processing %d selected contacts", contact_count)
+        
+        # Choose processing method based on number of contacts
+        if contact_count < 100:
+            results = main_sync(selected_contacts, start, end)
+        else:
+            results = await main_async(selected_contacts, start, end, batch_size=min(contact_count // 10, 1000))
+        
+        # Convert results to DataFrame for easier filtering and organization
+        df_data = []
+        for result in results:
+            contact_id = result['contact_id']
+            contact = next((c for c in selected_contacts if c['id'] == contact_id), None)
+            if contact:
+                # Add scheduled emails
+                for email in result.get('scheduled', []):
+                    df_data.append({
+                        'contact_id': contact_id,
+                        'first_name': contact.get('first_name', ''),
+                        'last_name': contact.get('last_name', ''),
+                        'email': contact.get('email', ''),
+                        'state': contact.get('state', ''),
+                        'birth_date': contact.get('birth_date'),
+                        'effective_date': contact.get('effective_date'),
+                        'email_type': email['type'],
+                        'email_date': email['date'],
+                        'skipped': 'No',
+                        'reason': '',
+                        'link': f"/contact/{contact_id}/email/{email['type']}/{email['date']}"
+                    })
+                
+                # Add skipped emails
+                for email in result.get('skipped', []):
+                    df_data.append({
+                        'contact_id': contact_id,
+                        'first_name': contact.get('first_name', ''),
+                        'last_name': contact.get('last_name', ''),
+                        'email': contact.get('email', ''),
+                        'state': contact.get('state', ''),
+                        'birth_date': contact.get('birth_date'),
+                        'effective_date': contact.get('effective_date'),
+                        'email_type': email['type'],
+                        'email_date': email.get('date', start),
+                        'skipped': 'Yes',
+                        'reason': email.get('reason', ''),
+                        'link': ''
+                    })
+
+        # Create DataFrame and store in memory
+        df = pd.DataFrame(df_data)
+        org_data_store[org_id] = df
+        
+        # Prepare contact data for display
+        contacts_data = {}
+        for contact_id in contact_ids:
+            contact_rows = df[df['contact_id'] == contact_id]
+            if len(contact_rows) == 0:
+                continue
+
+            first_row = contact_rows.iloc[0]
+            state_code = first_row['state']
+            
+            # Initialize contact data structure
+            contacts_data[contact_id] = {
+                'contact_info': {
+                    'id': contact_id,
+                    'name': f"{first_row['first_name']} {first_row['last_name']}",
+                    'email': first_row['email'],
+                    'state': state_code,
+                    'birth_date': first_row['birth_date'],
+                    'effective_date': first_row['effective_date']
+                },
+                'timeline_data': {
+                    'email_list': []
                 }
-            contacts_data[contact_id]['emails'].append({
-                'type': row['email_type'],
-                'date': row['email_date'],
-                'link': row['link'],
-                'skipped': row['skipped'],
-                'reason': row['reason']
-            })
+            }
+
+            # Add applicable scheduling rules based on state
+            rules = []
+            if state_code in BIRTHDAY_RULE_STATES:
+                window = BIRTHDAY_RULE_STATES[state_code]
+                rules.append(f"Birthday emails: {window.get('window_before', 0)} days before to {window.get('window_after', 0)} days after birthday")
+            if state_code in EFFECTIVE_DATE_RULE_STATES:
+                window = EFFECTIVE_DATE_RULE_STATES[state_code]
+                rules.append(f"Effective date emails: {window.get('window_before', 0)} days before to {window.get('window_after', 0)} days after anniversary")
+            if state_code in YEAR_ROUND_ENROLLMENT_STATES:
+                rules.append("Year-round enrollment state - no scheduled emails")
+            else:
+                rules.append("AEP emails: Distributed across August/September")
+                rules.append("Post-window emails: Day after exclusion period")
+            contacts_data[contact_id]['scheduling_rules'] = rules
+
+            # Add emails to timeline data
+            email_list = []
+            for _, row in contact_rows.iterrows():
+                email_type = row['email_type']
+                # Map email types to human-readable names and determine default dates
+                email_info = {
+                    'type': email_type,
+                    'type_display': {
+                        'birthday': 'Birthday Email',
+                        'anniversary': 'Anniversary Email',
+                        'aep': 'AEP Email',
+                        'post_window': 'Post-Window Email'
+                    }.get(email_type, email_type.replace('_', ' ').title()),
+                    'start': row['email_date'],
+                    'skipped': row['skipped'] == 'Yes',
+                    'reason': row['reason'] if row['skipped'] == 'Yes' else '',
+                    'link': row['link'],
+                    'default_date': None  # Will be populated based on type
+                }
+                
+                # Set default dates based on type
+                if email_type == 'birthday' and first_row['birth_date']:
+                    email_info['default_date'] = first_row['birth_date']
+                elif email_type == 'anniversary' and first_row['effective_date']:
+                    email_info['default_date'] = first_row['effective_date']
+                elif email_type == 'aep':
+                    email_info['default_date'] = 'AEP Window'
+                elif email_type == 'post_window':
+                    email_info['default_date'] = 'Post Exclusion Period'
+                
+                email_list.append(email_info)
+            
+            # Sort email list by date
+            email_list.sort(key=lambda x: x['start'])
+            contacts_data[contact_id]['timeline_data']['email_list'] = email_list
         
         return templates.TemplateResponse(
             "results.html",
@@ -456,23 +1343,184 @@ async def check_schedules(
                 "total_contacts": len(df.groupby('contact_id')),
                 "sample_size": len(contacts_data),
                 "sample_sizes": [5, 10, 25, 50, 100],
-                "selected_state": state if state and state.strip() else None,
-                "special_rules_only": special_rules_only,
-                "all_states": ALL_STATES,
                 "special_rule_states": SPECIAL_RULE_STATES,
-                "contact_search": contact_search if contact_search else ""
+                "current_date": start.isoformat(),
+                "end_date": end.isoformat()
             }
         )
         
     except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        logger.error("Error in process_universe: %s\n%s", str(e), error_trace)
         return templates.TemplateResponse(
             "error.html",
             {
                 "request": request,
-                "error": str(e)
+                "error": f"Error processing contacts: {str(e)}\nTrace:\n{error_trace}"
             }
         )
 
+@app.get("/universe", response_class=HTMLResponse)
+async def universe_selection(request: Request):
+    """Display the universe selection page"""
+    # Default dates
+    today = date.today()
+    next_year = today + timedelta(days=365)
+    
+    return templates.TemplateResponse(
+        "universe_selection.html",
+        {
+            "request": request,
+            "title": "Universe Selection",
+            "all_states": ALL_STATES,
+            "special_rule_states": SPECIAL_RULE_STATES,
+            "state_rules": {
+                state: {
+                    "has_birthday_rule": state in BIRTHDAY_RULE_STATES,
+                    "has_effective_date_rule": state in EFFECTIVE_DATE_RULE_STATES,
+                    "has_year_round_enrollment": state in YEAR_ROUND_ENROLLMENT_STATES
+                }
+                for state in ALL_STATES
+            },
+            "today": today.isoformat(),
+            "next_year": next_year.isoformat()
+        }
+    )
+
+@app.get("/preview_email")
+async def preview_email(
+    request: Request,
+    org_id: int,
+    contact_id: str,
+    email_type: str,
+    email_date: str
+):
+    """Preview an email template for a specific contact"""
+    try:
+        logger.debug(f"Previewing email for org_id={org_id}, contact_id={contact_id}, type={email_type}, date={email_date}")
+        
+        # Get contact directly from the org database
+        org_db_path = os.path.join(org_db_dir, f'org-{org_id}.db')
+        if not os.path.exists(org_db_path):
+            logger.error(f"Organization database not found: {org_db_path}")
+            raise HTTPException(status_code=404, detail="Organization database not found")
+            
+        contacts = get_contacts_from_org_db(org_db_path, org_id, contact_ids=[contact_id])
+        if not contacts:
+            logger.error(f"Contact {contact_id} not found in organization {org_id}")
+            raise HTTPException(status_code=404, detail="Contact not found in organization")
+            
+        formatted_contacts = format_contact_data(contacts)
+        if not formatted_contacts:
+            logger.error(f"Failed to format contact data for contact {contact_id}")
+            raise HTTPException(status_code=500, detail="Failed to format contact data")
+            
+        contact = formatted_contacts[0]
+        logger.debug(f"Found contact: {contact}")
+        
+        # Get organization details from database
+        try:
+            async with aiosqlite.connect('main.db') as db:
+                db.row_factory = aiosqlite.Row
+                async with db.execute(
+                    """SELECT id, name, phone, website, logo_url, primary_color, secondary_color, logo_data 
+                       FROM organizations WHERE id = ?""", 
+                    (org_id,)
+                ) as cursor:
+                    org_data = await cursor.fetchone()
+                    if not org_data:
+                        logger.error(f"Organization {org_id} not found in main database")
+                        raise HTTPException(status_code=404, detail="Organization not found")
+                    
+                    # Create organization dict with correct keys for template
+                    organization = dict(org_data)
+                    logger.debug(f"Found organization details: {organization}")
+        except Exception as e:
+            logger.error(f"Error fetching organization details for org_id={org_id}: {e}")
+            raise HTTPException(status_code=500, detail=f"Error fetching organization details: {e}")
+        
+        # Parse email date
+        try:
+            parsed_email_date = datetime.strptime(email_date, "%Y-%m-%d").date()
+            logger.debug(f"Parsed email date: {parsed_email_date}")
+        except ValueError as e:
+            logger.error(f"Invalid email date format: {email_date}")
+            raise HTTPException(status_code=400, detail=f"Invalid date format: {e}")
+        
+        # Initialize template engine
+        template_engine = EmailTemplateEngine()
+        
+        # Generate quote link
+        try:
+            logger.info(f"Generating quote link with org_id={org_id}, contact_id={contact_id}, email_type={email_type}, email_date={email_date}")
+            quote_link = generate_link(org_id, contact_id, email_type, email_date)
+            logger.info(f"Generated quote link: {quote_link}")
+        except Exception as e:
+            logger.error(f"Error generating quote link: {e}")
+            quote_link = f"#error-generating-link-{str(e)}"
+        
+        # Verify the link generation by checking if quote_link contains the expected pattern
+        expected_pattern = f"{org_id}-{contact_id}-"
+        if expected_pattern not in quote_link:
+            logger.warning(f"Generated quote link doesn't contain expected pattern '{expected_pattern}': {quote_link}")
+        
+        # Create template_data dictionary with organization as a top-level key
+        template_data = {**contact}
+        template_data["organization"] = organization
+        template_data["quote_link"] = quote_link
+        template_data["email_date"] = parsed_email_date
+        logger.info(f"Template data keys: {template_data.keys()}")
+        logger.info(f"Quote link in template data: {template_data.get('quote_link')}")
+        
+        # Render HTML email
+        try:
+            html_content = template_engine.render_email(
+                template_type=email_type,
+                contact=template_data,
+                email_date=parsed_email_date,
+                html=True
+            )
+            logger.debug("Successfully rendered email template")
+            return HTMLResponse(content=html_content)
+        except Exception as e:
+            logger.error(f"Error rendering email template: {e}")
+            raise HTTPException(status_code=500, detail=f"Error rendering template: {e}")
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error previewing email: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+async def get_contact_by_id(contact_id: str) -> dict:
+    """Get contact details by ID from the database"""
+    # Convert contact_id to string for comparison
+    contact_id_str = str(contact_id)
+    
+    # Since we store contacts in memory after processing, we can search through org_data_store
+    for org_df in org_data_store.values():
+        # Convert contact_id column to string for comparison
+        contact_mask = org_df['contact_id'].astype(str) == contact_id_str
+        if contact_mask.any():
+            contact_data = org_df[contact_mask].iloc[0].to_dict()
+            return {
+                'id': str(contact_data['contact_id']),
+                'first_name': contact_data['first_name'],
+                'last_name': contact_data['last_name'],
+                'email': contact_data['email'],
+                'state': contact_data['state'],
+                'birth_date': contact_data['birth_date'],
+                'effective_date': contact_data['effective_date']
+            }
+    return None
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000) 
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Email Scheduler App")
+    parser.add_argument("--port", type=int, default=8000, help="Port to run the server on")
+    args = parser.parse_args()
+    
+    uvicorn.run(app, host="0.0.0.0", port=args.port) 

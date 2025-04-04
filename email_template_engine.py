@@ -52,10 +52,14 @@ class EmailTemplateEngine:
         def format_phone(value):
             if not value:
                 return ""
-            # Remove non-numeric characters
+            # Remove all non-numeric characters
             nums = ''.join(filter(str.isdigit, str(value)))
             if len(nums) == 10:
                 return f"({nums[:3]}) {nums[3:6]}-{nums[6:]}"
+            elif len(nums) == 11 and nums[0] == '1':
+                return f"({nums[1:4]}) {nums[4:7]}-{nums[7:]}"
+            elif len(nums) == 7:
+                return f"{nums[:3]}-{nums[3:]}"
             return value
         
         def format_currency(value):
@@ -95,28 +99,55 @@ class EmailTemplateEngine:
             'first_name': contact.get('first_name', ''),
             'last_name': contact.get('last_name', ''),
             'state': contact.get('state', ''),
-            'company_name': "Medicare Services",
-            'phone': "1-800-MEDICARE",
-            'website': "www.medicare.gov"
         }
+        
+        # Preserve quote_link if it exists in the contact data
+        if 'quote_link' in contact:
+            logger.info(f"Preserving quote_link from contact data: {contact['quote_link']}")
+            vars['quote_link'] = contact['quote_link']
+        
+        # Add organization data if present in the contact
+        if 'organization' in contact:
+            vars['organization'] = contact['organization']
+            # Set fallback values from organization data if available
+            company_name = contact['organization'].get('name', 'Medicare Services')
+            phone = contact['organization'].get('phone', '1-800-MEDICARE')
+            website = contact['organization'].get('website', 'www.medicare.gov')
+        else:
+            # Fallback defaults
+            company_name = "Medicare Services"
+            phone = "1-800-MEDICARE"
+            website = "www.medicare.gov"
+        
+        # Set company data for backwards compatibility
+        vars['company_name'] = company_name
+        vars['phone'] = phone
+        vars['website'] = website
         
         # Add metadata variables
         vars.update(metadata.get('variables', {}))
         
         # Add type-specific variables
         if template_type == 'birthday':
-            birth_date = datetime.strptime(contact['birth_date'], "%Y-%m-%d").date()
+            birth_date = datetime.strptime(contact['birth_date'], "%Y-%m-%d").date() if isinstance(contact['birth_date'], str) else contact['birth_date']
             vars['birth_date'] = birth_date
             vars['birth_month'] = birth_date.strftime("%B")
             
-        elif template_type == 'effective_date':
-            effective_date = datetime.strptime(contact['effective_date'], "%Y-%m-%d").date()
-            vars['effective_date'] = effective_date
+        elif template_type == 'anniversary' or template_type == 'effective_date':
+            if contact.get('effective_date'):
+                effective_date = datetime.strptime(contact['effective_date'], "%Y-%m-%d").date() if isinstance(contact['effective_date'], str) else contact['effective_date']
+                vars['effective_date'] = effective_date
             
         elif template_type == 'aep':
             vars['aep_start'] = date(email_date.year, 10, 15)
             vars['aep_end'] = date(email_date.year, 12, 7)
         
+        # Check if quote_link is in the final template variables
+        if 'quote_link' in vars:
+            logger.info(f"quote_link is in the final template variables: {vars['quote_link']}")
+        else:
+            logger.warning("quote_link is not in the final template variables")
+            
         return vars
     
     def render_email(self, template_type: str, contact: Dict[str, Any], email_date: date, html: bool = False) -> Dict[str, str]:
@@ -134,6 +165,13 @@ class EmailTemplateEngine:
         """
         # Prepare template variables
         template_vars = self._get_template_vars(template_type, contact, email_date)
+        
+        # Log the template variables to check if quote_link is present
+        logger.info(f"Template variables keys: {template_vars.keys()}")
+        if 'quote_link' in template_vars:
+            logger.info(f"Quote link in template variables: {template_vars['quote_link']}")
+        else:
+            logger.warning("quote_link not found in template variables")
         
         # Get metadata for subject line
         metadata = self._load_template_metadata(template_type)

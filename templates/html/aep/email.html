@@ -1,91 +1,128 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8">
-    <title>{{ subject }}</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 600px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        .header {
-            color: #0066cc;
-            margin-bottom: 20px;
-        }
-        .content {
-            margin-bottom: 30px;
-        }
-        .benefits {
-            background-color: #f8f9fa;
-            padding: 15px;
-            border-radius: 5px;
-            margin: 20px 0;
-        }
-        .benefits ul {
-            margin: 0;
-            padding-left: 20px;
-        }
-        .cta {
-            background-color: #0066cc;
-            color: white;
-            padding: 15px;
-            text-align: center;
-            border-radius: 5px;
-            margin: 20px 0;
-        }
-        .signature {
-            margin-top: 30px;
-            border-top: 1px solid #eee;
-            padding-top: 20px;
-        }
-        .footer {
-            font-size: 12px;
-            color: #666;
-            border-top: 1px solid #eee;
-            margin-top: 30px;
-            padding-top: 10px;
-        }
-    </style>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Your Medicare Annual Enrollment Update</title>
+  <style type="text/css">
+    /* GLOBAL RESETS */
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #f8f8f8;
+      font-family: Arial, sans-serif;
+    }
+    table {
+      border-collapse: collapse;
+    }
+    img {
+      display: block;
+      border: 0;
+      outline: none;
+      text-decoration: none;
+      -ms-interpolation-mode: bicubic;
+    }
+    a {
+      text-decoration: none;
+      color: inherit;
+    }
+
+    /* CONTAINER STYLES */
+    .email-container {
+      width: 100%;
+      max-width: 600px;
+      background-color: #ffffff;
+      border-radius: 8px;
+      overflow: hidden; /* For proper rendering of rounded corners */
+    }
+
+    /* CONTENT STYLES */
+    .content {
+      padding: 30px 40px;
+      text-align: left; /* Left-align all text */
+      color: #333333;
+      font-size: 16px;
+      line-height: 24px;
+    }
+    .logo img {
+      max-width: 60px;
+      margin-bottom: 20px;
+    }
+    .message {
+      margin: 0 0 30px 0;
+    }
+    /* BUTTON STYLES */
+    .button-wrapper {
+      text-align: left; /* Left-align the button */
+      margin-top: 20px;
+    }
+    .cta-button {
+      background-color: {{ organization.primary_color|default('#03045E') }};
+      color: #ffffff !important;
+      padding: 14px 28px;
+      font-size: 16px;
+      font-weight: bold;
+      border-radius: 4px;
+      display: inline-block;
+    }
+  </style>
 </head>
-<body>
-    <div class="header">
-        <h1>{{ subject }}</h1>
-    </div>
+<body style="margin:0; padding:0; background-color:#f8f8f8;">
+  <!-- Outer Wrapper Table -->
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" bgcolor="#f8f8f8">
+    <tr>
+      <td align="center" style="padding: 40px 0;">
+        <!-- Inner Container Table (White Box with Rounded Corners) -->
+        <table class="email-container" border="0" cellspacing="0" cellpadding="0">
+          <tr>
+            <td>
+              <div class="content">
+                <!-- Logo or Icon -->
+                <div class="logo">
+                  {% if organization.logo_data %}
+                  <img src="{{ organization.logo_data }}" alt="{{ organization.name }} Logo" width="100" style="display:block;"/>
+                  {% endif %}
+                </div>
+                
+                <!-- Body Message -->
+                <div class="message">
+                  <p>Hi {{ first_name }},</p>
+                  <p>With Medicare's Annual Enrollment Period approaching, we just reviewed Medigap premiums for your zip code — and may have some intriguing prospects for you.</p>
+                  <p>These plans will provide the same benefits and peace of mind but possibly with more savings. No one likes to shop for a new plan, but a new plan could save you some money, which is why we are doing the leg work and providing you with some options during this important enrollment window.</p>
+                </div>
+                
+                <!-- Button -->
+                <div class="button-wrapper">
+                  <a href="{{ quote_link }}" target="_blank" class="cta-button">Review Your Medicare Options</a>
+                </div>
+                
+                <!-- Additional Message -->
+                <div class="message" style="margin-top: 30px;">
+                  <p>If you've ever wondered if you're overpaying for the exact same plan someone else is getting for less… this is your opportunity to see. If for some reason these plans aren't less costly then we will reach back out in a couple of months with some new findings. Don't pay more than you have to.</p>
+                  <p>If you have any questions, give me a call: {{ organization.phone|phone }}</p>
+                  <p>
+                    Best,<br>
+                    {{ organization.name }}<br>
+                    Your Medicare Specialist<br>
+                    {{ organization.phone|phone }}
+                  </p>
+                </div>
 
-    <div class="content">
-        <p>{{ greeting }}</p>
-
-        <p>The Annual Enrollment Period (AEP) is approaching, and we want to help you make the most of this important time. From {{ aep_start | date }} to {{ aep_end | date }}, you'll have the opportunity to review and adjust your Medicare coverage.</p>
-
-        <div class="benefits">
-            <p>Here's what we'll cover in your AEP review:</p>
-            <ul>
-            {% for benefit in aep_benefits %}
-                <li>{{ benefit }}</li>
-            {% endfor %}
-            </ul>
-        </div>
-
-        <div class="cta">
-            <h2>{{ call_to_action }}</h2>
-            <p>Call us at {{ signature_phone | phone }} to schedule your review.</p>
-        </div>
-
-        <div class="signature">
-            <p>Best regards,<br>
-            {{ signature_name }}</p>
-        </div>
-    </div>
-
-    <div class="footer">
-        <p>{{ company_name }}<br>
-        Phone: {{ phone | phone }}<br>
-        Website: {{ website }}<br>
-        {% if contact.id %}Contact ID: {{ contact.id }}{% endif %}</p>
-    </div>
+                <!-- Footer -->
+                <div style="font-size: 12px; color: #666666; margin-top: 30px;">
+                  <p>
+                    Medicare Services<br>
+                    Phone: {{ organization.phone|phone }}<br>
+                    Website: <a href="{% if organization.website %}{% if not organization.website.startswith('http') %}https://{% endif %}{{ organization.website }}{% else %}https://www.medicare.gov{% endif %}" target="_blank" style="color: #0066cc; text-decoration: underline;">{{ organization.website|default('www.medicare.gov') }}</a>
+                  </p>
+                </div>
+              </div>
+            </td>
+          </tr>
+        </table>
+        <!-- End of Container Table -->
+      </td>
+    </tr>
+  </table>
 </body>
 </html> 

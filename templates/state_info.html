@@ -1,0 +1,66 @@
+<div class="card border-info mb-3">
+    <div class="card-header bg-info text-white">
+        <strong>State: {{ contact_data.contact_info.state }}</strong>
+        {% if contact_data.contact_info.state_info.has_birthday_rule or 
+            contact_data.contact_info.state_info.has_effective_date_rule or 
+            contact_data.contact_info.state_info.has_year_round_enrollment %}
+        <span class="badge bg-light text-dark">Special Rules Apply</span>
+        {% endif %}
+    </div>
+    <div class="card-body">
+        {% if contact_data.contact_info.state_info.has_year_round_enrollment %}
+        <div class="alert alert-warning">
+            <strong>Year-Round Enrollment State</strong>
+            <p class="mb-0 small">All emails are skipped because this state allows year-round enrollment.</p>
+        </div>
+        {% endif %}
+        
+        {% if contact_data.contact_info.state_info.has_birthday_rule %}
+        <div class="mb-2">
+            <strong class="text-primary">Birthday Rule</strong>
+            <p class="mb-0 small">
+                {% if contact_data.contact_info.state == "CA" %}
+                60-day exclusion period: 30 days before and 30 days after birthday.
+                {% elif contact_data.contact_info.state == "ID" %}
+                63-day exclusion period: Starting on birthday and ending 63 days after.
+                {% elif contact_data.contact_info.state == "IL" %}
+                45-day exclusion period: Starting on birthday and ending 45 days after.
+                {% elif contact_data.contact_info.state == "KY" %}
+                60-day exclusion period: Starting on birthday and ending 60 days after.
+                {% elif contact_data.contact_info.state == "LA" %}
+                93-day exclusion period: 30 days before and 63 days after birthday.
+                {% elif contact_data.contact_info.state == "MD" %}
+                31-day exclusion period: Starting on birthday and ending 31 days after.
+                {% elif contact_data.contact_info.state == "NV" %}
+                60-day exclusion period: Starting on first day of birth month.
+                {% elif contact_data.contact_info.state == "OK" %}
+                60-day exclusion period: Starting on birthday and ending 60 days after.
+                {% elif contact_data.contact_info.state == "OR" %}
+                31-day exclusion period: Starting on birthday and ending 31 days after.
+                {% endif %}
+            </p>
+        </div>
+        {% endif %}
+        
+        {% if contact_data.contact_info.state_info.has_effective_date_rule %}
+        <div class="mb-2">
+            <strong class="text-success">Effective Date Rule</strong>
+            <p class="mb-0 small">
+                {% if contact_data.contact_info.state == "MO" %}
+                63-day exclusion period: 30 days before and 33 days after the policy anniversary.
+                {% endif %}
+            </p>
+        </div>
+        {% endif %}
+        
+        <div class="mb-0 small text-muted">
+            <p class="mb-0"><strong>Standard Scheduling Rules:</strong></p>
+            <ul class="ps-3 mb-0">
+                <li>Birthday emails: 14 days before birthday</li>
+                <li>Effective date emails: 30 days before anniversary</li>
+                <li>AEP emails: Distributed across August/September</li>
+                <li>Post-window emails: Day after exclusion period</li>
+            </ul>
+        </div>
+    </div>
+</div> 
