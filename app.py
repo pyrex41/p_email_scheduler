@@ -13,6 +13,7 @@ from typing import Optional, List, Dict, Any
 import random
 import json
 import logging
+import os
 from utils import generate_link
 from email_template_engine import EmailTemplateEngine
 import aiosqlite
@@ -21,6 +22,26 @@ import sqlite3
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
+
+# Environment variables to control email sending
+# TEST_EMAIL_SENDING controls sending real emails in test mode
+# PRODUCTION_EMAIL_SENDING controls sending real emails in production mode
+
+# Test mode email sending (default: ENABLED - can send real emails in test mode)
+TEST_EMAIL_SENDING = os.environ.get("TEST_EMAIL_SENDING", "ENABLED").upper() == "ENABLED"
+
+# Production mode email sending (default: DISABLED - won't send real emails in production)
+PRODUCTION_EMAIL_SENDING = os.environ.get("PRODUCTION_EMAIL_SENDING", "DISABLED").upper() == "ENABLED"
+
+if TEST_EMAIL_SENDING:
+    logger.info("Test email sending is ENABLED - test emails will be sent to test addresses")
+else:
+    logger.info("Test email sending is DISABLED - no emails will be sent in test mode")
+
+if PRODUCTION_EMAIL_SENDING:
+    logger.warning("PRODUCTION email sending is ENABLED! Real emails will be sent to actual recipients!")
+else:
+    logger.info("Production email sending is DISABLED - no emails will be sent to actual recipients")
 
 class CustomJSONEncoder(json.JSONEncoder):
     """Custom JSON encoder to handle dates and other special types"""
@@ -1823,14 +1844,32 @@ async def send_emails(
     # Validate inputs
     if send_mode not in ["test", "production"]:
         raise HTTPException(status_code=400, detail="Invalid send mode")
-    if send_mode == "test" and not test_emails:
+    if send_mode == "test" and (not test_emails or test_emails.strip() == ""):
         raise HTTPException(status_code=400, detail="Test emails required in test mode")
     if scope not in ["bulk", "today", "next_7_days", "next_30_days", "next_90_days"]:
         raise HTTPException(status_code=400, detail="Invalid scope")
 
     # Initialize components
     from sendgrid_client import SendGridClient
-    sendgrid_client = SendGridClient(dry_run=(send_mode == "test"))
+    
+    # Determine if we should use dry run mode based on the send mode and environment variables
+    use_dry_run = False
+    if send_mode == "test":
+        # In test mode, use dry run only if TEST_EMAIL_SENDING is disabled
+        use_dry_run = not TEST_EMAIL_SENDING
+        if not use_dry_run:
+            logger.info(f"Test mode will send REAL emails to test addresses")
+        else:
+            logger.info(f"Test mode is in dry run - no emails will be sent")
+    else:
+        # In production mode, use dry run unless PRODUCTION_EMAIL_SENDING is enabled
+        use_dry_run = not PRODUCTION_EMAIL_SENDING
+        if not use_dry_run:
+            logger.warning(f"PRODUCTION MODE - REAL EMAILS WILL BE SENT TO ACTUAL RECIPIENTS")
+        else:
+            logger.info(f"Production mode is in dry run - no emails will be sent")
+    
+    sendgrid_client = SendGridClient(dry_run=use_dry_run)
     template_engine = EmailTemplateEngine()
     scheduler = EmailScheduler()
     org_db_path = f"org_dbs/org-{org_id}.db"
@@ -1992,32 +2031,17 @@ async def send_emails(
         next_90_days = today + timedelta(days=90)
         
         if scope == "bulk":
-            # One email per contact - regardless of exclusion windows
-            valid_emails = []
-            for email in scheduled_emails:
-                email_date_str = email.get("scheduled_date") or email.get("date")
-                valid_emails.append({
-                    "type": email["type"],
-                    "date": email_date_str,
-                    "priority": {"birthday": 0, "anniversary": 1, "aep": 2, "post_window": 3}.get(email["type"], 99)
-                })
+            # For bulk sends, always use post_window script since it's not specific to any time window
+            # This is appropriate for both testing and production bulk sends
             
-            # Always send post_window email if we have no other emails
-            if not valid_emails and contact.get('state'):
-                # Create a synthetic post_window email for today
-                logger.info(f"Creating synthetic post_window email for contact {contact.get('id')}")
-                valid_emails.append({
-                    "type": "post_window",
-                    "date": today_str,
-                    "priority": 3
-                })
-            
-            # If we have valid emails, choose the highest priority one
-            if valid_emails:
-                valid_emails.sort(key=lambda x: x["priority"])  # Sort by priority
-                best_email = valid_emails[0]  # Take the highest priority email
-                emails_to_send.append({"contact": contact, "type": best_email["type"], "date": best_email["date"]})
-                logger.info(f"Selected email type {best_email['type']} for contact {contact.get('id')}")
+            # Create a post_window email for today
+            logger.info(f"Creating post_window email for bulk send to contact {contact.get('id')}")
+            emails_to_send.append({
+                "contact": contact, 
+                "type": "post_window", 
+                "date": today_str
+            })
+            logger.info(f"Selected email type post_window for contact {contact.get('id')}")
                 
         elif scope == "today":
             # Only today's emails
@@ -2086,7 +2110,10 @@ async def send_emails(
         )
 
     # Prepare test email list
-    test_email_list = [email.strip() for email in test_emails.split(",")] if send_mode == "test" and test_emails else []
+    test_email_list = []
+    if send_mode == "test" and test_emails:
+        # Split by commas, strip whitespace, and filter out empty strings
+        test_email_list = [email.strip() for email in test_emails.split(",") if email.strip()]
     
     # Check if we have test emails in test mode
     if send_mode == "test" and not test_email_list:
@@ -2112,10 +2139,14 @@ async def send_emails(
                 content = template_engine.render_email(email_type, contact, email_date)
                 html_content = template_engine.render_email(email_type, contact, email_date, html=True)
 
-                # Send email
+                # For test emails, use the same subject line as production
+                # Do not add any test indicators to the subject line
+                subject = content["subject"]
+                
+                # Send email with unmodified subject line
                 success = sendgrid_client.send_email(
                     to_email=recipient,
-                    subject=content["subject"],
+                    subject=subject,
                     content=content["body"],
                     html_content=html_content["html"]
                 )
@@ -2139,7 +2170,8 @@ async def send_emails(
             await asyncio.sleep(1)
 
     # Create a success message and show results
-    message = f"Successfully sent {total_sent} emails in {send_mode} mode"
+    dry_run_note = "[DRY RUN ONLY - NO ACTUAL EMAILS SENT] " if sendgrid_client.dry_run else ""
+    message = f"{dry_run_note}Successfully processed {total_sent} emails in {send_mode} mode"
     if failures > 0:
         message += f" with {failures} failures"
     
@@ -2222,8 +2254,8 @@ def log_email_send(
         if error_message:
             metadata["error"] = error_message
             
-        # Convert metadata to JSON string
-        metadata_json = json.dumps(metadata)
+        # Convert metadata to JSON string using CustomJSONEncoder to handle date objects
+        metadata_json = json.dumps(metadata, cls=CustomJSONEncoder)
         
         # Insert the event
         cursor.execute(

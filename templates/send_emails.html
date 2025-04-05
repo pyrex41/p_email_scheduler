@@ -226,9 +226,27 @@
                     </select>
                 </div>
                 <div class="mb-3" id="test_emails_group">
-                    <label for="test_emails" class="form-label">Test Email Addresses (comma-separated) <span class="text-danger">*</span></label>
-                    <input type="text" class="form-control" id="test_emails" name="test_emails" value="test@example.com" placeholder="test1@example.com, test2@example.com" required>
-                    <div class="form-text">Required in test mode. Separate multiple emails with commas.</div>
+                    <label for="test_emails" class="form-label">Test Email Addresses (@medicaremax)<span class="text-danger">*</span></label>
+                    <div class="mb-2">
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input test-email-checkbox" type="checkbox" id="email_reuben" name="email_checkbox" value="reuben.brooks@medicaremax.ai">
+                            <label class="form-check-label" for="email_reuben">Reuben</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input test-email-checkbox" type="checkbox" id="email_josh_m" name="email_checkbox" value="josh.musick@medicaremax.ai">
+                            <label class="form-check-label" for="email_josh_m">Josh M</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input test-email-checkbox" type="checkbox" id="email_austin" name="email_checkbox" value="austin.park@medicaremax.ai">
+                            <label class="form-check-label" for="email_austin">Austin</label>
+                        </div>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input test-email-checkbox" type="checkbox" id="email_josh_k" name="email_checkbox" value="josh.klein@medicaremax.ai">
+                            <label class="form-check-label" for="email_josh_k">Josh K</label>
+                        </div>
+                    </div>
+                    <input type="text" class="form-control" id="test_emails" name="test_emails" placeholder="Email addresses (comma-separated)" required>
+                    <div class="form-text">Check boxes above OR enter email addresses. At least one test email is required.</div>
                 </div>
                 <div class="mb-3">
                     <label for="scope" class="form-label">Scope</label>
@@ -244,7 +262,7 @@
                     <label for="batch_size" class="form-label">Batch Size</label>
                     <input type="number" class="form-control" id="batch_size" name="batch_size" value="100" min="1">
                 </div>
-                <button type="submit" class="btn btn-primary">Send Emails</button>
+                <button type="submit" class="btn btn-primary" id="sendEmailsBtn">Send Emails</button>
             </form>
         </div>
     </div>
@@ -545,17 +563,79 @@
             }, 100);
         });
         
+        // Function to update the required attribute for test emails field
+        function updateTestEmailsRequired() {
+            const testEmailsInput = document.getElementById('test_emails');
+            const sendMode = document.getElementById('send_mode').value;
+            const checkboxes = document.querySelectorAll('.test-email-checkbox:checked');
+            
+            // If in test mode, check if any checkbox is checked
+            if (sendMode === 'test') {
+                if (checkboxes.length > 0) {
+                    // If at least one checkbox is checked, the input is not required
+                    testEmailsInput.removeAttribute('required');
+                    testEmailsInput.placeholder = "Additional email addresses (optional)";
+                } else {
+                    // If no checkbox is checked, the input is required
+                    testEmailsInput.setAttribute('required', 'required');
+                    testEmailsInput.placeholder = "Email addresses (comma-separated)";
+                }
+            } else {
+                // In production mode, always not required
+                testEmailsInput.removeAttribute('required');
+            }
+        }
+        
         // Toggle test email field visibility and required attribute based on mode
         document.getElementById('send_mode').addEventListener('change', function() {
             const testEmailsGroup = document.getElementById('test_emails_group');
-            const testEmailsInput = document.getElementById('test_emails');
             
             if (this.value === 'test') {
                 testEmailsGroup.style.display = 'block';
-                testEmailsInput.setAttribute('required', 'required');
             } else {
                 testEmailsGroup.style.display = 'none';
-                testEmailsInput.removeAttribute('required');
+            }
+            
+            // Update required status
+            updateTestEmailsRequired();
+        });
+        
+        // Add event listeners to all test email checkboxes
+        document.querySelectorAll('.test-email-checkbox').forEach(checkbox => {
+            checkbox.addEventListener('change', updateTestEmailsRequired);
+        });
+        
+        // Run once on page load to set initial state
+        updateTestEmailsRequired();
+        
+        // Process form submission to collect checked emails
+        document.querySelector('form').addEventListener('submit', function(e) {
+            const testEmailsInput = document.getElementById('test_emails');
+            const emailCheckboxes = document.querySelectorAll('.test-email-checkbox:checked');
+            const sendMode = document.getElementById('send_mode').value;
+            
+            // Only process in test mode
+            if (sendMode === 'test') {
+                // Get all checked email addresses
+                const checkedEmails = Array.from(emailCheckboxes).map(cb => cb.value);
+                
+                // Get any manually entered emails
+                let manualEmails = testEmailsInput.value.split(',')
+                    .map(email => email.trim())
+                    .filter(email => email.length > 0);
+                
+                // Combine all email addresses
+                const allEmails = [...checkedEmails, ...manualEmails];
+                
+                // If we have no emails and we're in test mode, prevent form submission
+                if (allEmails.length === 0) {
+                    e.preventDefault();
+                    alert('Please select at least one test email recipient');
+                    return false;
+                }
+                
+                // Update the test_emails field with all emails
+                testEmailsInput.value = allEmails.join(', ');
             }
         });
     </script>

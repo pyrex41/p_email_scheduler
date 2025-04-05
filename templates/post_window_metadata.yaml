@@ -1,0 +1,11 @@
+subject: "Important Medicare Information from {{ company_name }}"
+variables:
+  greeting: "Dear {{ first_name }},"
+  signature_name: "Your Medicare Specialist"
+  signature_phone: "1-800-MEDICARE"
+  call_to_action: "Contact Us Today"
+  benefits:
+    - "Review your current Medicare coverage"
+    - "Explore available plan options"
+    - "Check for potential cost savings"
+    - "Get answers to your Medicare questions"
