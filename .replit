@@ -1,0 +1,8 @@
+modules = ["bash", "python-3.11", "python-3.12", "python-3.13", "web"]
+run = "uv run uvicorn app:app"
+
+[nix]
+channel = "stable-23_11"
+
+[deployment]
+run = ["sh", "-c", "uv run uvicorn app:app"]
