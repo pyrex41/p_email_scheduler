@@ -1,0 +1,21 @@
+Hi {{ first_name }},
+
+As your policy anniversary approaches, we just reviewed Medigap premiums for your zip code — and may have some intriguing prospects for you.
+
+These plans will provide the same benefits and peace of mind but possibly with more savings. No one likes to shop for a new plan, but a new plan could save you some money, which is why we are doing the leg work and providing you with some options.
+
+If you've ever wondered if you're overpaying for the exact same plan someone else is getting for less… this is your opportunity to see. If for some reason these plans aren't less costly then we will reach back out in a couple of months with some new findings. Don't pay more than you have to.
+
+To review your Medicare options, visit: {{ quote_link }}
+
+If you have any questions, give me a call: {{ organization.phone|phone }}
+
+Best,
+{{ organization.name }}
+Your Medicare Specialist
+{{ organization.phone|phone }}
+
+---
+Medicare Services
+Phone: {{ organization.phone|phone }}
+Website: {% if organization.website %}{% if not organization.website.startswith('http') %}https://{% endif %}{{ organization.website }}{% else %}https://www.medicare.gov{% endif %} 

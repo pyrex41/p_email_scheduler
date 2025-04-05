@@ -1,0 +1,21 @@
+Hi {{ first_name }},
+
+We recently reviewed Medigap premiums for your zip code and found some options that might interest you.
+
+These plans offer the same comprehensive benefits you currently enjoy, potentially at a better value. We've done the research to find plans that maintain your coverage while possibly reducing your costs.
+
+Many Medicare beneficiaries don't realize they can be paying different rates for identical coverage. We'd be happy to show you your options and potential savings. If we don't find a better value now, we'll keep monitoring rates and reach out when we find something promising.
+
+To review your Medicare options, visit: {{ quote_link }}
+
+If you have any questions, give me a call: {{ organization.phone|phone }}
+
+Best,
+{{ organization.name }}
+Your Medicare Specialist
+{{ organization.phone|phone }}
+
+---
+Medicare Services
+Phone: {{ organization.phone|phone }}
+Website: {% if organization.website %}{% if not organization.website.startswith('http') %}https://{% endif %}{{ organization.website }}{% else %}https://www.medicare.gov{% endif %} 

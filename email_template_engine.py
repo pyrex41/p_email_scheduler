@@ -168,6 +168,13 @@ class EmailTemplateEngine:
         
         # Log the template variables to check if quote_link is present
         logger.info(f"Template variables keys: {template_vars.keys()}")
+        logger.debug(f"Template variables content: {template_vars}")
+        
+        if 'organization' in template_vars:
+            logger.debug(f"Organization data: {template_vars['organization']}")
+            if isinstance(template_vars['organization'], dict):
+                logger.debug(f"Organization primary_color: {template_vars['organization'].get('primary_color')}")
+        
         if 'quote_link' in template_vars:
             logger.info(f"Quote link in template variables: {template_vars['quote_link']}")
         else:
@@ -179,28 +186,42 @@ class EmailTemplateEngine:
         
         try:
             # Render subject line with template vars
+            logger.debug("Attempting to render subject line")
             subject = self.text_env.from_string(subject).render(**template_vars)
             
             if html:
                 # Render HTML template with template vars
+                logger.debug(f"Loading HTML template for {template_type}")
                 template = self.html_env.get_template(f"{template_type}/email.html")
+                logger.debug("Attempting to render HTML template")
                 content = template.render(**template_vars)
-                return content
+                logger.debug("Successfully rendered HTML template")
+                return {
+                    'subject': subject,
+                    'html': content
+                }
             else:
                 # Render text template with template vars
+                logger.debug(f"Loading text template for {template_type}")
                 text_template = self.text_env.get_template(f"{template_type}/email.txt")
+                logger.debug("Attempting to render text template")
                 body = text_template.render(**template_vars)
+                logger.debug("Successfully rendered text template")
                 return {
                     'subject': subject,
                     'body': body
                 }
         except Exception as e:
             logger.error(f"Error rendering {template_type} template: {e}")
+            logger.error(f"Template variables at time of error: {template_vars}")
             if html:
-                return f"<p>Error rendering template: {e}</p>"
+                return {
+                    'subject': f"Error: {template_type.title()} Email",
+                    'html': f"<p>Error rendering template: {e}</p>"
+                }
             else:
                 return {
-                    'subject': subject,
+                    'subject': f"Error: {template_type.title()} Email",
                     'body': f"Error rendering template: {e}"
                 }
     

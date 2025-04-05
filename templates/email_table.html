@@ -1,118 +1,158 @@
-<div class="table-responsive">
-    <table class="table table-sm">
-        <thead>
-            <tr>
-                <th>Type</th>
-                <th>Date</th>
-                <th>Status</th>
-                <th>Default Date</th>
-                <th>Reason</th>
-                <th>Link</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for email in contact_data.emails %}
-            <tr {% if email.skipped == 'Yes' %}class="table-danger"{% endif %}>
-                <td>
-                    {% if email.type == 'birthday' %}
-                    <span class="badge bg-primary">Birthday</span>
-                    {% elif email.type == 'effective_date' %}
-                    <span class="badge bg-success">Effective Date</span>
-                    {% elif email.type == 'aep' %}
-                    <span class="badge bg-info">AEP</span>
-                    {% elif email.type == 'post_window' %}
-                    <span class="badge bg-warning">Post Window</span>
-                    {% else %}
-                    {{ email.type }}
-                    {% endif %}
-                </td>
-                <td>{{ email.date }}</td>
-                <td>
-                    {% if email.skipped == 'Yes' %}
-                    <span class="badge bg-danger">Skipped</span>
-                    {% else %}
-                    <span class="badge bg-success">Scheduled</span>
-                    {% endif %}
-                </td>
-                <td>
-                    {% if email.type == 'birthday' and contact_data.contact_info.birth_date and '-' in contact_data.contact_info.birth_date %}
-                        {% set date_str = email.date|string %}
-                        {% if '-' in date_str %}
-                            {% set birthday_parts = contact_data.contact_info.birth_date.split('-') %}
-                            {% set current_year = date_str.split('-')[0] %}
-                            {% if birthday_parts|length >= 3 %}
-                                {% set default_date = current_year + '-' + birthday_parts[1] + '-' + birthday_parts[2] %}
-                                {% if email.date < default_date %}
-                                    {{ (current_year|int - 1)|string + '-' + birthday_parts[1] + '-' + birthday_parts[2] }}
-                                {% else %}
-                                    {{ default_date }}
-                                {% endif %}
-                            {% else %}
-                                N/A (birth date format error)
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>Email Send Results for {{ org_name }} (ID: {{ org_id }})</h1>
+    
+    {% if message %}
+    <div class="alert {% if total_sent > 0 %}alert-success{% else %}alert-warning{% endif %} alert-dismissible fade show" role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+    {% endif %}
+    
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">Summary</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6>Send Details</h6>
+                            <p><strong>Mode:</strong> {{ send_mode|title }}</p>
+                            {% if send_mode == "test" and test_emails %}
+                            <p><strong>Test Recipients:</strong> {{ test_emails }}</p>
                             {% endif %}
-                        {% else %}
-                            N/A (email date format error)
-                        {% endif %}
-                    {% elif email.type == 'effective_date' and contact_data.contact_info.effective_date and '-' in contact_data.contact_info.effective_date %}
-                        {% set date_str = email.date|string %}
-                        {% if '-' in date_str %}
-                            {% set effective_parts = contact_data.contact_info.effective_date.split('-') %}
-                            {% set current_year = date_str.split('-')[0] %}
-                            {% if effective_parts|length >= 3 %}
-                                {% set default_date = current_year + '-' + effective_parts[1] + '-' + effective_parts[2] %}
-                                {% if email.date < default_date %}
-                                    {{ (current_year|int - 1)|string + '-' + effective_parts[1] + '-' + effective_parts[2] }}
-                                {% else %}
-                                    {{ default_date }}
-                                {% endif %}
-                            {% else %}
-                                N/A (effective date format error)
+                            <p><strong>Total Sent:</strong> {{ total_sent }}</p>
+                            <p><strong>Failures:</strong> {{ failures }}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <h6>Filter Criteria</h6>
+                            <p><strong>Organization:</strong> {{ org_name }}</p>
+                            {% if state %}
+                            <p><strong>State Filter:</strong> {{ state }}</p>
+                            {% elif special_rules_only %}
+                            <p><strong>Special Rules Only:</strong> Yes</p>
                             {% endif %}
-                        {% else %}
-                            N/A (email date format error)
-                        {% endif %}
-                    {% else %}
-                    N/A
-                    {% endif %}
-                </td>
-                <td>
-                    {% if email.reason %}
-                    <span class="text-danger">{{ email.reason }}</span>
-                    {% elif email.skipped == 'Yes' %}
-                    <span class="text-danger">Unknown</span>
-                    {% else %}
-                    <span class="text-success">Normal schedule</span>
-                    {% endif %}
-                </td>
-                <td>
-                    {% if email.link and email.skipped != 'Yes' %}
-                    <a href="{{ email.link }}" target="_blank" class="btn btn-sm btn-primary">View</a>
-                    {% endif %}
-                </td>
-            </tr>
-            {% endfor %}
+                            
+                            {% if effective_date_filter != "none" %}
+                                {% if effective_date_filter == "single" %}
+                                <p><strong>Effective Date:</strong> {{ effective_date_years }} years</p>
+                                {% elif effective_date_filter == "range" %}
+                                <p><strong>Effective Date Range:</strong> {{ effective_date_start }} to {{ effective_date_end }}</p>
+                                {% endif %}
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Navigation Buttons -->
+    <div class="row mb-4">
+        <div class="col">
+            <a href="/check?org_id={{ org_id }}&show_all={{ 'true' if show_all else 'false' }}&sample_size={{ sample_size }}{% if state %}&state={{ state }}{% endif %}&special_rules_only={{ 'true' if special_rules_only else 'false' }}&effective_date_filter={{ effective_date_filter }}{% if effective_date_years %}&effective_date_years={{ effective_date_years }}{% endif %}{% if effective_date_start %}&effective_date_start={{ effective_date_start }}{% endif %}{% if effective_date_end %}&effective_date_end={{ effective_date_end }}{% endif %}" class="btn btn-primary">
+                <i class="fas fa-arrow-left me-2"></i>Return to Check Page
+            </a>
             
-            {% if not contact_data.emails|selectattr('type', 'equalto', 'birthday')|list and contact_data.contact_info.birth_date %}
-            <tr class="table-info">
-                <td><span class="badge bg-primary">Birthday</span></td>
-                <td>-</td>
-                <td><span class="badge bg-danger">Skipped</span></td>
-                <td>N/A</td>
-                <td><span class="text-danger">Check birthday calculation</span></td>
-                <td></td>
-            </tr>
-            {% endif %}
-            
-            {% if not contact_data.emails|selectattr('type', 'equalto', 'effective_date')|list and contact_data.contact_info.effective_date %}
-            <tr class="table-info">
-                <td><span class="badge bg-success">Effective Date</span></td>
-                <td>-</td>
-                <td><span class="badge bg-danger">Skipped</span></td>
-                <td>N/A</td>
-                <td><span class="text-danger">Check effective date calculation</span></td>
-                <td></td>
-            </tr>
-            {% endif %}
-        </tbody>
-    </table>
-</div> 
+            <a href="/send_emails?org_id={{ org_id }}&show_all={{ 'true' if show_all else 'false' }}&sample_size={{ sample_size }}{% if state %}&state={{ state }}{% endif %}&special_rules_only={{ 'true' if special_rules_only else 'false' }}&effective_date_filter={{ effective_date_filter }}{% if effective_date_years %}&effective_date_years={{ effective_date_years }}{% endif %}{% if effective_date_start %}&effective_date_start={{ effective_date_start }}{% endif %}{% if effective_date_end %}&effective_date_end={{ effective_date_end }}{% endif %}{% for contact in contacts %}&contact_ids={{ contact.id }}{% endfor %}" class="btn btn-secondary ms-2">
+                <i class="fas fa-paper-plane me-2"></i>Send More Emails
+            </a>
+        </div>
+    </div>
+    
+    {% if emails_sent and total_sent > 0 %}
+    <div class="row">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header bg-success text-white">
+                    <h5 class="card-title mb-0">Sent Emails</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Contact</th>
+                                    <th>Email</th>
+                                    <th>Email Type</th>
+                                    <th>Date</th>
+                                    {% if send_mode == "test" %}
+                                    <th>Test Recipient</th>
+                                    {% endif %}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for email in emails_sent %}
+                                <tr>
+                                    <td>{{ email.contact.first_name }} {{ email.contact.last_name }}</td>
+                                    <td>{{ email.contact.email }}</td>
+                                    <td>
+                                        {% if email.type == 'birthday' %}
+                                        <span class="badge bg-primary">Birthday</span>
+                                        {% elif email.type == 'anniversary' or email.type == 'effective_date' %}
+                                        <span class="badge bg-success">Effective Date</span>
+                                        {% elif email.type == 'aep' %}
+                                        <span class="badge bg-info">AEP</span>
+                                        {% elif email.type == 'post_window' %}
+                                        <span class="badge bg-warning text-dark">Post Window</span>
+                                        {% else %}
+                                        <span class="badge bg-secondary">{{ email.type|title }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ email.date }}</td>
+                                    {% if send_mode == "test" %}
+                                    <td>{{ test_emails.split(',')|random|trim }}</td>
+                                    {% endif %}
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="row">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header bg-warning text-dark">
+                    <h5 class="card-title mb-0">No Emails Sent</h5>
+                </div>
+                <div class="card-body">
+                    <p>No emails were sent based on the current criteria. This may be because:</p>
+                    <ul>
+                        <li>No scheduled emails matched your filtering criteria</li>
+                        <li>All potential emails were skipped due to exclusion windows</li>
+                        <li>There was an error in the email generation process</li>
+                    </ul>
+                    <p>Try adjusting your filters or scope to include more emails.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if failures > 0 %}
+    <div class="card mt-4">
+        <div class="card-header bg-warning text-dark">
+            <h5 class="card-title mb-0">Troubleshooting</h5>
+        </div>
+        <div class="card-body">
+            <p>Some emails failed to send. This could be due to:</p>
+            <ul>
+                <li>Invalid recipient email addresses</li>
+                <li>SendGrid API rate limits or service issues</li>
+                <li>Template rendering errors</li>
+                <li>Missing or invalid API key (in production mode)</li>
+            </ul>
+            <p>Check the application logs for detailed error messages.</p>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

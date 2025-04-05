@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Form, Body
+from fastapi import FastAPI, Request, Form, Body, Query
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -16,6 +16,7 @@ import logging
 from utils import generate_link
 from email_template_engine import EmailTemplateEngine
 import aiosqlite
+import sqlite3
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -728,22 +729,64 @@ async def resample_contacts(
             content={"error": str(e)}
         )
 
+@app.get("/check", response_class=HTMLResponse)
 @app.post("/check", response_class=HTMLResponse)
 async def check_schedules(
     request: Request,
-    org_id: int = Form(...),
-    sample_size: int = Form(10),
-    state: Optional[str] = Form(default=None),
-    special_rules_only: bool = Form(default=False),
-    contact_search: Optional[str] = Form(default=None),
-    show_all: bool = Form(default=False),
-    effective_date_filter: str = Form(default="none"),
-    effective_date_years: Optional[int] = Form(default=None),
-    effective_date_start: Optional[str] = Form(default=None),
-    effective_date_end: Optional[str] = Form(default=None),
-    page: int = Form(default=1)
+    org_id: Optional[int] = None,
+    sample_size: Optional[int] = None,
+    state: Optional[str] = None,
+    special_rules_only: Optional[bool] = None,
+    contact_search: Optional[str] = None,
+    show_all: Optional[bool] = None,
+    effective_date_filter: Optional[str] = None,
+    effective_date_years: Optional[int] = None,
+    effective_date_start: Optional[str] = None,
+    effective_date_end: Optional[str] = None,
+    page: Optional[int] = None,
+    message: Optional[str] = None
 ):
-    """Process organization's contacts and display sample results"""
+    # Handle request method-specific parameter extraction
+    if request.method == "POST":
+        # For POST requests, extract form parameters
+        form_data = await request.form()
+        org_id = int(form_data.get("org_id"))
+        sample_size = int(form_data.get("sample_size", "10"))
+        state = form_data.get("state")
+        special_rules_only = form_data.get("special_rules_only") == "true"
+        contact_search = form_data.get("contact_search")
+        show_all = form_data.get("show_all") == "true"
+        effective_date_filter = form_data.get("effective_date_filter", "none")
+        page = int(form_data.get("page", "1"))
+        
+        # Handle optional numeric parameters
+        if "effective_date_years" in form_data:
+            effective_date_years = int(form_data.get("effective_date_years"))
+        if "effective_date_start" in form_data:
+            effective_date_start = form_data.get("effective_date_start")
+        if "effective_date_end" in form_data:
+            effective_date_end = form_data.get("effective_date_end")
+    else:
+        # For GET requests, extract parameters from query
+        params = dict(request.query_params)
+        org_id = int(params.get("org_id", "0"))
+        sample_size = int(params.get("sample_size", "10"))
+        state = params.get("state")
+        special_rules_only = params.get("special_rules_only", "").lower() in ["true", "1", "yes"]
+        contact_search = params.get("contact_search")
+        show_all = params.get("show_all", "").lower() in ["true", "1", "yes"]  
+        effective_date_filter = params.get("effective_date_filter", "none")
+        page = int(params.get("page", "1"))
+        message = params.get("message")
+        
+        # Convert effective date parameters if present
+        if "effective_date_years" in params:
+            effective_date_years = int(params.get("effective_date_years"))
+        if "effective_date_start" in params:
+            effective_date_start = params.get("effective_date_start")
+        if "effective_date_end" in params:
+            effective_date_end = params.get("effective_date_end")
+
     try:
         # Convert effective date values to integers, handling -1 case
         effective_date_start_int = None
@@ -1063,7 +1106,7 @@ async def check_schedules(
             email_list.sort(key=lambda x: x['start'])
             contacts_data[contact_id]['timeline_data']['email_list'] = email_list
 
-        # Return template response with generate_link function in context
+        # Return the rendered template with processed data
         return templates.TemplateResponse(
             "check.html",
             {
@@ -1074,7 +1117,7 @@ async def check_schedules(
                 "sample_size": len(contacts_data),
                 "total_contacts": total_contacts,
                 "sample_sizes": [10, 25, 50, 100, 250, 500],
-                "contact_search": contact_search if contact_search else "",
+                "contact_search": contact_search or "",
                 "generate_link": generate_link,
                 "show_all": show_all,
                 "effective_date_filter": effective_date_filter,
@@ -1084,7 +1127,8 @@ async def check_schedules(
                 "current_page": page,
                 "total_pages": total_pages,
                 "has_previous": has_previous,
-                "has_next": has_next
+                "has_next": has_next,
+                "message": message
             }
         )
         
@@ -1482,7 +1526,7 @@ async def preview_email(
                 html=True
             )
             logger.debug("Successfully rendered email template")
-            return HTMLResponse(content=html_content)
+            return HTMLResponse(content=html_content['html'])  # Extract the 'html' key from the result
         except Exception as e:
             logger.error(f"Error rendering email template: {e}")
             raise HTTPException(status_code=500, detail=f"Error rendering template: {e}")
@@ -1492,6 +1536,707 @@ async def preview_email(
     except Exception as e:
         logger.error(f"Error previewing email: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# Add the email sending page (GET) endpoint
+@app.get("/send_emails", response_class=HTMLResponse)
+async def send_emails_page(
+    request: Request,
+    org_id: int = Query(...),
+    show_all: bool = Query(False),
+    sample_size: int = Query(10),
+    effective_date_filter: str = Query("none"),
+    effective_date_years: int = Query(None),
+    effective_date_start: str = Query(None),
+    effective_date_end: str = Query(None),
+    contact_search: str = Query(None),
+    state: str = Query(None),
+    special_rules_only: bool = Query(False),
+    contact_ids: List[str] = Query(None)
+):
+    org_db_path = f"org_dbs/org-{org_id}.db"
+    main_db_path = "main.db"
+    org_details = get_organization_details(main_db_path, org_id)
+    scheduler = EmailScheduler()
+    
+    formatted_contacts = []
+    
+    # If contact_ids are provided from the check page, use them directly
+    if contact_ids:
+        logger.info(f"Using {len(contact_ids)} specific contact IDs passed from check page")
+        # Get the specific contacts by their IDs
+        contacts = get_contacts_from_org_db(org_db_path, org_id, contact_ids=contact_ids)
+        if contacts:
+            formatted_contacts = format_contact_data(contacts)
+            logger.info(f"Found {len(formatted_contacts)} contacts from check page by ID")
+
+    # If no contacts found by ID, fall back to filtering
+    if not formatted_contacts:
+        logger.info("Contact IDs not provided or no matching contacts found, using filter parameters")
+        
+        # Convert effective date values to integers, handling -1 case
+        effective_date_start_int = None
+        effective_date_end_int = None
+    
+        if effective_date_start is not None and effective_date_start != "None":
+            try:
+                effective_date_start_int = int(effective_date_start)
+            except ValueError:
+                logger.error(f"Invalid effective_date_start value: {effective_date_start}")
+                
+        if effective_date_end is not None and effective_date_end != "None":
+            try:
+                effective_date_end_int = int(effective_date_end)
+            except ValueError:
+                logger.error(f"Invalid effective_date_end value: {effective_date_end}")
+        
+        # Calculate effective date range if filter is active
+        effective_date_age_years = None
+        effective_date_range_start = None
+        effective_date_range_end = None
+        
+        if effective_date_filter == "single" and effective_date_years:
+            effective_date_age_years = effective_date_years
+        elif effective_date_filter == "range" and effective_date_start_int is not None:
+            # Calculate date range based on first day of current month
+            first_of_month = date.today().replace(day=1)
+            
+            # Handle start date (this will be the earlier/older date)
+            if effective_date_start_int == -1:
+                # No start limit
+                effective_date_range_start = None
+            else:
+                # Calculate start date (earlier/older date)
+                effective_date_range_start = first_of_month - timedelta(days=effective_date_start_int * 30)
+                effective_date_range_start = effective_date_range_start.strftime("%Y-%m")
+            
+            # Handle end date (this will be the later/newer date)
+            if effective_date_end_int is not None and effective_date_end_int != -1:
+                # Calculate end date (later/newer date)
+                effective_date_range_end = first_of_month - timedelta(days=effective_date_end_int * 30)
+                effective_date_range_end = effective_date_range_end.strftime("%Y-%m")
+            else:
+                # No end limit
+                effective_date_range_end = None
+                
+            # Swap start and end dates if needed (since larger months-ago number means earlier date)
+            if (effective_date_range_start is not None and effective_date_range_end is not None and 
+                effective_date_range_start < effective_date_range_end):
+                effective_date_range_start, effective_date_range_end = effective_date_range_end, effective_date_range_start
+        
+        # Determine states to filter by
+        states_to_filter = None
+        if special_rules_only:
+            states_to_filter = SPECIAL_RULE_STATES
+            logger.debug(f"Filtering by special rules states: {states_to_filter}")
+        elif state and state.strip():
+            states_to_filter = [state]
+            logger.debug(f"Filtering by specific state: {states_to_filter}")
+        
+        # Get filtered contacts based on criteria (same logic as check page)
+        filtered_contacts = get_filtered_contacts_from_org_db(
+            org_db_path, 
+            org_id,
+            states=states_to_filter,
+            n=None,  # No limit when getting universe
+            is_random=False,  # No randomization when getting universe
+            effective_date_age_years=effective_date_age_years,
+            effective_date_start=effective_date_range_start,
+            effective_date_end=effective_date_range_end
+        )
+        
+        # If searching for a specific contact, filter further
+        if contact_search and contact_search.strip():
+            search_term = contact_search.strip().lower()
+            filtered_contacts = [
+                contact for contact in filtered_contacts 
+                if search_term in contact.get('email', '').lower() or 
+                str(contact.get('id', '')) == search_term
+            ]
+        
+        # Apply sample if not showing all
+        if not show_all and not contact_search:
+            if len(filtered_contacts) > sample_size:
+                filtered_contacts = random.sample(filtered_contacts, sample_size)
+        
+        contacts = filtered_contacts
+        formatted_contacts = format_contact_data(contacts)
+    
+    # Set date range
+    today = date.today()
+    end_date = today.replace(year=today.year + 1)
+
+    # Generate email list - one email per contact from the filtered set
+    emails = []
+    today_str = today.isoformat()
+    
+    # Calculate date ranges for filtering
+    today_date = today
+    next_7_days = today_date + timedelta(days=7)
+    next_30_days = today_date + timedelta(days=30)
+    next_90_days = today_date + timedelta(days=90)
+    next_year = today_date + timedelta(days=365)
+    
+    for contact in formatted_contacts:
+        timeline = scheduler.process_contact(contact, today, end_date)
+        contact_info = {
+            "name": f"{contact['first_name']} {contact['last_name']}",
+            "email": contact["email"]
+        }
+        
+        # Get all scheduled emails (not skipped)
+        scheduled = []
+        for email in timeline.get("scheduled", []):
+            email_date_str = email.get("scheduled_date") or email.get("date")
+            
+            # Parse the email date for date range categorization
+            try:
+                email_date = datetime.strptime(email_date_str, '%Y-%m-%d').date()
+                
+                # Determine date range category
+                if email_date_str == today_str:
+                    date_range = "today"
+                elif email_date <= next_7_days:
+                    date_range = "next_7_days"
+                elif email_date <= next_30_days:
+                    date_range = "next_30_days"
+                elif email_date <= next_90_days:
+                    date_range = "next_90_days"
+                elif email_date <= next_year:
+                    date_range = "next_year"
+                else:
+                    date_range = "future"
+            except (ValueError, TypeError):
+                # Default if we can't parse the date
+                date_range = "unknown"
+            
+            scheduled.append({
+                "contact": {"contact_info": contact_info},
+                "type": email["type"],
+                "type_display": {
+                    "birthday": "Birthday Email",
+                    "anniversary": "Effective Date Email",
+                    "effective_date": "Effective Date Email",
+                    "aep": "AEP Email",
+                    "post_window": "Post-Window Email"
+                }.get(email["type"], email["type"].replace("_", " ").title()),
+                "start": email_date_str,
+                "skipped": False,
+                "is_today": email_date_str == today_str,
+                "date_range": date_range
+            })
+        
+        # Only include skipped emails for reference/completeness
+        for email in timeline.get("skipped", []):
+            email_date_str = email.get("scheduled_date") or email.get("date") or today_str
+            
+            # Parse the email date for date range categorization
+            try:
+                email_date = datetime.strptime(email_date_str, '%Y-%m-%d').date()
+                
+                # Determine date range category
+                if email_date_str == today_str:
+                    date_range = "today"
+                elif email_date <= next_7_days:
+                    date_range = "next_7_days"
+                elif email_date <= next_30_days:
+                    date_range = "next_30_days"
+                elif email_date <= next_90_days:
+                    date_range = "next_90_days"
+                elif email_date <= next_year:
+                    date_range = "next_year"
+                else:
+                    date_range = "future"
+            except (ValueError, TypeError):
+                # Default if we can't parse the date
+                date_range = "unknown"
+                
+            scheduled.append({
+                "contact": {"contact_info": contact_info},
+                "type": email["type"],
+                "type_display": {
+                    "birthday": "Birthday Email",
+                    "anniversary": "Effective Date Email",
+                    "effective_date": "Effective Date Email",
+                    "aep": "AEP Email",
+                    "post_window": "Post-Window Email"
+                }.get(email["type"], email["type"].replace("_", " ").title()),
+                "start": email_date_str,
+                "skipped": True,
+                "is_today": email_date_str == today_str,
+                "date_range": date_range
+            })
+            
+        # Add all emails for this contact to the main list
+        emails.extend(scheduled)
+
+    return templates.TemplateResponse(
+        "send_emails.html",
+        {
+            "request": request,
+            "org_name": org_details["name"],
+            "org_id": org_id,
+            "emails": emails,
+            "contacts": formatted_contacts,
+            "show_all": show_all,
+            "sample_size": sample_size,
+            "effective_date_filter": effective_date_filter,
+            "effective_date_years": effective_date_years,
+            "effective_date_start": effective_date_start,
+            "effective_date_end": effective_date_end,
+            "contact_search": contact_search,
+            "state": state,
+            "special_rules_only": special_rules_only
+        }
+    )
+
+# Add the email sending POST endpoint
+@app.post("/send_emails")
+async def send_emails(
+    request: Request,
+    org_id: int = Form(...),
+    send_mode: str = Form(...),
+    test_emails: str = Form(None),
+    scope: str = Form(...),
+    batch_size: int = Form(100),
+    state: str = Form(None),
+    special_rules_only: bool = Form(False),
+    contact_ids: List[str] = Form([])
+):
+    """
+    Send scheduled emails based on configuration.
+    
+    Args:
+        org_id: Organization ID
+        send_mode: 'test' or 'production' mode
+        test_emails: Comma-separated list of test email addresses (required in test mode)
+        scope: Which emails to send; one of:
+               - 'bulk': One email per contact (highest priority email)
+               - 'today': Only emails scheduled for today
+               - 'next_7_days': Emails scheduled within the next 7 days
+               - 'next_30_days': Emails scheduled within the next 30 days
+               - 'next_90_days': Emails scheduled within the next 90 days
+        batch_size: Maximum number of emails to send in this batch
+        state: Optional state filter to apply
+        special_rules_only: Whether to only include states with special rules
+        contact_ids: List of specific contact IDs to process (overrides filtering parameters if provided)
+    """
+    # Validate inputs
+    if send_mode not in ["test", "production"]:
+        raise HTTPException(status_code=400, detail="Invalid send mode")
+    if send_mode == "test" and not test_emails:
+        raise HTTPException(status_code=400, detail="Test emails required in test mode")
+    if scope not in ["bulk", "today", "next_7_days", "next_30_days", "next_90_days"]:
+        raise HTTPException(status_code=400, detail="Invalid scope")
+
+    # Initialize components
+    from sendgrid_client import SendGridClient
+    sendgrid_client = SendGridClient(dry_run=(send_mode == "test"))
+    template_engine = EmailTemplateEngine()
+    scheduler = EmailScheduler()
+    org_db_path = f"org_dbs/org-{org_id}.db"
+
+    # Get organization details
+    org_details = get_organization_details(main_db, org_id)
+    
+    # Initialize all variables with defaults to avoid UnboundLocalError
+    form_data = await request.form()
+    effective_date_filter = form_data.get("effective_date_filter", "none")
+    effective_date_years = form_data.get("effective_date_years", None)
+    effective_date_start = form_data.get("effective_date_start", None)
+    effective_date_end = form_data.get("effective_date_end", None)
+    contact_search = form_data.get("contact_search", None)
+    show_all = form_data.get("show_all", "false").lower() == "true"
+    sample_size = int(form_data.get("sample_size", "10"))
+    
+    # Initialize filtering variables
+    effective_date_start_int = None
+    effective_date_end_int = None
+    effective_date_age_years = None
+    effective_date_range_start = None
+    effective_date_range_end = None
+    contacts = []
+    filtered_contacts = []
+
+    # Get state filtering parameters from form if not provided directly
+    if not state:  # Only use form state if not provided as parameter
+        state = form_data.get("state", None)
+    if not special_rules_only:  # Only use form special_rules if not provided as parameter
+        special_rules_only = form_data.get("special_rules_only", "false").lower() == "true"
+        
+    # First check if we have the contact_ids passed from the send_emails form
+    formatted_contacts = []
+    
+    if contact_ids:
+        logger.info(f"Using {len(contact_ids)} specific contact IDs passed from send_emails form")
+        # Get the specific contacts by their IDs
+        contacts = get_contacts_from_org_db(org_db_path, org_id, contact_ids=contact_ids)
+        if contacts:
+            formatted_contacts = format_contact_data(contacts)
+            logger.info(f"Found {len(formatted_contacts)} contacts from POST form by ID")
+    
+    # If no contacts found by ID, fall back to filtering parameters
+    if not formatted_contacts:
+        logger.info("No contact IDs provided or no matching contacts found, using filter parameters")
+        
+        # Convert effective date values if needed
+        if effective_date_years and str(effective_date_years).strip():
+            try:
+                effective_date_years = int(effective_date_years)
+            except ValueError:
+                effective_date_years = None
+        
+        # Convert effective date values to integers, handling -1 case
+        if effective_date_start and effective_date_start != "None":
+            try:
+                effective_date_start_int = int(effective_date_start)
+            except ValueError:
+                logger.error(f"Invalid effective_date_start value: {effective_date_start}")
+                
+        if effective_date_end and effective_date_end != "None":
+            try:
+                effective_date_end_int = int(effective_date_end)
+            except ValueError:
+                logger.error(f"Invalid effective_date_end value: {effective_date_end}")
+    
+    if effective_date_filter == "single" and effective_date_years:
+        effective_date_age_years = effective_date_years
+    elif effective_date_filter == "range" and effective_date_start_int is not None:
+        # Calculate date range based on first day of current month
+        first_of_month = date.today().replace(day=1)
+        
+        # Handle start date (this will be the earlier/older date)
+        if effective_date_start_int == -1:
+            # No start limit
+            effective_date_range_start = None
+        else:
+            # Calculate start date (earlier/older date)
+            effective_date_range_start = first_of_month - timedelta(days=effective_date_start_int * 30)
+            effective_date_range_start = effective_date_range_start.strftime("%Y-%m")
+        
+        # Handle end date (this will be the later/newer date)
+        if effective_date_end_int is not None and effective_date_end_int != -1:
+            # Calculate end date (later/newer date)
+            effective_date_range_end = first_of_month - timedelta(days=effective_date_end_int * 30)
+            effective_date_range_end = effective_date_range_end.strftime("%Y-%m")
+        else:
+            # No end limit
+            effective_date_range_end = None
+            
+        # Swap start and end dates if needed (since larger months-ago number means earlier date)
+        if (effective_date_range_start is not None and effective_date_range_end is not None and 
+            effective_date_range_start < effective_date_range_end):
+            effective_date_range_start, effective_date_range_end = effective_date_range_end, effective_date_range_start
+    
+    # Determine states to filter by
+    states_to_filter = None
+    if special_rules_only:
+        states_to_filter = SPECIAL_RULE_STATES
+        logger.debug(f"Filtering by special rules states: {states_to_filter}")
+    elif state and state.strip():
+        states_to_filter = [state]
+        logger.debug(f"Filtering by specific state: {states_to_filter}")
+    
+    # Get filtered contacts based on criteria (same logic as check page)
+    filtered_contacts = get_filtered_contacts_from_org_db(
+        org_db_path, 
+        org_id,
+        states=states_to_filter,
+        n=None,  # No limit when getting universe
+        is_random=False,  # No randomization when getting universe
+        effective_date_age_years=effective_date_age_years,
+        effective_date_start=effective_date_range_start,
+        effective_date_end=effective_date_range_end
+    )
+    
+    # If searching for a specific contact, filter further
+    if contact_search and contact_search.strip():
+        search_term = contact_search.strip().lower()
+        filtered_contacts = [
+            contact for contact in filtered_contacts 
+            if search_term in contact.get('email', '').lower() or 
+            str(contact.get('id', '')) == search_term
+        ]
+    
+    # Apply sample if not showing all and not searching for specific contact
+    if not show_all and not contact_search:
+        if len(filtered_contacts) > sample_size:
+            filtered_contacts = random.sample(filtered_contacts, sample_size)
+    
+    # If we don't have contacts from IDs, use the filtered contacts
+    if not formatted_contacts:
+        contacts = filtered_contacts
+        formatted_contacts = format_contact_data(contacts)
+    
+    # Add organization information to each contact
+    for contact in formatted_contacts:
+        contact['organization'] = org_details
+        if 'quote_link' not in contact:
+            # Generate a link for the contact
+            contact['quote_link'] = generate_link(org_id, contact['id'], 'effective_date', contact.get('effective_date'))
+
+    # Set date range
+    today = date.today()
+    end_date = today.replace(year=today.year + 1)  # One year ahead
+
+    # Get scheduled emails
+    emails_to_send = []
+    for contact in formatted_contacts:
+        timeline = scheduler.process_contact(contact, today, end_date)
+        scheduled_emails = timeline.get("scheduled", [])
+        skipped_emails = timeline.get("skipped", [])
+
+        # Calculate date ranges for filtering
+        today_str = today.isoformat()
+        next_7_days = today + timedelta(days=7)
+        next_30_days = today + timedelta(days=30)
+        next_90_days = today + timedelta(days=90)
+        
+        if scope == "bulk":
+            # One email per contact - regardless of exclusion windows
+            valid_emails = []
+            for email in scheduled_emails:
+                email_date_str = email.get("scheduled_date") or email.get("date")
+                valid_emails.append({
+                    "type": email["type"],
+                    "date": email_date_str,
+                    "priority": {"birthday": 0, "anniversary": 1, "aep": 2, "post_window": 3}.get(email["type"], 99)
+                })
+            
+            # Always send post_window email if we have no other emails
+            if not valid_emails and contact.get('state'):
+                # Create a synthetic post_window email for today
+                logger.info(f"Creating synthetic post_window email for contact {contact.get('id')}")
+                valid_emails.append({
+                    "type": "post_window",
+                    "date": today_str,
+                    "priority": 3
+                })
+            
+            # If we have valid emails, choose the highest priority one
+            if valid_emails:
+                valid_emails.sort(key=lambda x: x["priority"])  # Sort by priority
+                best_email = valid_emails[0]  # Take the highest priority email
+                emails_to_send.append({"contact": contact, "type": best_email["type"], "date": best_email["date"]})
+                logger.info(f"Selected email type {best_email['type']} for contact {contact.get('id')}")
+                
+        elif scope == "today":
+            # Only today's emails
+            emails_to_send.extend([
+                {"contact": contact, "type": email["type"], "date": email.get("scheduled_date") or email.get("date")}
+                for email in scheduled_emails
+                if (email.get("scheduled_date") or email.get("date")) == today_str
+            ])
+            
+        elif scope == "next_7_days":
+            # Emails scheduled for the next 7 days
+            emails_to_send.extend([
+                {"contact": contact, "type": email["type"], "date": email.get("scheduled_date") or email.get("date")}
+                for email in scheduled_emails
+                if datetime.strptime(email.get("scheduled_date") or email.get("date"), '%Y-%m-%d').date() <= next_7_days
+            ])
+            
+        elif scope == "next_30_days":
+            # Emails scheduled for the next 30 days
+            emails_to_send.extend([
+                {"contact": contact, "type": email["type"], "date": email.get("scheduled_date") or email.get("date")}
+                for email in scheduled_emails
+                if datetime.strptime(email.get("scheduled_date") or email.get("date"), '%Y-%m-%d').date() <= next_30_days
+            ])
+            
+        elif scope == "next_90_days":
+            # Emails scheduled for the next 90 days
+            emails_to_send.extend([
+                {"contact": contact, "type": email["type"], "date": email.get("scheduled_date") or email.get("date")}
+                for email in scheduled_emails
+                if datetime.strptime(email.get("scheduled_date") or email.get("date"), '%Y-%m-%d').date() <= next_90_days
+            ])
+
+    # Apply batch size as limit if specified
+    if batch_size and batch_size > 0:
+        emails_to_send = emails_to_send[:batch_size]
+
+    # If no emails to send, render email_table.html with error message
+    if not emails_to_send:
+        logger.warning(f"No emails to send for org_id={org_id}, scope={scope}")
+        # Create string representation of all the filters for debugging
+        filter_info = f"org_id={org_id}, scope={scope}, state={state}, special_rules_only={special_rules_only}, " \
+                     f"effective_date_filter={effective_date_filter}, contacts={len(formatted_contacts)}"
+        logger.warning(f"Filter info: {filter_info}")
+        
+        return templates.TemplateResponse(
+            "email_table.html",
+            {
+                "request": request,
+                "org_id": org_id,
+                "org_name": org_details["name"],
+                "message": "No emails to send based on current criteria",
+                "total_sent": 0,
+                "failures": 0,
+                "contacts": formatted_contacts,
+                "show_all": show_all,
+                "sample_size": sample_size,
+                "state": state,
+                "special_rules_only": special_rules_only,
+                "effective_date_filter": effective_date_filter,
+                "effective_date_years": effective_date_years,
+                "effective_date_start": effective_date_start,
+                "effective_date_end": effective_date_end,
+                "send_mode": send_mode
+            }
+        )
+
+    # Prepare test email list
+    test_email_list = [email.strip() for email in test_emails.split(",")] if send_mode == "test" and test_emails else []
+    
+    # Check if we have test emails in test mode
+    if send_mode == "test" and not test_email_list:
+        raise HTTPException(status_code=400, detail="No valid test email addresses provided")
+
+    # Send emails in batches (using batch_size from function parameters)
+    # Initialize counters
+    total_sent = 0
+    failures = 0
+    
+    for i in range(0, len(emails_to_send), batch_size):
+        batch = emails_to_send[i:i + batch_size]
+        for email in batch:
+            contact = email["contact"]
+            email_type = email["type"]
+            email_date = email["date"]
+            
+            # Choose recipient based on mode
+            recipient = random.choice(test_email_list) if send_mode == "test" else contact["email"]
+            
+            try:
+                # Render email content
+                content = template_engine.render_email(email_type, contact, email_date)
+                html_content = template_engine.render_email(email_type, contact, email_date, html=True)
+
+                # Send email
+                success = sendgrid_client.send_email(
+                    to_email=recipient,
+                    subject=content["subject"],
+                    content=content["body"],
+                    html_content=html_content["html"]
+                )
+
+                # Log to database
+                log_email_send(org_db_path, contact["id"], email_type, email_date, send_mode, recipient, success)
+                
+                if success:
+                    total_sent += 1
+                else:
+                    failures += 1
+                    
+            except Exception as e:
+                logger.error(f"Error sending email to {recipient}: {e}")
+                failures += 1
+                # Log the error to database
+                log_email_send(org_db_path, contact["id"], email_type, email_date, send_mode, recipient, False, str(e))
+
+        # Delay between batches to respect rate limits
+        if i + batch_size < len(emails_to_send):
+            await asyncio.sleep(1)
+
+    # Create a success message and show results
+    message = f"Successfully sent {total_sent} emails in {send_mode} mode"
+    if failures > 0:
+        message += f" with {failures} failures"
+    
+    # Return a results page with the send details
+    return templates.TemplateResponse(
+        "email_table.html",
+        {
+            "request": request,
+            "org_id": org_id,
+            "org_name": org_details["name"],
+            "message": message,
+            "total_sent": total_sent,
+            "failures": failures,
+            "emails_sent": emails_to_send,
+            "contacts": formatted_contacts,
+            "show_all": show_all,
+            "sample_size": sample_size,
+            "state": state,
+            "special_rules_only": special_rules_only,
+            "effective_date_filter": effective_date_filter,
+            "effective_date_years": effective_date_years,
+            "effective_date_start": effective_date_start,
+            "effective_date_end": effective_date_end,
+            "send_mode": send_mode,
+            "test_emails": test_emails if send_mode == "test" else None
+        }
+    )
+
+def log_email_send(
+    db_path: str, 
+    contact_id: str, 
+    email_type: str, 
+    email_date: str, 
+    mode: str, 
+    recipient: str, 
+    success: bool, 
+    error_message: str = None
+):
+    """
+    Log email send events to the contact_events table
+    
+    Args:
+        db_path: Path to the organization's database
+        contact_id: Contact ID
+        email_type: Type of email (birthday, anniversary, aep, etc.)
+        email_date: Scheduled date for the email
+        mode: 'test' or 'production'
+        recipient: Email address of the recipient
+        success: Whether the send was successful
+        error_message: Optional error message if send failed
+    """
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Create contact_events table if it doesn't exist
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS contact_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            contact_id INTEGER,
+            lead_id INTEGER,
+            event_type TEXT NOT NULL,
+            metadata TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (contact_id) REFERENCES contacts(id),
+            FOREIGN KEY (lead_id) REFERENCES leads(id)
+        )
+        ''')
+        
+        # Prepare metadata as JSON
+        metadata = {
+            "email_type": email_type,
+            "scheduled_date": email_date,
+            "mode": mode,
+            "recipient": recipient,
+            "success": success
+        }
+        
+        # Add error message if provided
+        if error_message:
+            metadata["error"] = error_message
+            
+        # Convert metadata to JSON string
+        metadata_json = json.dumps(metadata)
+        
+        # Insert the event
+        cursor.execute(
+            "INSERT INTO contact_events (contact_id, event_type, metadata) VALUES (?, ?, ?)",
+            (contact_id, "email_sent", metadata_json)
+        )
+        conn.commit()
+        
+    except Exception as e:
+        logger.error(f"Error logging email send to database: {e}")
+    finally:
+        if conn:
+            conn.close()
 
 async def get_contact_by_id(contact_id: str) -> dict:
     """Get contact details by ID from the database"""

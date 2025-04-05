@@ -1,0 +1,564 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+    /* Custom styling for sorting indicators */
+    .sort-link {
+        text-decoration: none;
+        color: #212529;
+        cursor: pointer;
+    }
+    .sort-link:hover {
+        text-decoration: underline;
+        color: #0d6efd;
+    }
+    .sort-link.sorted {
+        font-weight: bold;
+        color: #0d6efd;
+    }
+    .sort-link small {
+        display: inline-block;
+        margin-left: 2px;
+    }
+</style>
+<div class="container mt-4">
+    <h1>Send Emails for {{ org_name }} (ID: {{ org_id }})</h1>
+    
+    <!-- Email Summary Stats -->
+    <div class="row">
+        <div class="col-md-12">
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">Email Summary Statistics</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6 class="mb-3">Contact Overview</h6>
+                            <p><strong>Selected Contacts:</strong> {{ contacts|length }}</p>
+                            <p><strong>Total Scheduled Emails:</strong> {{ emails|length }}</p>
+                            <p><strong>Emails Per Contact (Avg):</strong> {{ (emails|length / contacts|length)|round(1) }}</p>
+                            
+                            <div class="alert alert-info">
+                                <p class="mb-0"><strong>Important:</strong> This page only processes emails for the <strong>{{ contacts|length }} contacts</strong> you were viewing on the check page (not the entire database).</p>
+                                {% if show_all %}
+                                <p class="mb-0 mt-1"><em>You're viewing all contacts that match your filters.</em></p>
+                                {% else %}
+                                <p class="mb-0 mt-1"><em>You're viewing a random sample of {{ sample_size }} contacts from your filters. To see all contacts, go back and check "Show All".</em></p>
+                                {% endif %}
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <h6 class="mb-3">Scheduled Email Timeline</h6>
+                            <!-- Use simple JavaScript for counting instead of Jinja -->
+                            <script>
+                                // This script calculates the number of emails in different time periods
+                                document.addEventListener('DOMContentLoaded', function() {
+                                    // Get today's date
+                                    const today = new Date();
+                                    today.setHours(0, 0, 0, 0); // normalize to start of day
+                                    
+                                    // Calculate date ranges
+                                    const next7Days = new Date(today);
+                                    next7Days.setDate(next7Days.getDate() + 7);
+                                    
+                                    const next30Days = new Date(today);
+                                    next30Days.setDate(next30Days.getDate() + 30);
+                                    
+                                    const next90Days = new Date(today);
+                                    next90Days.setDate(next90Days.getDate() + 90);
+                                    
+                                    const nextYear = new Date(today);
+                                    nextYear.setDate(nextYear.getDate() + 365);
+                                    
+                                    // Get all emails
+                                    const rows = document.querySelectorAll('.email-row');
+                                    let todayCount = 0;
+                                    let next7DaysCount = 0;
+                                    let next30DaysCount = 0;
+                                    let next90DaysCount = 0;
+                                    let nextYearCount = 0;
+                                    
+                                    // Count emails in each period
+                                    rows.forEach(row => {
+                                        if (row.dataset.date) {
+                                            try {
+                                                // Parse the date from the data attribute
+                                                const parts = row.dataset.date.split('-').map(p => parseInt(p));
+                                                // Create date object (months are 0-indexed in JS)
+                                                const emailDate = new Date(parts[0], parts[1]-1, parts[2]);
+                                                emailDate.setHours(0, 0, 0, 0); // normalize
+                                                
+                                                // Check which range this email falls into
+                                                if (emailDate.toDateString() === today.toDateString()) {
+                                                    todayCount++;
+                                                    next7DaysCount++;
+                                                    next30DaysCount++;
+                                                    next90DaysCount++;
+                                                    nextYearCount++;
+                                                } else if (emailDate <= next7Days) {
+                                                    next7DaysCount++;
+                                                    next30DaysCount++;
+                                                    next90DaysCount++;
+                                                    nextYearCount++;
+                                                } else if (emailDate <= next30Days) {
+                                                    next30DaysCount++;
+                                                    next90DaysCount++;
+                                                    nextYearCount++;
+                                                } else if (emailDate <= next90Days) {
+                                                    next90DaysCount++;
+                                                    nextYearCount++;
+                                                } else if (emailDate <= nextYear) {
+                                                    nextYearCount++;
+                                                }
+                                            } catch (e) {
+                                                console.error('Error parsing date:', e);
+                                            }
+                                        }
+                                    });
+                                    
+                                    // Update the counts in the table
+                                    document.getElementById('today-count').textContent = todayCount;
+                                    document.getElementById('next7-count').textContent = next7DaysCount;
+                                    document.getElementById('next30-count').textContent = next30DaysCount;
+                                    document.getElementById('next90-count').textContent = next90DaysCount;
+                                    document.getElementById('nextyear-count').textContent = nextYearCount;
+                                    
+                                    // Also update the dropdown options with the same counts
+                                    document.getElementById('scope-today-option').textContent = `Only Today's Scheduled Emails (${todayCount} emails)`;
+                                    document.getElementById('scope-next7-option').textContent = `Next 7 Days (${next7DaysCount} emails)`;
+                                    document.getElementById('scope-next30-option').textContent = `Next 30 Days (${next30DaysCount} emails)`;
+                                    document.getElementById('scope-next90-option').textContent = `Next 90 Days (${next90DaysCount} emails)`;
+                                });
+                            </script>
+                            
+                            <!-- Initial empty values, will be filled by JavaScript -->
+                            {% set today = 0 %}
+                            {% set next_7d = 0 %}
+                            {% set next_30d = 0 %}
+                            {% set next_90d = 0 %}
+                            {% set next_year = 0 %}
+                            
+                            <div class="table-responsive">
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>Time Period</th>
+                                            <th>Scheduled Emails</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td><strong>Today</strong></td>
+                                            <td id="today-count">0</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Next 7 Days</td>
+                                            <td id="next7-count">0</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Next 30 Days</td>
+                                            <td id="next30-count">0</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Next 90 Days</td>
+                                            <td id="next90-count">0</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Next Year</td>
+                                            <td id="nextyear-count">0</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            
+                            <div class="mt-3">
+                                <strong>Email Types:</strong> 
+                                <span class="badge bg-primary">Birthday: {{ emails|selectattr('type', 'equalto', 'birthday')|list|length }}</span>
+                                <span class="badge bg-success">Effective Date: {{ (emails|selectattr('type', 'equalto', 'anniversary')|list|length) + (emails|selectattr('type', 'equalto', 'effective_date')|list|length) }}</span>
+                                <span class="badge bg-info">AEP: {{ emails|selectattr('type', 'equalto', 'aep')|list|length }}</span>
+                                <span class="badge bg-warning">Post Window: {{ emails|selectattr('type', 'equalto', 'post_window')|list|length }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Send Options Form -->
+    <div class="card mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="card-title mb-0">Send Options</h5>
+        </div>
+        <div class="card-body">
+            <form action="/send_emails" method="post">
+                <input type="hidden" name="org_id" value="{{ org_id }}">
+                <input type="hidden" name="show_all" value="{{ show_all }}">
+                <input type="hidden" name="sample_size" value="{{ sample_size }}">
+                <input type="hidden" name="effective_date_filter" value="{{ effective_date_filter }}">
+                {% if effective_date_years %}
+                <input type="hidden" name="effective_date_years" value="{{ effective_date_years }}">
+                {% endif %}
+                {% if effective_date_start %}
+                <input type="hidden" name="effective_date_start" value="{{ effective_date_start }}">
+                {% endif %}
+                {% if effective_date_end %}
+                <input type="hidden" name="effective_date_end" value="{{ effective_date_end }}">
+                {% endif %}
+                {% if state %}
+                <input type="hidden" name="state" value="{{ state }}">
+                {% endif %}
+                <input type="hidden" name="special_rules_only" value="{{ special_rules_only }}">
+                <input type="hidden" name="contact_search" value="{{ contact_search }}">
+                
+                <!-- Pass the exact contact IDs to preserve the same contacts -->
+                {% for contact in contacts %}
+                <input type="hidden" name="contact_ids" value="{{ contact.id }}">
+                {% endfor %}
+
+                <div class="mb-3">
+                    <label for="send_mode" class="form-label">Send Mode</label>
+                    <select class="form-select" id="send_mode" name="send_mode">
+                        <option value="test" selected>Test Mode (Default)</option>
+                        <option value="production">Production Mode</option>
+                    </select>
+                </div>
+                <div class="mb-3" id="test_emails_group">
+                    <label for="test_emails" class="form-label">Test Email Addresses (comma-separated) <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="test_emails" name="test_emails" value="test@example.com" placeholder="test1@example.com, test2@example.com" required>
+                    <div class="form-text">Required in test mode. Separate multiple emails with commas.</div>
+                </div>
+                <div class="mb-3">
+                    <label for="scope" class="form-label">Scope</label>
+                    <select class="form-select" id="scope" name="scope">
+                        <option value="bulk">One Email Per Contact ({{ contacts|length }} contacts)</option>
+                        <option value="today" id="scope-today-option">Only Today's Scheduled Emails (0 emails)</option>
+                        <option value="next_7_days" id="scope-next7-option">Next 7 Days (0 emails)</option>
+                        <option value="next_30_days" id="scope-next30-option">Next 30 Days (0 emails)</option>
+                        <option value="next_90_days" id="scope-next90-option">Next 90 Days (0 emails)</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label for="batch_size" class="form-label">Batch Size</label>
+                    <input type="number" class="form-control" id="batch_size" name="batch_size" value="100" min="1">
+                </div>
+                <button type="submit" class="btn btn-primary">Send Emails</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Email List with Filtering -->
+    <div class="card">
+        <div class="card-header bg-info text-white">
+            <h5 class="card-title mb-0">Scheduled Emails</h5>
+        </div>
+        <div class="card-body">
+            <!-- Filter Controls -->
+            <div class="row mb-3">
+                <div class="col-md-3">
+                    <select id="filterDateRange" class="form-select">
+                        <option value="all">All Dates</option>
+                        <option value="today">Today</option>
+                        <option value="next_7_days">Next 7 Days</option>
+                        <option value="next_30_days">Next 30 Days</option>
+                        <option value="next_90_days">Next 90 Days</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <select id="filterEmailType" class="form-select">
+                        <option value="all">All Email Types</option>
+                        <option value="birthday">Birthday</option>
+                        <option value="effective_date">Effective Date</option>
+                        <option value="aep">AEP</option>
+                        <option value="post_window">Post Window</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <input type="text" id="searchEmails" class="form-control" placeholder="Search by name or email...">
+                </div>
+                <div class="col-md-2">
+                    <span class="badge bg-secondary p-2" id="filteredCount">Showing all {{ emails|length }} emails</span>
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-striped" id="emailsTable">
+                    <thead>
+                        <tr>
+                            <th><a href="#" class="sort-link" data-sort="name">Contact Name</a></th>
+                            <th>Email</th>
+                            <th><a href="#" class="sort-link" data-sort="type">Email Type</a></th>
+                            <th><a href="#" class="sort-link sorted" data-sort="date" data-direction="asc">Date <small>▲</small></a></th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for email in emails|sort(attribute='start') %}
+                        <tr class="email-row" 
+                            data-date-range="{{ email.date_range }}" 
+                            data-email-type="{{ email.type }}" 
+                            data-date="{{ email.start }}"
+                            data-name="{{ email.contact.contact_info.name }}"
+                            data-email="{{ email.contact.contact_info.email }}">
+                            <td>{{ email.contact.contact_info.name }}</td>
+                            <td>{{ email.contact.contact_info.email }}</td>
+                            <td>
+                                {% if email.type == 'birthday' %}
+                                <span class="badge bg-primary">{{ email.type_display }}</span>
+                                {% elif email.type == 'anniversary' or email.type == 'effective_date' %}
+                                <span class="badge bg-success">Effective Date</span>
+                                {% elif email.type == 'aep' %}
+                                <span class="badge bg-info">{{ email.type_display }}</span>
+                                {% elif email.type == 'post_window' %}
+                                <span class="badge bg-warning text-dark">{{ email.type_display }}</span>
+                                {% else %}
+                                {{ email.type_display }}
+                                {% endif %}
+                            </td>
+                            <td>{{ email.start }}</td>
+                            <td>
+                                {% if email.skipped %}
+                                <span class="badge bg-warning text-dark">Skipped</span>
+                                {% else %}
+                                <span class="badge bg-success">Scheduled</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initial setup and variables
+            const table = document.getElementById('emailsTable');
+            const rows = table.querySelectorAll('tbody tr');
+            const filterDateRange = document.getElementById('filterDateRange');
+            const filterEmailType = document.getElementById('filterEmailType');
+            const searchInput = document.getElementById('searchEmails');
+            const filteredCount = document.getElementById('filteredCount');
+            let currentSort = { field: 'date', direction: 'asc' };
+            
+            // Function to apply all filters
+            function applyFilters() {
+                const dateFilter = filterDateRange.value;
+                const typeFilter = filterEmailType.value;
+                const searchTerm = searchInput.value.toLowerCase();
+                let visibleCount = 0;
+                
+                rows.forEach(row => {
+                    // Fix date range matching
+                    let dateRangeMatch;
+                    if (dateFilter === 'all') {
+                        dateRangeMatch = true; // Show all dates
+                    } else if (dateFilter === 'today') {
+                        // Only match today
+                        dateRangeMatch = row.dataset.dateRange === 'today';
+                    } else if (dateFilter === 'next_7_days') {
+                        // Match today and anything in next 7 days
+                        dateRangeMatch = row.dataset.dateRange === 'today' || 
+                                       row.dataset.dateRange === 'next_7_days';
+                    } else if (dateFilter === 'next_30_days') {
+                        // Match today, next 7 days, and next 30
+                        dateRangeMatch = row.dataset.dateRange === 'today' || 
+                                       row.dataset.dateRange === 'next_7_days' ||
+                                       row.dataset.dateRange === 'next_30_days';
+                    } else if (dateFilter === 'next_90_days') {
+                        // Match today through next 90
+                        dateRangeMatch = row.dataset.dateRange === 'today' || 
+                                       row.dataset.dateRange === 'next_7_days' ||
+                                       row.dataset.dateRange === 'next_30_days' ||
+                                       row.dataset.dateRange === 'next_90_days';
+                    }
+                    
+                    // Special handling for effective_date to also match anniversary emails 
+                    let typeMatch;
+                    if (typeFilter === 'all') {
+                        typeMatch = true;
+                    } else if (typeFilter === 'effective_date') {
+                        typeMatch = row.dataset.emailType === 'effective_date' || row.dataset.emailType === 'anniversary';
+                    } else {
+                        typeMatch = row.dataset.emailType === typeFilter;
+                    }
+                    const searchMatch = searchTerm === '' || 
+                                       row.dataset.name.toLowerCase().includes(searchTerm) || 
+                                       row.dataset.email.toLowerCase().includes(searchTerm);
+                    
+                    if (dateRangeMatch && typeMatch && searchMatch) {
+                        row.style.display = '';
+                        visibleCount++;
+                    } else {
+                        row.style.display = 'none';
+                    }
+                });
+                
+                // Update visible count
+                filteredCount.textContent = `Showing ${visibleCount} of ${rows.length} emails`;
+                
+                // After filtering, maintain the current sort
+                sortTable(currentSort.field, false);
+            }
+            
+            // Sorting function
+            function sortTable(field, updateDirection = true) {
+                // Update sort direction only if requested
+                if (updateDirection) {
+                    if (currentSort.field === field) {
+                        currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+                    } else {
+                        currentSort.field = field;
+                        // For date fields, default to ascending (earliest dates first)
+                        currentSort.direction = 'asc';
+                    }
+                }
+                
+                // Convert rows to array for sorting (only visible rows)
+                const rowsArray = Array.from(rows).filter(row => row.style.display !== 'none');
+                
+                // Sort rows
+                rowsArray.sort((a, b) => {
+                    let aValue, bValue;
+                    
+                    if (field === 'name') {
+                        aValue = a.dataset.name;
+                        bValue = b.dataset.name;
+                        // Use simple string comparison
+                        let comparison = aValue.localeCompare(bValue);
+                        return currentSort.direction === 'desc' ? -comparison : comparison;
+                    } else if (field === 'type') {
+                        aValue = a.dataset.emailType;
+                        bValue = b.dataset.emailType;
+                        // Use simple string comparison
+                        let comparison = aValue.localeCompare(bValue);
+                        return currentSort.direction === 'desc' ? -comparison : comparison;
+                    } else if (field === 'date') {
+                        // For dates, use direct ISO string comparison (YYYY-MM-DD format)
+                        // This works reliably for sorting since the format is consistent
+                        aValue = a.dataset.date;
+                        bValue = b.dataset.date;
+                        
+                        // Direct string comparison works for ISO dates (YYYY-MM-DD)
+                        let comparison = aValue.localeCompare(bValue);
+                        return currentSort.direction === 'desc' ? -comparison : comparison;
+                    }
+                    
+                    // Fallback simple comparison
+                    return 0;
+                });
+                
+                // Reapply rows in new order
+                const tbody = table.querySelector('tbody');
+                
+                // First, get all hidden rows and keep them in place
+                const hiddenRows = Array.from(rows).filter(row => row.style.display === 'none');
+                
+                // Remove all rows
+                rows.forEach(row => row.remove());
+                
+                // Add back visible rows in sorted order
+                rowsArray.forEach(row => tbody.appendChild(row));
+                
+                // Add back hidden rows
+                hiddenRows.forEach(row => tbody.appendChild(row));
+            }
+            
+            // Event listeners
+            filterDateRange.addEventListener('change', applyFilters);
+            filterEmailType.addEventListener('change', applyFilters);
+            searchInput.addEventListener('input', applyFilters);
+            
+            // Sort links with visual indicators
+            document.querySelectorAll('.sort-link').forEach(link => {
+                link.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const field = this.dataset.sort;
+                    
+                    // Update the sort
+                    sortTable(field, true);
+                    
+                    // Update visual indicators for all sort links
+                    document.querySelectorAll('.sort-link').forEach(l => {
+                        // Clear previous indicators
+                        l.classList.remove('sorted');
+                        l.innerHTML = l.dataset.sort.charAt(0).toUpperCase() + l.dataset.sort.slice(1);
+                    });
+                    
+                    // Add indicator to current sort link
+                    this.classList.add('sorted');
+                    this.dataset.direction = currentSort.direction;
+                    
+                    // Add arrow indicator
+                    const directionArrow = currentSort.direction === 'asc' ? '▲' : '▼';
+                    this.innerHTML = `${field.charAt(0).toUpperCase() + field.slice(1)} <small>${directionArrow}</small>`;
+                });
+            });
+            
+            // Set the initial sort to date ascending (earliest dates at top)
+            currentSort = { field: 'date', direction: 'asc' };
+            
+            // Apply filters first to ensure we're only working with visible rows
+            applyFilters();
+            
+            // Then apply the sort explicitly with date ascending
+            sortTable('date', false);
+            
+            // Add visual indicator for the current sort column
+            document.querySelectorAll('.sort-link').forEach(link => {
+                if (link.dataset.sort === 'date') {
+                    link.classList.add('sorted');
+                    link.dataset.direction = 'asc';
+                    link.innerHTML = `Date <small>▲</small>`;
+                }
+            });
+            
+            // Extra validation to ensure sort is correct
+            setTimeout(() => {
+                console.log("Current sort:", currentSort);
+                
+                // Force one more sort if needed
+                if (currentSort.field !== 'date' || currentSort.direction !== 'asc') {
+                    console.log("Correcting sort to date ascending");
+                    currentSort = { field: 'date', direction: 'asc' };
+                    sortTable('date', false);
+                }
+                
+                // Verify sort order
+                const visibleRows = Array.from(rows).filter(row => row.style.display !== 'none');
+                if (visibleRows.length >= 2) {
+                    const date1 = visibleRows[0].dataset.date;
+                    const date2 = visibleRows[1].dataset.date;
+                    console.log(`First two dates: ${date1}, ${date2}`);
+                    
+                    if (date1 > date2) {
+                        console.log("Dates still not sorted correctly, forcing correct order");
+                        // Use direct manipulation
+                        const tbody = table.querySelector('tbody');
+                        visibleRows.sort((a, b) => a.dataset.date.localeCompare(b.dataset.date));
+                        visibleRows.forEach(row => tbody.appendChild(row));
+                    }
+                }
+            }, 100);
+        });
+        
+        // Toggle test email field visibility and required attribute based on mode
+        document.getElementById('send_mode').addEventListener('change', function() {
+            const testEmailsGroup = document.getElementById('test_emails_group');
+            const testEmailsInput = document.getElementById('test_emails');
+            
+            if (this.value === 'test') {
+                testEmailsGroup.style.display = 'block';
+                testEmailsInput.setAttribute('required', 'required');
+            } else {
+                testEmailsGroup.style.display = 'none';
+                testEmailsInput.removeAttribute('required');
+            }
+        });
+    </script>
+</div>
+
+{% endblock %}

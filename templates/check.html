@@ -3,6 +3,14 @@
 {% block content %}
 <div class="container mt-4">
     <h1>{{ org_name }} (ID: {{ org_id }})</h1>
+    
+    {% if message %}
+    <div class="alert alert-info alert-dismissible fade show" role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+    {% endif %}
+    
     <p>
         {% if show_all %}
             Showing all {{ total_contacts }} contacts
@@ -14,133 +22,72 @@
         {% endif %}
     </p>
     
-    <!-- Controls -->
-    <div class="row mb-4">
-        <div class="col">
-            <form action="/check" method="post" class="form-inline">
-                <input type="hidden" name="org_id" value="{{ org_id }}">
-                <input type="hidden" name="effective_date_filter" value="{{ effective_date_filter }}">
-                {% if effective_date_years %}
-                <input type="hidden" name="effective_date_years" value="{{ effective_date_years }}">
-                {% endif %}
-                {% if effective_date_start %}
-                <input type="hidden" name="effective_date_start" value="{{ effective_date_start }}">
-                {% endif %}
-                {% if effective_date_end %}
-                <input type="hidden" name="effective_date_end" value="{{ effective_date_end }}">
-                {% endif %}
-                
-                <div class="form-group mr-2">
-                    <label for="show_all" class="mr-2">Display:</label>
-                    <div class="form-check form-check-inline">
-                        <input class="form-check-input" type="checkbox" id="show_all" name="show_all" value="true" 
-                               {% if show_all %}checked{% endif %}>
-                        <label class="form-check-label" for="show_all">Show All</label>
+    <!-- Controls Section with Send Emails Button -->
+    <div class="controls-section mb-5">
+        <div class="row align-items-center">
+            <div class="col-md-6">
+                <form action="/check" method="post" class="form-inline">
+                    <input type="hidden" name="org_id" value="{{ org_id }}">
+                    <input type="hidden" name="effective_date_filter" value="{{ effective_date_filter }}">
+                    {% if effective_date_years %}
+                    <input type="hidden" name="effective_date_years" value="{{ effective_date_years }}">
+                    {% endif %}
+                    {% if effective_date_start %}
+                    <input type="hidden" name="effective_date_start" value="{{ effective_date_start }}">
+                    {% endif %}
+                    {% if effective_date_end %}
+                    <input type="hidden" name="effective_date_end" value="{{ effective_date_end }}">
+                    {% endif %}
+                    
+                    <div class="form-group">
+                        <label for="show_all" class="me-2">Display:</label>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="checkbox" id="show_all" name="show_all" value="true" 
+                                   {% if show_all %}checked{% endif %}>
+                            <label class="form-check-label" for="show_all">Show All</label>
+                        </div>
+                        
+                        <select name="sample_size" id="sample_size" class="form-select d-inline-block ms-2" style="width: auto;" {% if show_all %}disabled{% endif %}>
+                            {% for size in sample_sizes %}
+                            <option value="{{ size }}" {% if size == sample_size %}selected{% endif %}>{{ size }} contacts</option>
+                            {% endfor %}
+                        </select>
                     </div>
-                    
-                    <select name="sample_size" id="sample_size" class="form-control ml-2" {% if show_all %}disabled{% endif %}>
-                        {% for size in sample_sizes %}
-                        <option value="{{ size }}" {% if size == sample_size %}selected{% endif %}>{{ size }} contacts</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <button type="submit" class="btn btn-primary">Update Display</button>
-            </form>
-        </div>
-    </div>
-
-    <!-- Search -->
-    <div class="row mb-4">
-        <div class="col">
-            <form action="/check" method="post" class="form-inline">
-                <input type="hidden" name="org_id" value="{{ org_id }}">
-                <input type="hidden" name="show_all" value="{{ 'true' if show_all else 'false' }}">
-                <input type="hidden" name="effective_date_filter" value="{{ effective_date_filter }}">
-                {% if effective_date_years %}
-                <input type="hidden" name="effective_date_years" value="{{ effective_date_years }}">
-                {% endif %}
-                {% if effective_date_start %}
-                <input type="hidden" name="effective_date_start" value="{{ effective_date_start }}">
-                {% endif %}
-                {% if effective_date_end %}
-                <input type="hidden" name="effective_date_end" value="{{ effective_date_end }}">
-                {% endif %}
-                
-                <div class="form-group mr-2">
-                    <label for="contact_search" class="mr-2">Search by Email or Contact ID</label>
-                    <input type="text" class="form-control" id="contact_search" name="contact_search" 
-                           placeholder="Enter email address or contact ID" value="{{ contact_search }}">
-                </div>
-                <button type="submit" class="btn btn-secondary">Search</button>
-            </form>
-        </div>
-    </div>
-
-    <!-- Pagination (only show if showing all contacts) -->
-    {% if show_all and total_contacts > 50 %}
-    <div class="row mb-4">
-        <div class="col">
-            <nav aria-label="Contact navigation">
-                <ul class="pagination justify-content-center">
-                    <!-- First page -->
-                    <li class="page-item {% if current_page == 1 %}disabled{% endif %}">
-                        <a class="page-link" href="#" data-page="1" aria-label="First">
-                            <span aria-hidden="true">&laquo;</span>
-                        </a>
-                    </li>
-                    
-                    <!-- Previous page -->
-                    <li class="page-item {% if not has_previous %}disabled{% endif %}">
-                        <a class="page-link" href="#" data-page="{{ current_page - 1 }}" aria-label="Previous">
-                            <span aria-hidden="true">&lsaquo;</span>
-                        </a>
-                    </li>
-
-                    <!-- Page numbers -->
-                    {% set window_size = 2 %}
-                    {% set window_start = [current_page - window_size, 1]|max %}
-                    {% set window_end = [current_page + window_size, total_pages]|min %}
-
-                    {% if window_start > 1 %}
-                        <li class="page-item"><a class="page-link" href="#" data-page="1">1</a></li>
-                        {% if window_start > 2 %}
-                            <li class="page-item disabled"><span class="page-link">...</span></li>
-                        {% endif %}
+                    <button type="submit" class="btn btn-secondary mt-2">Update Display</button>
+                </form>
+            </div>
+            
+            <div class="col-md-6 text-center">
+                <form action="/send_emails" method="get" class="d-inline">
+                    <input type="hidden" name="org_id" value="{{ org_id }}">
+                    <input type="hidden" name="show_all" value="{{ 'true' if show_all else 'false' }}">
+                    <input type="hidden" name="sample_size" value="{{ sample_size }}">
+                    <input type="hidden" name="effective_date_filter" value="{{ effective_date_filter }}">
+                    {% if effective_date_years %}
+                    <input type="hidden" name="effective_date_years" value="{{ effective_date_years }}">
                     {% endif %}
-
-                    {% for page in range(window_start, window_end + 1) %}
-                        <li class="page-item {% if page == current_page %}active{% endif %}">
-                            <a class="page-link" href="#" data-page="{{ page }}">{{ page }}</a>
-                        </li>
+                    {% if effective_date_start %}
+                    <input type="hidden" name="effective_date_start" value="{{ effective_date_start }}">
+                    {% endif %}
+                    {% if effective_date_end %}
+                    <input type="hidden" name="effective_date_end" value="{{ effective_date_end }}">
+                    {% endif %}
+                    {% if state %}
+                    <input type="hidden" name="state" value="{{ state }}">
+                    {% endif %}
+                    <input type="hidden" name="special_rules_only" value="{{ 'true' if special_rules_only else 'false' }}">
+                    <!-- Pass the exact contact IDs that are currently displayed -->
+                    {% for contact in contacts %}
+                    <input type="hidden" name="contact_ids" value="{{ contact.contact_info.id }}">
                     {% endfor %}
-
-                    {% if window_end < total_pages %}
-                        {% if window_end < total_pages - 1 %}
-                            <li class="page-item disabled"><span class="page-link">...</span></li>
-                        {% endif %}
-                        <li class="page-item">
-                            <a class="page-link" href="#" data-page="{{ total_pages }}">{{ total_pages }}</a>
-                        </li>
-                    {% endif %}
-
-                    <!-- Next page -->
-                    <li class="page-item {% if not has_next %}disabled{% endif %}">
-                        <a class="page-link" href="#" data-page="{{ current_page + 1 }}" aria-label="Next">
-                            <span aria-hidden="true">&rsaquo;</span>
-                        </a>
-                    </li>
-
-                    <!-- Last page -->
-                    <li class="page-item {% if current_page == total_pages %}disabled{% endif %}">
-                        <a class="page-link" href="#" data-page="{{ total_pages }}" aria-label="Last">
-                            <span aria-hidden="true">&raquo;</span>
-                        </a>
-                    </li>
-                </ul>
-            </nav>
+                    <button type="submit" class="btn btn-primary send-emails-btn">
+                        <i class="fas fa-paper-plane me-2"></i>
+                        Send Emails
+                    </button>
+                </form>
+            </div>
         </div>
     </div>
-    {% endif %}
 
     <!-- Contact Cards -->
     <div class="row" id="contact-cards">
@@ -226,6 +173,124 @@
         </div>
         {% endfor %}
     </div>
+
+    <!-- Modal for Send Emails -->
+    <div class="modal fade" id="sendEmailsModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Send Scheduled Emails</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="sendEmailsForm" action="/send_emails" method="post">
+                        <input type="hidden" name="org_id" value="{{ org_id }}">
+                        <div class="mb-3">
+                            <label for="send_mode" class="form-label">Send Mode</label>
+                            <select class="form-select" id="send_mode" name="send_mode">
+                                <option value="test" selected>Test Mode (Default)</option>
+                                <option value="production">Production Mode</option>
+                            </select>
+                        </div>
+                        <div class="mb-3" id="test_emails_group">
+                            <label for="test_emails" class="form-label">Test Email Addresses (comma-separated)</label>
+                            <input type="text" class="form-control" id="test_emails" name="test_emails" placeholder="test1@example.com, test2@example.com">
+                        </div>
+                        <div class="mb-3">
+                            <label for="scope" class="form-label">Scope</label>
+                            <select class="form-select" id="scope" name="scope">
+                                <option value="bulk">Bulk Send (All Eligible)</option>
+                                <option value="today">Today's Scheduled Emails</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="limit" class="form-label">Limit Number of Emails (Optional)</label>
+                            <input type="number" class="form-control" id="limit" name="limit" placeholder="e.g., 100">
+                        </div>
+                        <button type="submit" class="btn btn-primary">Send Emails</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Handle show all checkbox
+            const showAllCheckbox = document.getElementById('show_all');
+            const sampleSizeSelect = document.getElementById('sample_size');
+            
+            if (showAllCheckbox) {
+                showAllCheckbox.addEventListener('change', function() {
+                    sampleSizeSelect.disabled = this.checked;
+                });
+            }
+            
+            // Handle pagination clicks
+            document.querySelectorAll('.pagination .page-link').forEach(link => {
+                link.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const page = this.getAttribute('data-page');
+                    if (!page) return; // Skip if no page number (like in ellipsis)
+                    
+                    // Create a form with all current parameters
+                    const form = document.createElement('form');
+                    form.method = 'post';
+                    form.action = '/check';
+
+                    // Add all current hidden inputs
+                    const currentForm = document.querySelector('form');
+                    const hiddenInputs = currentForm.querySelectorAll('input[type="hidden"]');
+                    hiddenInputs.forEach(input => {
+                        const newInput = document.createElement('input');
+                        newInput.type = 'hidden';
+                        newInput.name = input.name;
+                        newInput.value = input.value;
+                        form.appendChild(newInput);
+                    });
+
+                    // Add show_all status
+                    const showAllInput = document.createElement('input');
+                    showAllInput.type = 'hidden';
+                    showAllInput.name = 'show_all';
+                    showAllInput.value = 'true';
+                    form.appendChild(showAllInput);
+
+                    // Add the page number
+                    const pageInput = document.createElement('input');
+                    pageInput.type = 'hidden';
+                    pageInput.name = 'page';
+                    pageInput.value = page;
+                    form.appendChild(pageInput);
+
+                    // Submit the form
+                    document.body.appendChild(form);
+                    form.submit();
+                });
+            });
+            
+            // Handle email preview
+            document.querySelectorAll('.preview-email').forEach(button => {
+                button.addEventListener('click', function() {
+                    const contactId = this.getAttribute('data-contact-id');
+                    const emailType = this.getAttribute('data-email-type');
+                    const emailDate = this.getAttribute('data-email-date');
+                    const orgId = document.querySelector('input[name="org_id"]').value;
+                    
+                    const previewUrl = `/preview_email?org_id=${orgId}&contact_id=${contactId}&email_type=${emailType}&email_date=${emailDate}`;
+                    document.getElementById('emailPreviewFrame').src = previewUrl;
+                    
+                    const modal = new bootstrap.Modal(document.getElementById('emailPreviewModal'));
+                    modal.show();
+                });
+            });
+
+            document.getElementById('send_mode').addEventListener('change', function() {
+                const testEmailsGroup = document.getElementById('test_emails_group');
+                testEmailsGroup.style.display = this.value === 'test' ? 'block' : 'none';
+            });
+        });
+    </script>
 </div>
 
 <!-- Email Preview Modal -->
@@ -255,78 +320,54 @@
             margin: 0.5rem auto;
         }
     }
-</style>
 
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    // Handle show all checkbox
-    const showAllCheckbox = document.getElementById('show_all');
-    const sampleSizeSelect = document.getElementById('sample_size');
-    
-    if (showAllCheckbox) {
-        showAllCheckbox.addEventListener('change', function() {
-            sampleSizeSelect.disabled = this.checked;
-        });
+    .controls-section {
+        background: #f8f9fa;
+        padding: 2rem;
+        border-radius: 12px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
     }
-    
-    // Handle pagination clicks
-    document.querySelectorAll('.pagination .page-link').forEach(link => {
-        link.addEventListener('click', function(e) {
-            e.preventDefault();
-            const page = this.getAttribute('data-page');
-            if (!page) return; // Skip if no page number (like in ellipsis)
-            
-            // Create a form with all current parameters
-            const form = document.createElement('form');
-            form.method = 'post';
-            form.action = '/check';
 
-            // Add all current hidden inputs
-            const currentForm = document.querySelector('form');
-            const hiddenInputs = currentForm.querySelectorAll('input[type="hidden"]');
-            hiddenInputs.forEach(input => {
-                const newInput = document.createElement('input');
-                newInput.type = 'hidden';
-                newInput.name = input.name;
-                newInput.value = input.value;
-                form.appendChild(newInput);
-            });
+    .send-emails-btn {
+        background: linear-gradient(45deg, #2196F3, #1976D2);
+        border: none;
+        padding: 12px 32px;
+        font-weight: 500;
+        letter-spacing: 0.5px;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        transition: all 0.3s ease;
+        font-size: 1.1rem;
+    }
 
-            // Add show_all status
-            const showAllInput = document.createElement('input');
-            showAllInput.type = 'hidden';
-            showAllInput.name = 'show_all';
-            showAllInput.value = 'true';
-            form.appendChild(showAllInput);
+    .send-emails-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+        background: linear-gradient(45deg, #1976D2, #1565C0);
+    }
 
-            // Add the page number
-            const pageInput = document.createElement('input');
-            pageInput.type = 'hidden';
-            pageInput.name = 'page';
-            pageInput.value = page;
-            form.appendChild(pageInput);
+    .send-emails-btn:active {
+        transform: translateY(1px);
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
 
-            // Submit the form
-            document.body.appendChild(form);
-            form.submit();
-        });
-    });
-    
-    // Handle email preview
-    document.querySelectorAll('.preview-email').forEach(button => {
-        button.addEventListener('click', function() {
-            const contactId = this.getAttribute('data-contact-id');
-            const emailType = this.getAttribute('data-email-type');
-            const emailDate = this.getAttribute('data-email-date');
-            const orgId = document.querySelector('input[name="org_id"]').value;
-            
-            const previewUrl = `/preview_email?org_id=${orgId}&contact_id=${contactId}&email_type=${emailType}&email_date=${emailDate}`;
-            document.getElementById('emailPreviewFrame').src = previewUrl;
-            
-            const modal = new bootstrap.Modal(document.getElementById('emailPreviewModal'));
-            modal.show();
-        });
-    });
-});
-</script>
+    .send-emails-btn i {
+        transition: transform 0.3s ease;
+    }
+
+    .send-emails-btn:hover i {
+        transform: translateX(4px);
+    }
+
+    @media (max-width: 768px) {
+        .controls-section {
+            padding: 1rem;
+        }
+        
+        .send-emails-btn {
+            width: 100%;
+            margin-top: 1rem;
+        }
+    }
+</style>
 {% endblock %} 

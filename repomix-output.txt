@@ -36,7 +36,7 @@ Notes:
 ------
 - Some files may have been excluded based on .gitignore rules and Repomix's configuration
 - Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
-- Only files matching these patterns are included: **/*.py, templates/home.html, templates/check.html
+- Only files matching these patterns are included: **/*.py, templates/home.html, templates/check.html, templates/send_emails.html
 - Files matching patterns in .gitignore are excluded
 - Files matching default ignore patterns are excluded
 
@@ -49,6 +49,7 @@ Directory Structure
 templates/
   check.html
   home.html
+  send_emails.html
 app.py
 contact_rule_engine.py
 email_scheduler_common.py
@@ -75,6 +76,14 @@ File: templates/check.html
 {% block content %}
 <div class="container mt-4">
     <h1>{{ org_name }} (ID: {{ org_id }})</h1>
+    
+    {% if message %}
+    <div class="alert alert-info alert-dismissible fade show" role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+    {% endif %}
+    
     <p>
         {% if show_all %}
             Showing all {{ total_contacts }} contacts
@@ -86,133 +95,68 @@ File: templates/check.html
         {% endif %}
     </p>
     
-    <!-- Controls -->
-    <div class="row mb-4">
-        <div class="col">
-            <form action="/check" method="post" class="form-inline">
-                <input type="hidden" name="org_id" value="{{ org_id }}">
-                <input type="hidden" name="effective_date_filter" value="{{ effective_date_filter }}">
-                {% if effective_date_years %}
-                <input type="hidden" name="effective_date_years" value="{{ effective_date_years }}">
-                {% endif %}
-                {% if effective_date_start %}
-                <input type="hidden" name="effective_date_start" value="{{ effective_date_start }}">
-                {% endif %}
-                {% if effective_date_end %}
-                <input type="hidden" name="effective_date_end" value="{{ effective_date_end }}">
-                {% endif %}
-                
-                <div class="form-group mr-2">
-                    <label for="show_all" class="mr-2">Display:</label>
-                    <div class="form-check form-check-inline">
-                        <input class="form-check-input" type="checkbox" id="show_all" name="show_all" value="true" 
-                               {% if show_all %}checked{% endif %}>
-                        <label class="form-check-label" for="show_all">Show All</label>
+    <!-- Controls Section with Send Emails Button -->
+    <div class="controls-section mb-5">
+        <div class="row align-items-center">
+            <div class="col-md-6">
+                <form action="/check" method="post" class="form-inline">
+                    <input type="hidden" name="org_id" value="{{ org_id }}">
+                    <input type="hidden" name="effective_date_filter" value="{{ effective_date_filter }}">
+                    {% if effective_date_years %}
+                    <input type="hidden" name="effective_date_years" value="{{ effective_date_years }}">
+                    {% endif %}
+                    {% if effective_date_start %}
+                    <input type="hidden" name="effective_date_start" value="{{ effective_date_start }}">
+                    {% endif %}
+                    {% if effective_date_end %}
+                    <input type="hidden" name="effective_date_end" value="{{ effective_date_end }}">
+                    {% endif %}
+                    
+                    <div class="form-group">
+                        <label for="show_all" class="me-2">Display:</label>
+                        <div class="form-check form-check-inline">
+                            <input class="form-check-input" type="checkbox" id="show_all" name="show_all" value="true" 
+                                   {% if show_all %}checked{% endif %}>
+                            <label class="form-check-label" for="show_all">Show All</label>
+                        </div>
+                        
+                        <select name="sample_size" id="sample_size" class="form-select d-inline-block ms-2" style="width: auto;" {% if show_all %}disabled{% endif %}>
+                            {% for size in sample_sizes %}
+                            <option value="{{ size }}" {% if size == sample_size %}selected{% endif %}>{{ size }} contacts</option>
+                            {% endfor %}
+                        </select>
                     </div>
-                    
-                    <select name="sample_size" id="sample_size" class="form-control ml-2" {% if show_all %}disabled{% endif %}>
-                        {% for size in sample_sizes %}
-                        <option value="{{ size }}" {% if size == sample_size %}selected{% endif %}>{{ size }} contacts</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <button type="submit" class="btn btn-primary">Update Display</button>
-            </form>
-        </div>
-    </div>
-
-    <!-- Search -->
-    <div class="row mb-4">
-        <div class="col">
-            <form action="/check" method="post" class="form-inline">
-                <input type="hidden" name="org_id" value="{{ org_id }}">
-                <input type="hidden" name="show_all" value="{{ 'true' if show_all else 'false' }}">
-                <input type="hidden" name="effective_date_filter" value="{{ effective_date_filter }}">
-                {% if effective_date_years %}
-                <input type="hidden" name="effective_date_years" value="{{ effective_date_years }}">
-                {% endif %}
-                {% if effective_date_start %}
-                <input type="hidden" name="effective_date_start" value="{{ effective_date_start }}">
-                {% endif %}
-                {% if effective_date_end %}
-                <input type="hidden" name="effective_date_end" value="{{ effective_date_end }}">
-                {% endif %}
-                
-                <div class="form-group mr-2">
-                    <label for="contact_search" class="mr-2">Search by Email or Contact ID</label>
-                    <input type="text" class="form-control" id="contact_search" name="contact_search" 
-                           placeholder="Enter email address or contact ID" value="{{ contact_search }}">
-                </div>
-                <button type="submit" class="btn btn-secondary">Search</button>
-            </form>
-        </div>
-    </div>
-
-    <!-- Pagination (only show if showing all contacts) -->
-    {% if show_all and total_contacts > 50 %}
-    <div class="row mb-4">
-        <div class="col">
-            <nav aria-label="Contact navigation">
-                <ul class="pagination justify-content-center">
-                    <!-- First page -->
-                    <li class="page-item {% if current_page == 1 %}disabled{% endif %}">
-                        <a class="page-link" href="#" data-page="1" aria-label="First">
-                            <span aria-hidden="true">&laquo;</span>
-                        </a>
-                    </li>
-                    
-                    <!-- Previous page -->
-                    <li class="page-item {% if not has_previous %}disabled{% endif %}">
-                        <a class="page-link" href="#" data-page="{{ current_page - 1 }}" aria-label="Previous">
-                            <span aria-hidden="true">&lsaquo;</span>
-                        </a>
-                    </li>
-
-                    <!-- Page numbers -->
-                    {% set window_size = 2 %}
-                    {% set window_start = [current_page - window_size, 1]|max %}
-                    {% set window_end = [current_page + window_size, total_pages]|min %}
-
-                    {% if window_start > 1 %}
-                        <li class="page-item"><a class="page-link" href="#" data-page="1">1</a></li>
-                        {% if window_start > 2 %}
-                            <li class="page-item disabled"><span class="page-link">...</span></li>
-                        {% endif %}
+                    <button type="submit" class="btn btn-secondary mt-2">Update Display</button>
+                </form>
+            </div>
+            
+            <div class="col-md-6 text-center">
+                <form action="/send_emails" method="get" class="d-inline">
+                    <input type="hidden" name="org_id" value="{{ org_id }}">
+                    <input type="hidden" name="show_all" value="{{ 'true' if show_all else 'false' }}">
+                    <input type="hidden" name="sample_size" value="{{ sample_size }}">
+                    <input type="hidden" name="effective_date_filter" value="{{ effective_date_filter }}">
+                    {% if effective_date_years %}
+                    <input type="hidden" name="effective_date_years" value="{{ effective_date_years }}">
                     {% endif %}
-
-                    {% for page in range(window_start, window_end + 1) %}
-                        <li class="page-item {% if page == current_page %}active{% endif %}">
-                            <a class="page-link" href="#" data-page="{{ page }}">{{ page }}</a>
-                        </li>
-                    {% endfor %}
-
-                    {% if window_end < total_pages %}
-                        {% if window_end < total_pages - 1 %}
-                            <li class="page-item disabled"><span class="page-link">...</span></li>
-                        {% endif %}
-                        <li class="page-item">
-                            <a class="page-link" href="#" data-page="{{ total_pages }}">{{ total_pages }}</a>
-                        </li>
+                    {% if effective_date_start %}
+                    <input type="hidden" name="effective_date_start" value="{{ effective_date_start }}">
                     {% endif %}
-
-                    <!-- Next page -->
-                    <li class="page-item {% if not has_next %}disabled{% endif %}">
-                        <a class="page-link" href="#" data-page="{{ current_page + 1 }}" aria-label="Next">
-                            <span aria-hidden="true">&rsaquo;</span>
-                        </a>
-                    </li>
-
-                    <!-- Last page -->
-                    <li class="page-item {% if current_page == total_pages %}disabled{% endif %}">
-                        <a class="page-link" href="#" data-page="{{ total_pages }}" aria-label="Last">
-                            <span aria-hidden="true">&raquo;</span>
-                        </a>
-                    </li>
-                </ul>
-            </nav>
+                    {% if effective_date_end %}
+                    <input type="hidden" name="effective_date_end" value="{{ effective_date_end }}">
+                    {% endif %}
+                    {% if state %}
+                    <input type="hidden" name="state" value="{{ state }}">
+                    {% endif %}
+                    <input type="hidden" name="special_rules_only" value="{{ 'true' if special_rules_only else 'false' }}">
+                    <button type="submit" class="btn btn-primary send-emails-btn">
+                        <i class="fas fa-paper-plane me-2"></i>
+                        Send Emails
+                    </button>
+                </form>
+            </div>
         </div>
     </div>
-    {% endif %}
 
     <!-- Contact Cards -->
     <div class="row" id="contact-cards">
@@ -298,6 +242,124 @@ File: templates/check.html
         </div>
         {% endfor %}
     </div>
+
+    <!-- Modal for Send Emails -->
+    <div class="modal fade" id="sendEmailsModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Send Scheduled Emails</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="sendEmailsForm" action="/send_emails" method="post">
+                        <input type="hidden" name="org_id" value="{{ org_id }}">
+                        <div class="mb-3">
+                            <label for="send_mode" class="form-label">Send Mode</label>
+                            <select class="form-select" id="send_mode" name="send_mode">
+                                <option value="test" selected>Test Mode (Default)</option>
+                                <option value="production">Production Mode</option>
+                            </select>
+                        </div>
+                        <div class="mb-3" id="test_emails_group">
+                            <label for="test_emails" class="form-label">Test Email Addresses (comma-separated)</label>
+                            <input type="text" class="form-control" id="test_emails" name="test_emails" placeholder="test1@example.com, test2@example.com">
+                        </div>
+                        <div class="mb-3">
+                            <label for="scope" class="form-label">Scope</label>
+                            <select class="form-select" id="scope" name="scope">
+                                <option value="bulk">Bulk Send (All Eligible)</option>
+                                <option value="today">Today's Scheduled Emails</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label for="limit" class="form-label">Limit Number of Emails (Optional)</label>
+                            <input type="number" class="form-control" id="limit" name="limit" placeholder="e.g., 100">
+                        </div>
+                        <button type="submit" class="btn btn-primary">Send Emails</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Handle show all checkbox
+            const showAllCheckbox = document.getElementById('show_all');
+            const sampleSizeSelect = document.getElementById('sample_size');
+            
+            if (showAllCheckbox) {
+                showAllCheckbox.addEventListener('change', function() {
+                    sampleSizeSelect.disabled = this.checked;
+                });
+            }
+            
+            // Handle pagination clicks
+            document.querySelectorAll('.pagination .page-link').forEach(link => {
+                link.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const page = this.getAttribute('data-page');
+                    if (!page) return; // Skip if no page number (like in ellipsis)
+                    
+                    // Create a form with all current parameters
+                    const form = document.createElement('form');
+                    form.method = 'post';
+                    form.action = '/check';
+
+                    // Add all current hidden inputs
+                    const currentForm = document.querySelector('form');
+                    const hiddenInputs = currentForm.querySelectorAll('input[type="hidden"]');
+                    hiddenInputs.forEach(input => {
+                        const newInput = document.createElement('input');
+                        newInput.type = 'hidden';
+                        newInput.name = input.name;
+                        newInput.value = input.value;
+                        form.appendChild(newInput);
+                    });
+
+                    // Add show_all status
+                    const showAllInput = document.createElement('input');
+                    showAllInput.type = 'hidden';
+                    showAllInput.name = 'show_all';
+                    showAllInput.value = 'true';
+                    form.appendChild(showAllInput);
+
+                    // Add the page number
+                    const pageInput = document.createElement('input');
+                    pageInput.type = 'hidden';
+                    pageInput.name = 'page';
+                    pageInput.value = page;
+                    form.appendChild(pageInput);
+
+                    // Submit the form
+                    document.body.appendChild(form);
+                    form.submit();
+                });
+            });
+            
+            // Handle email preview
+            document.querySelectorAll('.preview-email').forEach(button => {
+                button.addEventListener('click', function() {
+                    const contactId = this.getAttribute('data-contact-id');
+                    const emailType = this.getAttribute('data-email-type');
+                    const emailDate = this.getAttribute('data-email-date');
+                    const orgId = document.querySelector('input[name="org_id"]').value;
+                    
+                    const previewUrl = `/preview_email?org_id=${orgId}&contact_id=${contactId}&email_type=${emailType}&email_date=${emailDate}`;
+                    document.getElementById('emailPreviewFrame').src = previewUrl;
+                    
+                    const modal = new bootstrap.Modal(document.getElementById('emailPreviewModal'));
+                    modal.show();
+                });
+            });
+
+            document.getElementById('send_mode').addEventListener('change', function() {
+                const testEmailsGroup = document.getElementById('test_emails_group');
+                testEmailsGroup.style.display = this.value === 'test' ? 'block' : 'none';
+            });
+        });
+    </script>
 </div>
 
 <!-- Email Preview Modal -->
@@ -327,80 +389,56 @@ File: templates/check.html
             margin: 0.5rem auto;
         }
     }
-</style>
 
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    // Handle show all checkbox
-    const showAllCheckbox = document.getElementById('show_all');
-    const sampleSizeSelect = document.getElementById('sample_size');
-    
-    if (showAllCheckbox) {
-        showAllCheckbox.addEventListener('change', function() {
-            sampleSizeSelect.disabled = this.checked;
-        });
+    .controls-section {
+        background: #f8f9fa;
+        padding: 2rem;
+        border-radius: 12px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
     }
-    
-    // Handle pagination clicks
-    document.querySelectorAll('.pagination .page-link').forEach(link => {
-        link.addEventListener('click', function(e) {
-            e.preventDefault();
-            const page = this.getAttribute('data-page');
-            if (!page) return; // Skip if no page number (like in ellipsis)
-            
-            // Create a form with all current parameters
-            const form = document.createElement('form');
-            form.method = 'post';
-            form.action = '/check';
 
-            // Add all current hidden inputs
-            const currentForm = document.querySelector('form');
-            const hiddenInputs = currentForm.querySelectorAll('input[type="hidden"]');
-            hiddenInputs.forEach(input => {
-                const newInput = document.createElement('input');
-                newInput.type = 'hidden';
-                newInput.name = input.name;
-                newInput.value = input.value;
-                form.appendChild(newInput);
-            });
+    .send-emails-btn {
+        background: linear-gradient(45deg, #2196F3, #1976D2);
+        border: none;
+        padding: 12px 32px;
+        font-weight: 500;
+        letter-spacing: 0.5px;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        transition: all 0.3s ease;
+        font-size: 1.1rem;
+    }
 
-            // Add show_all status
-            const showAllInput = document.createElement('input');
-            showAllInput.type = 'hidden';
-            showAllInput.name = 'show_all';
-            showAllInput.value = 'true';
-            form.appendChild(showAllInput);
+    .send-emails-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+        background: linear-gradient(45deg, #1976D2, #1565C0);
+    }
 
-            // Add the page number
-            const pageInput = document.createElement('input');
-            pageInput.type = 'hidden';
-            pageInput.name = 'page';
-            pageInput.value = page;
-            form.appendChild(pageInput);
+    .send-emails-btn:active {
+        transform: translateY(1px);
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
 
-            // Submit the form
-            document.body.appendChild(form);
-            form.submit();
-        });
-    });
-    
-    // Handle email preview
-    document.querySelectorAll('.preview-email').forEach(button => {
-        button.addEventListener('click', function() {
-            const contactId = this.getAttribute('data-contact-id');
-            const emailType = this.getAttribute('data-email-type');
-            const emailDate = this.getAttribute('data-email-date');
-            const orgId = document.querySelector('input[name="org_id"]').value;
-            
-            const previewUrl = `/preview_email?org_id=${orgId}&contact_id=${contactId}&email_type=${emailType}&email_date=${emailDate}`;
-            document.getElementById('emailPreviewFrame').src = previewUrl;
-            
-            const modal = new bootstrap.Modal(document.getElementById('emailPreviewModal'));
-            modal.show();
-        });
-    });
-});
-</script>
+    .send-emails-btn i {
+        transition: transform 0.3s ease;
+    }
+
+    .send-emails-btn:hover i {
+        transform: translateX(4px);
+    }
+
+    @media (max-width: 768px) {
+        .controls-section {
+            padding: 1rem;
+        }
+        
+        .send-emails-btn {
+            width: 100%;
+            margin-top: 1rem;
+        }
+    }
+</style>
 {% endblock %}
 
 ================
@@ -775,9 +813,561 @@ document.addEventListener('visibilitychange', function() {
 {% endblock %}
 
 ================
+File: templates/send_emails.html
+================
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+    /* Custom styling for sorting indicators */
+    .sort-link {
+        text-decoration: none;
+        color: #212529;
+        cursor: pointer;
+    }
+    .sort-link:hover {
+        text-decoration: underline;
+        color: #0d6efd;
+    }
+    .sort-link.sorted {
+        font-weight: bold;
+        color: #0d6efd;
+    }
+    .sort-link small {
+        display: inline-block;
+        margin-left: 2px;
+    }
+</style>
+<div class="container mt-4">
+    <h1>Send Emails for {{ org_name }} (ID: {{ org_id }})</h1>
+    
+    <!-- Email Summary Stats -->
+    <div class="row">
+        <div class="col-md-12">
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">Email Summary Statistics</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6 class="mb-3">Contact Overview</h6>
+                            <p><strong>Selected Contacts:</strong> {{ contacts|length }}</p>
+                            <p><strong>Total Scheduled Emails:</strong> {{ emails|length }}</p>
+                            <p><strong>Emails Per Contact (Avg):</strong> {{ (emails|length / contacts|length)|round(1) }}</p>
+                            
+                            <div class="alert alert-info">
+                                <p class="mb-0"><strong>Important:</strong> This page only processes emails for the <strong>{{ contacts|length }} contacts</strong> you were viewing on the check page (not the entire database).</p>
+                                {% if show_all %}
+                                <p class="mb-0 mt-1"><em>You're viewing all contacts that match your filters.</em></p>
+                                {% else %}
+                                <p class="mb-0 mt-1"><em>You're viewing a random sample of {{ sample_size }} contacts from your filters. To see all contacts, go back and check "Show All".</em></p>
+                                {% endif %}
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <h6 class="mb-3">Scheduled Email Timeline</h6>
+                            <!-- Use simple JavaScript for counting instead of Jinja -->
+                            <script>
+                                // This script calculates the number of emails in different time periods
+                                document.addEventListener('DOMContentLoaded', function() {
+                                    // Get today's date
+                                    const today = new Date();
+                                    today.setHours(0, 0, 0, 0); // normalize to start of day
+                                    
+                                    // Calculate date ranges
+                                    const next7Days = new Date(today);
+                                    next7Days.setDate(next7Days.getDate() + 7);
+                                    
+                                    const next30Days = new Date(today);
+                                    next30Days.setDate(next30Days.getDate() + 30);
+                                    
+                                    const next90Days = new Date(today);
+                                    next90Days.setDate(next90Days.getDate() + 90);
+                                    
+                                    const nextYear = new Date(today);
+                                    nextYear.setDate(nextYear.getDate() + 365);
+                                    
+                                    // Get all emails
+                                    const rows = document.querySelectorAll('.email-row');
+                                    let todayCount = 0;
+                                    let next7DaysCount = 0;
+                                    let next30DaysCount = 0;
+                                    let next90DaysCount = 0;
+                                    let nextYearCount = 0;
+                                    
+                                    // Count emails in each period
+                                    rows.forEach(row => {
+                                        if (row.dataset.date) {
+                                            try {
+                                                // Parse the date from the data attribute
+                                                const parts = row.dataset.date.split('-').map(p => parseInt(p));
+                                                // Create date object (months are 0-indexed in JS)
+                                                const emailDate = new Date(parts[0], parts[1]-1, parts[2]);
+                                                emailDate.setHours(0, 0, 0, 0); // normalize
+                                                
+                                                // Check which range this email falls into
+                                                if (emailDate.toDateString() === today.toDateString()) {
+                                                    todayCount++;
+                                                    next7DaysCount++;
+                                                    next30DaysCount++;
+                                                    next90DaysCount++;
+                                                    nextYearCount++;
+                                                } else if (emailDate <= next7Days) {
+                                                    next7DaysCount++;
+                                                    next30DaysCount++;
+                                                    next90DaysCount++;
+                                                    nextYearCount++;
+                                                } else if (emailDate <= next30Days) {
+                                                    next30DaysCount++;
+                                                    next90DaysCount++;
+                                                    nextYearCount++;
+                                                } else if (emailDate <= next90Days) {
+                                                    next90DaysCount++;
+                                                    nextYearCount++;
+                                                } else if (emailDate <= nextYear) {
+                                                    nextYearCount++;
+                                                }
+                                            } catch (e) {
+                                                console.error('Error parsing date:', e);
+                                            }
+                                        }
+                                    });
+                                    
+                                    // Update the counts in the table
+                                    document.getElementById('today-count').textContent = todayCount;
+                                    document.getElementById('next7-count').textContent = next7DaysCount;
+                                    document.getElementById('next30-count').textContent = next30DaysCount;
+                                    document.getElementById('next90-count').textContent = next90DaysCount;
+                                    document.getElementById('nextyear-count').textContent = nextYearCount;
+                                    
+                                    // Also update the dropdown options with the same counts
+                                    document.getElementById('scope-today-option').textContent = `Only Today's Scheduled Emails (${todayCount} emails)`;
+                                    document.getElementById('scope-next7-option').textContent = `Next 7 Days (${next7DaysCount} emails)`;
+                                    document.getElementById('scope-next30-option').textContent = `Next 30 Days (${next30DaysCount} emails)`;
+                                    document.getElementById('scope-next90-option').textContent = `Next 90 Days (${next90DaysCount} emails)`;
+                                });
+                            </script>
+                            
+                            <!-- Initial empty values, will be filled by JavaScript -->
+                            {% set today = 0 %}
+                            {% set next_7d = 0 %}
+                            {% set next_30d = 0 %}
+                            {% set next_90d = 0 %}
+                            {% set next_year = 0 %}
+                            
+                            <div class="table-responsive">
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>Time Period</th>
+                                            <th>Scheduled Emails</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td><strong>Today</strong></td>
+                                            <td id="today-count">0</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Next 7 Days</td>
+                                            <td id="next7-count">0</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Next 30 Days</td>
+                                            <td id="next30-count">0</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Next 90 Days</td>
+                                            <td id="next90-count">0</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Next Year</td>
+                                            <td id="nextyear-count">0</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            
+                            <div class="mt-3">
+                                <strong>Email Types:</strong> 
+                                <span class="badge bg-primary">Birthday: {{ emails|selectattr('type', 'equalto', 'birthday')|list|length }}</span>
+                                <span class="badge bg-success">Anniversary: {{ emails|selectattr('type', 'equalto', 'anniversary')|list|length }}</span>
+                                <span class="badge bg-info">AEP: {{ emails|selectattr('type', 'equalto', 'aep')|list|length }}</span>
+                                <span class="badge bg-warning">Post Window: {{ emails|selectattr('type', 'equalto', 'post_window')|list|length }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Send Options Form -->
+    <div class="card mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="card-title mb-0">Send Options</h5>
+        </div>
+        <div class="card-body">
+            <form action="/send_emails" method="post">
+                <input type="hidden" name="org_id" value="{{ org_id }}">
+                <input type="hidden" name="show_all" value="{{ show_all }}">
+                <input type="hidden" name="sample_size" value="{{ sample_size }}">
+                <input type="hidden" name="effective_date_filter" value="{{ effective_date_filter }}">
+                {% if effective_date_years %}
+                <input type="hidden" name="effective_date_years" value="{{ effective_date_years }}">
+                {% endif %}
+                {% if effective_date_start %}
+                <input type="hidden" name="effective_date_start" value="{{ effective_date_start }}">
+                {% endif %}
+                {% if effective_date_end %}
+                <input type="hidden" name="effective_date_end" value="{{ effective_date_end }}">
+                {% endif %}
+                {% if state %}
+                <input type="hidden" name="state" value="{{ state }}">
+                {% endif %}
+                <input type="hidden" name="special_rules_only" value="{{ special_rules_only }}">
+                <input type="hidden" name="contact_search" value="{{ contact_search }}">
+
+                <div class="mb-3">
+                    <label for="send_mode" class="form-label">Send Mode</label>
+                    <select class="form-select" id="send_mode" name="send_mode">
+                        <option value="test" selected>Test Mode (Default)</option>
+                        <option value="production">Production Mode</option>
+                    </select>
+                </div>
+                <div class="mb-3" id="test_emails_group">
+                    <label for="test_emails" class="form-label">Test Email Addresses (comma-separated)</label>
+                    <input type="text" class="form-control" id="test_emails" name="test_emails" placeholder="test1@example.com, test2@example.com">
+                </div>
+                <div class="mb-3">
+                    <label for="scope" class="form-label">Scope</label>
+                    <select class="form-select" id="scope" name="scope">
+                        <option value="bulk">One Email Per Contact ({{ contacts|length }} contacts)</option>
+                        <option value="today" id="scope-today-option">Only Today's Scheduled Emails (0 emails)</option>
+                        <option value="next_7_days" id="scope-next7-option">Next 7 Days (0 emails)</option>
+                        <option value="next_30_days" id="scope-next30-option">Next 30 Days (0 emails)</option>
+                        <option value="next_90_days" id="scope-next90-option">Next 90 Days (0 emails)</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label for="batch_size" class="form-label">Batch Size</label>
+                    <input type="number" class="form-control" id="batch_size" name="batch_size" value="100" min="1">
+                </div>
+                <button type="submit" class="btn btn-primary">Send Emails</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Email List with Filtering -->
+    <div class="card">
+        <div class="card-header bg-info text-white">
+            <h5 class="card-title mb-0">Scheduled Emails</h5>
+        </div>
+        <div class="card-body">
+            <!-- Filter Controls -->
+            <div class="row mb-3">
+                <div class="col-md-3">
+                    <select id="filterDateRange" class="form-select">
+                        <option value="all">All Dates</option>
+                        <option value="today">Today</option>
+                        <option value="next_7_days">Next 7 Days</option>
+                        <option value="next_30_days">Next 30 Days</option>
+                        <option value="next_90_days">Next 90 Days</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <select id="filterEmailType" class="form-select">
+                        <option value="all">All Email Types</option>
+                        <option value="birthday">Birthday</option>
+                        <option value="anniversary">Anniversary</option>
+                        <option value="aep">AEP</option>
+                        <option value="post_window">Post Window</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <input type="text" id="searchEmails" class="form-control" placeholder="Search by name or email...">
+                </div>
+                <div class="col-md-2">
+                    <span class="badge bg-secondary p-2" id="filteredCount">Showing all {{ emails|length }} emails</span>
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-striped" id="emailsTable">
+                    <thead>
+                        <tr>
+                            <th><a href="#" class="sort-link" data-sort="name">Contact Name</a></th>
+                            <th>Email</th>
+                            <th><a href="#" class="sort-link" data-sort="type">Email Type</a></th>
+                            <th><a href="#" class="sort-link sorted" data-sort="date" data-direction="asc">Date <small>▲</small></a></th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for email in emails|sort(attribute='start') %}
+                        <tr class="email-row" 
+                            data-date-range="{{ email.date_range }}" 
+                            data-email-type="{{ email.type }}" 
+                            data-date="{{ email.start }}"
+                            data-name="{{ email.contact.contact_info.name }}"
+                            data-email="{{ email.contact.contact_info.email }}">
+                            <td>{{ email.contact.contact_info.name }}</td>
+                            <td>{{ email.contact.contact_info.email }}</td>
+                            <td>
+                                {% if email.type == 'birthday' %}
+                                <span class="badge bg-primary">{{ email.type_display }}</span>
+                                {% elif email.type == 'anniversary' %}
+                                <span class="badge bg-success">{{ email.type_display }}</span>
+                                {% elif email.type == 'aep' %}
+                                <span class="badge bg-info">{{ email.type_display }}</span>
+                                {% elif email.type == 'post_window' %}
+                                <span class="badge bg-warning text-dark">{{ email.type_display }}</span>
+                                {% else %}
+                                {{ email.type_display }}
+                                {% endif %}
+                            </td>
+                            <td>{{ email.start }}</td>
+                            <td>
+                                {% if email.skipped %}
+                                <span class="badge bg-warning text-dark">Skipped</span>
+                                {% else %}
+                                <span class="badge bg-success">Scheduled</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Initial setup and variables
+            const table = document.getElementById('emailsTable');
+            const rows = table.querySelectorAll('tbody tr');
+            const filterDateRange = document.getElementById('filterDateRange');
+            const filterEmailType = document.getElementById('filterEmailType');
+            const searchInput = document.getElementById('searchEmails');
+            const filteredCount = document.getElementById('filteredCount');
+            let currentSort = { field: 'date', direction: 'asc' };
+            
+            // Function to apply all filters
+            function applyFilters() {
+                const dateFilter = filterDateRange.value;
+                const typeFilter = filterEmailType.value;
+                const searchTerm = searchInput.value.toLowerCase();
+                let visibleCount = 0;
+                
+                rows.forEach(row => {
+                    // Fix date range matching
+                    let dateRangeMatch;
+                    if (dateFilter === 'all') {
+                        dateRangeMatch = true; // Show all dates
+                    } else if (dateFilter === 'today') {
+                        // Only match today
+                        dateRangeMatch = row.dataset.dateRange === 'today';
+                    } else if (dateFilter === 'next_7_days') {
+                        // Match today and anything in next 7 days
+                        dateRangeMatch = row.dataset.dateRange === 'today' || 
+                                       row.dataset.dateRange === 'next_7_days';
+                    } else if (dateFilter === 'next_30_days') {
+                        // Match today, next 7 days, and next 30
+                        dateRangeMatch = row.dataset.dateRange === 'today' || 
+                                       row.dataset.dateRange === 'next_7_days' ||
+                                       row.dataset.dateRange === 'next_30_days';
+                    } else if (dateFilter === 'next_90_days') {
+                        // Match today through next 90
+                        dateRangeMatch = row.dataset.dateRange === 'today' || 
+                                       row.dataset.dateRange === 'next_7_days' ||
+                                       row.dataset.dateRange === 'next_30_days' ||
+                                       row.dataset.dateRange === 'next_90_days';
+                    }
+                    
+                    const typeMatch = typeFilter === 'all' || row.dataset.emailType === typeFilter;
+                    const searchMatch = searchTerm === '' || 
+                                       row.dataset.name.toLowerCase().includes(searchTerm) || 
+                                       row.dataset.email.toLowerCase().includes(searchTerm);
+                    
+                    if (dateRangeMatch && typeMatch && searchMatch) {
+                        row.style.display = '';
+                        visibleCount++;
+                    } else {
+                        row.style.display = 'none';
+                    }
+                });
+                
+                // Update visible count
+                filteredCount.textContent = `Showing ${visibleCount} of ${rows.length} emails`;
+                
+                // After filtering, maintain the current sort
+                sortTable(currentSort.field, false);
+            }
+            
+            // Sorting function
+            function sortTable(field, updateDirection = true) {
+                // Update sort direction only if requested
+                if (updateDirection) {
+                    if (currentSort.field === field) {
+                        currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+                    } else {
+                        currentSort.field = field;
+                        // For date fields, default to ascending (earliest dates first)
+                        currentSort.direction = 'asc';
+                    }
+                }
+                
+                // Convert rows to array for sorting (only visible rows)
+                const rowsArray = Array.from(rows).filter(row => row.style.display !== 'none');
+                
+                // Sort rows
+                rowsArray.sort((a, b) => {
+                    let aValue, bValue;
+                    
+                    if (field === 'name') {
+                        aValue = a.dataset.name;
+                        bValue = b.dataset.name;
+                        // Use simple string comparison
+                        let comparison = aValue.localeCompare(bValue);
+                        return currentSort.direction === 'desc' ? -comparison : comparison;
+                    } else if (field === 'type') {
+                        aValue = a.dataset.emailType;
+                        bValue = b.dataset.emailType;
+                        // Use simple string comparison
+                        let comparison = aValue.localeCompare(bValue);
+                        return currentSort.direction === 'desc' ? -comparison : comparison;
+                    } else if (field === 'date') {
+                        // For dates, use direct ISO string comparison (YYYY-MM-DD format)
+                        // This works reliably for sorting since the format is consistent
+                        aValue = a.dataset.date;
+                        bValue = b.dataset.date;
+                        
+                        // Direct string comparison works for ISO dates (YYYY-MM-DD)
+                        let comparison = aValue.localeCompare(bValue);
+                        return currentSort.direction === 'desc' ? -comparison : comparison;
+                    }
+                    
+                    // Fallback simple comparison
+                    return 0;
+                });
+                
+                // Reapply rows in new order
+                const tbody = table.querySelector('tbody');
+                
+                // First, get all hidden rows and keep them in place
+                const hiddenRows = Array.from(rows).filter(row => row.style.display === 'none');
+                
+                // Remove all rows
+                rows.forEach(row => row.remove());
+                
+                // Add back visible rows in sorted order
+                rowsArray.forEach(row => tbody.appendChild(row));
+                
+                // Add back hidden rows
+                hiddenRows.forEach(row => tbody.appendChild(row));
+            }
+            
+            // Event listeners
+            filterDateRange.addEventListener('change', applyFilters);
+            filterEmailType.addEventListener('change', applyFilters);
+            searchInput.addEventListener('input', applyFilters);
+            
+            // Sort links with visual indicators
+            document.querySelectorAll('.sort-link').forEach(link => {
+                link.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const field = this.dataset.sort;
+                    
+                    // Update the sort
+                    sortTable(field, true);
+                    
+                    // Update visual indicators for all sort links
+                    document.querySelectorAll('.sort-link').forEach(l => {
+                        // Clear previous indicators
+                        l.classList.remove('sorted');
+                        l.innerHTML = l.dataset.sort.charAt(0).toUpperCase() + l.dataset.sort.slice(1);
+                    });
+                    
+                    // Add indicator to current sort link
+                    this.classList.add('sorted');
+                    this.dataset.direction = currentSort.direction;
+                    
+                    // Add arrow indicator
+                    const directionArrow = currentSort.direction === 'asc' ? '▲' : '▼';
+                    this.innerHTML = `${field.charAt(0).toUpperCase() + field.slice(1)} <small>${directionArrow}</small>`;
+                });
+            });
+            
+            // Set the initial sort to date ascending (earliest dates at top)
+            currentSort = { field: 'date', direction: 'asc' };
+            
+            // Apply filters first to ensure we're only working with visible rows
+            applyFilters();
+            
+            // Then apply the sort explicitly with date ascending
+            sortTable('date', false);
+            
+            // Add visual indicator for the current sort column
+            document.querySelectorAll('.sort-link').forEach(link => {
+                if (link.dataset.sort === 'date') {
+                    link.classList.add('sorted');
+                    link.dataset.direction = 'asc';
+                    link.innerHTML = `Date <small>▲</small>`;
+                }
+            });
+            
+            // Extra validation to ensure sort is correct
+            setTimeout(() => {
+                console.log("Current sort:", currentSort);
+                
+                // Force one more sort if needed
+                if (currentSort.field !== 'date' || currentSort.direction !== 'asc') {
+                    console.log("Correcting sort to date ascending");
+                    currentSort = { field: 'date', direction: 'asc' };
+                    sortTable('date', false);
+                }
+                
+                // Verify sort order
+                const visibleRows = Array.from(rows).filter(row => row.style.display !== 'none');
+                if (visibleRows.length >= 2) {
+                    const date1 = visibleRows[0].dataset.date;
+                    const date2 = visibleRows[1].dataset.date;
+                    console.log(`First two dates: ${date1}, ${date2}`);
+                    
+                    if (date1 > date2) {
+                        console.log("Dates still not sorted correctly, forcing correct order");
+                        // Use direct manipulation
+                        const tbody = table.querySelector('tbody');
+                        visibleRows.sort((a, b) => a.dataset.date.localeCompare(b.dataset.date));
+                        visibleRows.forEach(row => tbody.appendChild(row));
+                    }
+                }
+            }, 100);
+        });
+        
+        // Toggle test email field visibility based on mode
+        document.getElementById('send_mode').addEventListener('change', function() {
+            const testEmailsGroup = document.getElementById('test_emails_group');
+            testEmailsGroup.style.display = this.value === 'test' ? 'block' : 'none';
+        });
+    </script>
+</div>
+
+<script>
+    document.getElementById('send_mode').addEventListener('change', function() {
+        const testEmailsGroup = document.getElementById('test_emails_group');
+        testEmailsGroup.style.display = this.value === 'test' ? 'block' : 'none';
+    });
+</script>
+{% endblock %}
+
+================
 File: app.py
 ================
-from fastapi import FastAPI, Request, Form, Body
+from fastapi import FastAPI, Request, Form, Body, Query
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -795,6 +1385,7 @@ import logging
 from utils import generate_link
 from email_template_engine import EmailTemplateEngine
 import aiosqlite
+import sqlite3
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -1507,22 +2098,64 @@ async def resample_contacts(
             content={"error": str(e)}
         )
 
+@app.get("/check", response_class=HTMLResponse)
 @app.post("/check", response_class=HTMLResponse)
 async def check_schedules(
     request: Request,
-    org_id: int = Form(...),
-    sample_size: int = Form(10),
-    state: Optional[str] = Form(default=None),
-    special_rules_only: bool = Form(default=False),
-    contact_search: Optional[str] = Form(default=None),
-    show_all: bool = Form(default=False),
-    effective_date_filter: str = Form(default="none"),
-    effective_date_years: Optional[int] = Form(default=None),
-    effective_date_start: Optional[str] = Form(default=None),
-    effective_date_end: Optional[str] = Form(default=None),
-    page: int = Form(default=1)
+    org_id: Optional[int] = None,
+    sample_size: Optional[int] = None,
+    state: Optional[str] = None,
+    special_rules_only: Optional[bool] = None,
+    contact_search: Optional[str] = None,
+    show_all: Optional[bool] = None,
+    effective_date_filter: Optional[str] = None,
+    effective_date_years: Optional[int] = None,
+    effective_date_start: Optional[str] = None,
+    effective_date_end: Optional[str] = None,
+    page: Optional[int] = None,
+    message: Optional[str] = None
 ):
-    """Process organization's contacts and display sample results"""
+    # Handle request method-specific parameter extraction
+    if request.method == "POST":
+        # For POST requests, extract form parameters
+        form_data = await request.form()
+        org_id = int(form_data.get("org_id"))
+        sample_size = int(form_data.get("sample_size", "10"))
+        state = form_data.get("state")
+        special_rules_only = form_data.get("special_rules_only") == "true"
+        contact_search = form_data.get("contact_search")
+        show_all = form_data.get("show_all") == "true"
+        effective_date_filter = form_data.get("effective_date_filter", "none")
+        page = int(form_data.get("page", "1"))
+        
+        # Handle optional numeric parameters
+        if "effective_date_years" in form_data:
+            effective_date_years = int(form_data.get("effective_date_years"))
+        if "effective_date_start" in form_data:
+            effective_date_start = form_data.get("effective_date_start")
+        if "effective_date_end" in form_data:
+            effective_date_end = form_data.get("effective_date_end")
+    else:
+        # For GET requests, extract parameters from query
+        params = dict(request.query_params)
+        org_id = int(params.get("org_id", "0"))
+        sample_size = int(params.get("sample_size", "10"))
+        state = params.get("state")
+        special_rules_only = params.get("special_rules_only", "").lower() in ["true", "1", "yes"]
+        contact_search = params.get("contact_search")
+        show_all = params.get("show_all", "").lower() in ["true", "1", "yes"]  
+        effective_date_filter = params.get("effective_date_filter", "none")
+        page = int(params.get("page", "1"))
+        message = params.get("message")
+        
+        # Convert effective date parameters if present
+        if "effective_date_years" in params:
+            effective_date_years = int(params.get("effective_date_years"))
+        if "effective_date_start" in params:
+            effective_date_start = params.get("effective_date_start")
+        if "effective_date_end" in params:
+            effective_date_end = params.get("effective_date_end")
+
     try:
         # Convert effective date values to integers, handling -1 case
         effective_date_start_int = None
@@ -1842,7 +2475,7 @@ async def check_schedules(
             email_list.sort(key=lambda x: x['start'])
             contacts_data[contact_id]['timeline_data']['email_list'] = email_list
 
-        # Return template response with generate_link function in context
+        # Return the rendered template with processed data
         return templates.TemplateResponse(
             "check.html",
             {
@@ -1853,7 +2486,7 @@ async def check_schedules(
                 "sample_size": len(contacts_data),
                 "total_contacts": total_contacts,
                 "sample_sizes": [10, 25, 50, 100, 250, 500],
-                "contact_search": contact_search if contact_search else "",
+                "contact_search": contact_search or "",
                 "generate_link": generate_link,
                 "show_all": show_all,
                 "effective_date_filter": effective_date_filter,
@@ -1863,7 +2496,8 @@ async def check_schedules(
                 "current_page": page,
                 "total_pages": total_pages,
                 "has_previous": has_previous,
-                "has_next": has_next
+                "has_next": has_next,
+                "message": message
             }
         )
         
@@ -2261,7 +2895,7 @@ async def preview_email(
                 html=True
             )
             logger.debug("Successfully rendered email template")
-            return HTMLResponse(content=html_content)
+            return HTMLResponse(content=html_content['html'])  # Extract the 'html' key from the result
         except Exception as e:
             logger.error(f"Error rendering email template: {e}")
             raise HTTPException(status_code=500, detail=f"Error rendering template: {e}")
@@ -2271,6 +2905,597 @@ async def preview_email(
     except Exception as e:
         logger.error(f"Error previewing email: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# Add the email sending page (GET) endpoint
+@app.get("/send_emails", response_class=HTMLResponse)
+async def send_emails_page(
+    request: Request,
+    org_id: int = Query(...),
+    show_all: bool = Query(False),
+    sample_size: int = Query(10),
+    effective_date_filter: str = Query("none"),
+    effective_date_years: int = Query(None),
+    effective_date_start: str = Query(None),
+    effective_date_end: str = Query(None),
+    contact_search: str = Query(None),
+    state: str = Query(None),
+    special_rules_only: bool = Query(False)
+):
+    org_db_path = f"org_dbs/org-{org_id}.db"
+    main_db_path = "main.db"
+    org_details = get_organization_details(main_db_path, org_id)
+    scheduler = EmailScheduler()
+
+    # We need to use the same filtering as the check page
+    # Instead of simple sampling, use the same logic as the check page to get the exact same contacts
+    
+    # Convert effective date values to integers, handling -1 case
+    effective_date_start_int = None
+    effective_date_end_int = None
+    
+    if effective_date_start is not None and effective_date_start != "None":
+        try:
+            effective_date_start_int = int(effective_date_start)
+        except ValueError:
+            logger.error(f"Invalid effective_date_start value: {effective_date_start}")
+            
+    if effective_date_end is not None and effective_date_end != "None":
+        try:
+            effective_date_end_int = int(effective_date_end)
+        except ValueError:
+            logger.error(f"Invalid effective_date_end value: {effective_date_end}")
+    
+    # Calculate effective date range if filter is active
+    effective_date_age_years = None
+    effective_date_range_start = None
+    effective_date_range_end = None
+    
+    if effective_date_filter == "single" and effective_date_years:
+        effective_date_age_years = effective_date_years
+    elif effective_date_filter == "range" and effective_date_start_int is not None:
+        # Calculate date range based on first day of current month
+        first_of_month = date.today().replace(day=1)
+        
+        # Handle start date (this will be the earlier/older date)
+        if effective_date_start_int == -1:
+            # No start limit
+            effective_date_range_start = None
+        else:
+            # Calculate start date (earlier/older date)
+            effective_date_range_start = first_of_month - timedelta(days=effective_date_start_int * 30)
+            effective_date_range_start = effective_date_range_start.strftime("%Y-%m")
+        
+        # Handle end date (this will be the later/newer date)
+        if effective_date_end_int is not None and effective_date_end_int != -1:
+            # Calculate end date (later/newer date)
+            effective_date_range_end = first_of_month - timedelta(days=effective_date_end_int * 30)
+            effective_date_range_end = effective_date_range_end.strftime("%Y-%m")
+        else:
+            # No end limit
+            effective_date_range_end = None
+            
+        # Swap start and end dates if needed (since larger months-ago number means earlier date)
+        if (effective_date_range_start is not None and effective_date_range_end is not None and 
+            effective_date_range_start < effective_date_range_end):
+            effective_date_range_start, effective_date_range_end = effective_date_range_end, effective_date_range_start
+    
+    # Determine states to filter by
+    states_to_filter = None
+    if special_rules_only:
+        states_to_filter = SPECIAL_RULE_STATES
+        logger.debug(f"Filtering by special rules states: {states_to_filter}")
+    elif state and state.strip():
+        states_to_filter = [state]
+        logger.debug(f"Filtering by specific state: {states_to_filter}")
+    
+    # Get filtered contacts based on criteria (same logic as check page)
+    filtered_contacts = get_filtered_contacts_from_org_db(
+        org_db_path, 
+        org_id,
+        states=states_to_filter,
+        n=None,  # No limit when getting universe
+        is_random=False,  # No randomization when getting universe
+        effective_date_age_years=effective_date_age_years,
+        effective_date_start=effective_date_range_start,
+        effective_date_end=effective_date_range_end
+    )
+    
+    # If searching for a specific contact, filter further
+    if contact_search and contact_search.strip():
+        search_term = contact_search.strip().lower()
+        filtered_contacts = [
+            contact for contact in filtered_contacts 
+            if search_term in contact.get('email', '').lower() or 
+            str(contact.get('id', '')) == search_term
+        ]
+    
+    # Apply sample if not showing all
+    if not show_all and not contact_search:
+        if len(filtered_contacts) > sample_size:
+            filtered_contacts = random.sample(filtered_contacts, sample_size)
+    
+    contacts = filtered_contacts
+    formatted_contacts = format_contact_data(contacts)
+    today = date.today()
+    end_date = today.replace(year=today.year + 1)
+
+    # Generate email list - one email per contact from the filtered set
+    emails = []
+    today_str = today.isoformat()
+    
+    # Calculate date ranges for filtering
+    today_date = today
+    next_7_days = today_date + timedelta(days=7)
+    next_30_days = today_date + timedelta(days=30)
+    next_90_days = today_date + timedelta(days=90)
+    next_year = today_date + timedelta(days=365)
+    
+    for contact in formatted_contacts:
+        timeline = scheduler.process_contact(contact, today, end_date)
+        contact_info = {
+            "name": f"{contact['first_name']} {contact['last_name']}",
+            "email": contact["email"]
+        }
+        
+        # Get all scheduled emails (not skipped)
+        scheduled = []
+        for email in timeline.get("scheduled", []):
+            email_date_str = email.get("scheduled_date") or email.get("date")
+            
+            # Parse the email date for date range categorization
+            try:
+                email_date = datetime.strptime(email_date_str, '%Y-%m-%d').date()
+                
+                # Determine date range category
+                if email_date_str == today_str:
+                    date_range = "today"
+                elif email_date <= next_7_days:
+                    date_range = "next_7_days"
+                elif email_date <= next_30_days:
+                    date_range = "next_30_days"
+                elif email_date <= next_90_days:
+                    date_range = "next_90_days"
+                elif email_date <= next_year:
+                    date_range = "next_year"
+                else:
+                    date_range = "future"
+            except (ValueError, TypeError):
+                # Default if we can't parse the date
+                date_range = "unknown"
+            
+            scheduled.append({
+                "contact": {"contact_info": contact_info},
+                "type": email["type"],
+                "type_display": {
+                    "birthday": "Birthday Email",
+                    "anniversary": "Anniversary Email",
+                    "aep": "AEP Email",
+                    "post_window": "Post-Window Email"
+                }.get(email["type"], email["type"].replace("_", " ").title()),
+                "start": email_date_str,
+                "skipped": False,
+                "is_today": email_date_str == today_str,
+                "date_range": date_range
+            })
+        
+        # Only include skipped emails for reference/completeness
+        for email in timeline.get("skipped", []):
+            email_date_str = email.get("scheduled_date") or email.get("date") or today_str
+            
+            # Parse the email date for date range categorization
+            try:
+                email_date = datetime.strptime(email_date_str, '%Y-%m-%d').date()
+                
+                # Determine date range category
+                if email_date_str == today_str:
+                    date_range = "today"
+                elif email_date <= next_7_days:
+                    date_range = "next_7_days"
+                elif email_date <= next_30_days:
+                    date_range = "next_30_days"
+                elif email_date <= next_90_days:
+                    date_range = "next_90_days"
+                elif email_date <= next_year:
+                    date_range = "next_year"
+                else:
+                    date_range = "future"
+            except (ValueError, TypeError):
+                # Default if we can't parse the date
+                date_range = "unknown"
+                
+            scheduled.append({
+                "contact": {"contact_info": contact_info},
+                "type": email["type"],
+                "type_display": {
+                    "birthday": "Birthday Email",
+                    "anniversary": "Anniversary Email",
+                    "aep": "AEP Email",
+                    "post_window": "Post-Window Email"
+                }.get(email["type"], email["type"].replace("_", " ").title()),
+                "start": email_date_str,
+                "skipped": True,
+                "is_today": email_date_str == today_str,
+                "date_range": date_range
+            })
+            
+        # Add all emails for this contact to the main list
+        emails.extend(scheduled)
+
+    return templates.TemplateResponse(
+        "send_emails.html",
+        {
+            "request": request,
+            "org_name": org_details["name"],
+            "org_id": org_id,
+            "emails": emails,
+            "contacts": formatted_contacts,
+            "show_all": show_all,
+            "sample_size": sample_size,
+            "effective_date_filter": effective_date_filter,
+            "effective_date_years": effective_date_years,
+            "effective_date_start": effective_date_start,
+            "effective_date_end": effective_date_end,
+            "contact_search": contact_search,
+            "state": state,
+            "special_rules_only": special_rules_only
+        }
+    )
+
+# Add the email sending POST endpoint
+@app.post("/send_emails")
+async def send_emails(
+    request: Request,
+    org_id: int = Form(...),
+    send_mode: str = Form(...),
+    test_emails: str = Form(None),
+    scope: str = Form(...),
+    batch_size: int = Form(100),
+    state: str = Form(None),
+    special_rules_only: bool = Form(False)
+):
+    """
+    Send scheduled emails based on configuration.
+    
+    Args:
+        org_id: Organization ID
+        send_mode: 'test' or 'production' mode
+        test_emails: Comma-separated list of test email addresses (required in test mode)
+        scope: 'bulk' or 'today' to determine which emails to send
+        limit: Optional maximum number of emails to send
+    """
+    # Validate inputs
+    if send_mode not in ["test", "production"]:
+        raise HTTPException(status_code=400, detail="Invalid send mode")
+    if send_mode == "test" and not test_emails:
+        raise HTTPException(status_code=400, detail="Test emails required in test mode")
+    if scope not in ["bulk", "today"]:
+        raise HTTPException(status_code=400, detail="Invalid scope")
+
+    # Initialize components
+    from sendgrid_client import SendGridClient
+    sendgrid_client = SendGridClient(dry_run=(send_mode == "test"))
+    template_engine = EmailTemplateEngine()
+    scheduler = EmailScheduler()
+    org_db_path = f"org_dbs/org-{org_id}.db"
+
+    # Get organization details
+    org_details = get_organization_details(main_db, org_id)
+    
+    # We need to use the same filtering as in the GET method
+    # Get contacts based on the same check page parameters
+    show_all = request.form.get("show_all", "false").lower() == "true"
+    sample_size = int(request.form.get("sample_size", "10"))
+    effective_date_filter = request.form.get("effective_date_filter", "none")
+    effective_date_years = request.form.get("effective_date_years", None)
+    if effective_date_years and effective_date_years.strip():
+        effective_date_years = int(effective_date_years)
+    effective_date_start = request.form.get("effective_date_start", None)
+    effective_date_end = request.form.get("effective_date_end", None)
+    contact_search = request.form.get("contact_search", None)
+    
+    # Apply the same filtering logic as in the check page and send_emails GET method
+    # Convert effective date values to integers, handling -1 case
+    effective_date_start_int = None
+    effective_date_end_int = None
+    
+    if effective_date_start and effective_date_start != "None":
+        try:
+            effective_date_start_int = int(effective_date_start)
+        except ValueError:
+            logger.error(f"Invalid effective_date_start value: {effective_date_start}")
+            
+    if effective_date_end and effective_date_end != "None":
+        try:
+            effective_date_end_int = int(effective_date_end)
+        except ValueError:
+            logger.error(f"Invalid effective_date_end value: {effective_date_end}")
+    
+    # Calculate effective date range if filter is active
+    effective_date_age_years = None
+    effective_date_range_start = None
+    effective_date_range_end = None
+    
+    if effective_date_filter == "single" and effective_date_years:
+        effective_date_age_years = effective_date_years
+    elif effective_date_filter == "range" and effective_date_start_int is not None:
+        # Calculate date range based on first day of current month
+        first_of_month = date.today().replace(day=1)
+        
+        # Handle start date (this will be the earlier/older date)
+        if effective_date_start_int == -1:
+            # No start limit
+            effective_date_range_start = None
+        else:
+            # Calculate start date (earlier/older date)
+            effective_date_range_start = first_of_month - timedelta(days=effective_date_start_int * 30)
+            effective_date_range_start = effective_date_range_start.strftime("%Y-%m")
+        
+        # Handle end date (this will be the later/newer date)
+        if effective_date_end_int is not None and effective_date_end_int != -1:
+            # Calculate end date (later/newer date)
+            effective_date_range_end = first_of_month - timedelta(days=effective_date_end_int * 30)
+            effective_date_range_end = effective_date_range_end.strftime("%Y-%m")
+        else:
+            # No end limit
+            effective_date_range_end = None
+            
+        # Swap start and end dates if needed (since larger months-ago number means earlier date)
+        if (effective_date_range_start is not None and effective_date_range_end is not None and 
+            effective_date_range_start < effective_date_range_end):
+            effective_date_range_start, effective_date_range_end = effective_date_range_end, effective_date_range_start
+    
+    # Determine states to filter by
+    states_to_filter = None
+    if special_rules_only:
+        states_to_filter = SPECIAL_RULE_STATES
+        logger.debug(f"Filtering by special rules states: {states_to_filter}")
+    elif state and state.strip():
+        states_to_filter = [state]
+        logger.debug(f"Filtering by specific state: {states_to_filter}")
+    
+    # Get filtered contacts based on criteria (same logic as check page)
+    filtered_contacts = get_filtered_contacts_from_org_db(
+        org_db_path, 
+        org_id,
+        states=states_to_filter,
+        n=None,  # No limit when getting universe
+        is_random=False,  # No randomization when getting universe
+        effective_date_age_years=effective_date_age_years,
+        effective_date_start=effective_date_range_start,
+        effective_date_end=effective_date_range_end
+    )
+    
+    # If searching for a specific contact, filter further
+    if contact_search and contact_search.strip():
+        search_term = contact_search.strip().lower()
+        filtered_contacts = [
+            contact for contact in filtered_contacts 
+            if search_term in contact.get('email', '').lower() or 
+            str(contact.get('id', '')) == search_term
+        ]
+    
+    # Apply sample if not showing all
+    if not show_all and not contact_search:
+        if len(filtered_contacts) > sample_size:
+            filtered_contacts = random.sample(filtered_contacts, sample_size)
+    
+    contacts = filtered_contacts
+    formatted_contacts = format_contact_data(contacts)
+    
+    # Add organization information to each contact
+    for contact in formatted_contacts:
+        contact['organization'] = org_details
+        if 'quote_link' not in contact:
+            # Generate a link for the contact
+            contact['quote_link'] = generate_link(org_id, contact['id'], 'effective_date', contact.get('effective_date'))
+
+    # Set date range
+    today = date.today()
+    end_date = today.replace(year=today.year + 1)  # One year ahead
+
+    # Get scheduled emails
+    emails_to_send = []
+    for contact in formatted_contacts:
+        timeline = scheduler.process_contact(contact, today, end_date)
+        scheduled_emails = timeline.get("scheduled", [])
+        skipped_emails = timeline.get("skipped", [])
+
+        # Calculate date ranges for filtering
+        today_str = today.isoformat()
+        next_7_days = today + timedelta(days=7)
+        next_30_days = today + timedelta(days=30)
+        next_90_days = today + timedelta(days=90)
+        
+        if scope == "bulk":
+            # One email per contact - exclude emails in exclusion windows
+            valid_emails = []
+            for email in scheduled_emails:
+                email_date_str = email.get("scheduled_date") or email.get("date")
+                if not any(s["type"] == email["type"] for s in skipped_emails):
+                    valid_emails.append({
+                        "type": email["type"],
+                        "date": email_date_str,
+                        "priority": {"birthday": 0, "anniversary": 1, "aep": 2, "post_window": 3}.get(email["type"], 99)
+                    })
+            
+            # If we have valid emails, choose the highest priority one
+            if valid_emails:
+                valid_emails.sort(key=lambda x: x["priority"])  # Sort by priority
+                best_email = valid_emails[0]  # Take the highest priority email
+                emails_to_send.append({"contact": contact, "type": best_email["type"], "date": best_email["date"]})
+                
+        elif scope == "today":
+            # Only today's emails
+            emails_to_send.extend([
+                {"contact": contact, "type": email["type"], "date": email.get("scheduled_date") or email.get("date")}
+                for email in scheduled_emails
+                if (email.get("scheduled_date") or email.get("date")) == today_str
+            ])
+            
+        elif scope == "next_7_days":
+            # Emails scheduled for the next 7 days
+            emails_to_send.extend([
+                {"contact": contact, "type": email["type"], "date": email.get("scheduled_date") or email.get("date")}
+                for email in scheduled_emails
+                if datetime.strptime(email.get("scheduled_date") or email.get("date"), '%Y-%m-%d').date() <= next_7_days
+            ])
+            
+        elif scope == "next_30_days":
+            # Emails scheduled for the next 30 days
+            emails_to_send.extend([
+                {"contact": contact, "type": email["type"], "date": email.get("scheduled_date") or email.get("date")}
+                for email in scheduled_emails
+                if datetime.strptime(email.get("scheduled_date") or email.get("date"), '%Y-%m-%d').date() <= next_30_days
+            ])
+            
+        elif scope == "next_90_days":
+            # Emails scheduled for the next 90 days
+            emails_to_send.extend([
+                {"contact": contact, "type": email["type"], "date": email.get("scheduled_date") or email.get("date")}
+                for email in scheduled_emails
+                if datetime.strptime(email.get("scheduled_date") or email.get("date"), '%Y-%m-%d').date() <= next_90_days
+            ])
+
+    # Apply limit if specified
+    if limit and limit > 0:
+        emails_to_send = emails_to_send[:limit]
+
+    # If no emails to send, redirect with message
+    if not emails_to_send:
+        redirect_url = f"/check?org_id={org_id}&message=No+emails+to+send+based+on+current+criteria"
+        return RedirectResponse(url=redirect_url, status_code=303)
+
+    # Prepare test email list
+    test_email_list = [email.strip() for email in test_emails.split(",")] if send_mode == "test" and test_emails else []
+    
+    # Check if we have test emails in test mode
+    if send_mode == "test" and not test_email_list:
+        raise HTTPException(status_code=400, detail="No valid test email addresses provided")
+
+    # Send emails in batches
+    batch_size = 100
+    total_sent = 0
+    failures = 0
+    
+    for i in range(0, len(emails_to_send), batch_size):
+        batch = emails_to_send[i:i + batch_size]
+        for email in batch:
+            contact = email["contact"]
+            email_type = email["type"]
+            email_date = email["date"]
+            
+            # Choose recipient based on mode
+            recipient = random.choice(test_email_list) if send_mode == "test" else contact["email"]
+            
+            try:
+                # Render email content
+                content = template_engine.render_email(email_type, contact, email_date)
+                html_content = template_engine.render_email(email_type, contact, email_date, html=True)
+
+                # Send email
+                success = sendgrid_client.send_email(
+                    to_email=recipient,
+                    subject=content["subject"],
+                    content=content["body"],
+                    html_content=html_content["html"]
+                )
+
+                # Log to database
+                log_email_send(org_db_path, contact["id"], email_type, email_date, send_mode, recipient, success)
+                
+                if success:
+                    total_sent += 1
+                else:
+                    failures += 1
+                    
+            except Exception as e:
+                logger.error(f"Error sending email to {recipient}: {e}")
+                failures += 1
+                # Log the error to database
+                log_email_send(org_db_path, contact["id"], email_type, email_date, send_mode, recipient, False, str(e))
+
+        # Delay between batches to respect rate limits
+        if i + batch_size < len(emails_to_send):
+            await asyncio.sleep(1)
+
+    # Create a success message and redirect
+    message = f"Successfully sent {total_sent} emails in {send_mode} mode"
+    if failures > 0:
+        message += f" with {failures} failures"
+    
+    # Redirect to the check page with message
+    redirect_url = f"/check?org_id={org_id}&message={message}"
+    return RedirectResponse(url=redirect_url, status_code=303)
+
+def log_email_send(
+    db_path: str, 
+    contact_id: str, 
+    email_type: str, 
+    email_date: str, 
+    mode: str, 
+    recipient: str, 
+    success: bool, 
+    error_message: str = None
+):
+    """
+    Log email send events to the contact_events table
+    
+    Args:
+        db_path: Path to the organization's database
+        contact_id: Contact ID
+        email_type: Type of email (birthday, anniversary, aep, etc.)
+        email_date: Scheduled date for the email
+        mode: 'test' or 'production'
+        recipient: Email address of the recipient
+        success: Whether the send was successful
+        error_message: Optional error message if send failed
+    """
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Create contact_events table if it doesn't exist
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS contact_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            contact_id INTEGER,
+            lead_id INTEGER,
+            event_type TEXT NOT NULL,
+            metadata TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (contact_id) REFERENCES contacts(id),
+            FOREIGN KEY (lead_id) REFERENCES leads(id)
+        )
+        ''')
+        
+        # Prepare metadata as JSON
+        metadata = {
+            "email_type": email_type,
+            "scheduled_date": email_date,
+            "mode": mode,
+            "recipient": recipient,
+            "success": success
+        }
+        
+        # Add error message if provided
+        if error_message:
+            metadata["error"] = error_message
+            
+        # Convert metadata to JSON string
+        metadata_json = json.dumps(metadata)
+        
+        # Insert the event
+        cursor.execute(
+            "INSERT INTO contact_events (contact_id, event_type, metadata) VALUES (?, ?, ?)",
+            (contact_id, "email_sent", metadata_json)
+        )
+        conn.commit()
+        
+    except Exception as e:
+        logger.error(f"Error logging email send to database: {e}")
+    finally:
+        if conn:
+            conn.close()
 
 async def get_contact_by_id(contact_id: str) -> dict:
     """Get contact details by ID from the database"""
@@ -3006,6 +4231,13 @@ class EmailTemplateEngine:
         
         # Log the template variables to check if quote_link is present
         logger.info(f"Template variables keys: {template_vars.keys()}")
+        logger.debug(f"Template variables content: {template_vars}")
+        
+        if 'organization' in template_vars:
+            logger.debug(f"Organization data: {template_vars['organization']}")
+            if isinstance(template_vars['organization'], dict):
+                logger.debug(f"Organization primary_color: {template_vars['organization'].get('primary_color')}")
+        
         if 'quote_link' in template_vars:
             logger.info(f"Quote link in template variables: {template_vars['quote_link']}")
         else:
@@ -3017,28 +4249,42 @@ class EmailTemplateEngine:
         
         try:
             # Render subject line with template vars
+            logger.debug("Attempting to render subject line")
             subject = self.text_env.from_string(subject).render(**template_vars)
             
             if html:
                 # Render HTML template with template vars
+                logger.debug(f"Loading HTML template for {template_type}")
                 template = self.html_env.get_template(f"{template_type}/email.html")
+                logger.debug("Attempting to render HTML template")
                 content = template.render(**template_vars)
-                return content
+                logger.debug("Successfully rendered HTML template")
+                return {
+                    'subject': subject,
+                    'html': content
+                }
             else:
                 # Render text template with template vars
+                logger.debug(f"Loading text template for {template_type}")
                 text_template = self.text_env.get_template(f"{template_type}/email.txt")
+                logger.debug("Attempting to render text template")
                 body = text_template.render(**template_vars)
+                logger.debug("Successfully rendered text template")
                 return {
                     'subject': subject,
                     'body': body
                 }
         except Exception as e:
             logger.error(f"Error rendering {template_type} template: {e}")
+            logger.error(f"Template variables at time of error: {template_vars}")
             if html:
-                return f"<p>Error rendering template: {e}</p>"
+                return {
+                    'subject': f"Error: {template_type.title()} Email",
+                    'html': f"<p>Error rendering template: {e}</p>"
+                }
             else:
                 return {
-                    'subject': subject,
+                    'subject': f"Error: {template_type.title()} Email",
                     'body': f"Error rendering template: {e}"
                 }
     

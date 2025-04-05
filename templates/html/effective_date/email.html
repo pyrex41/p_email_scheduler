@@ -57,7 +57,6 @@
       margin-top: 20px;
     }
     .cta-button {
-      background-color: {{ organization.primary_color|default('#03045E') }};
       color: #ffffff !important;
       padding: 14px 28px;
       font-size: 16px;
@@ -93,7 +92,7 @@
                 
                 <!-- Button -->
                 <div class="button-wrapper">
-                  <a href="{{ quote_link }}" target="_blank" class="cta-button">Review Your Medicare Options</a>
+                  <a href="{{ quote_link }}" target="_blank" class="cta-button" style="background-color: {{ organization.primary_color|default('#03045E') }};">Review Your Medicare Options</a>
                 </div>
                 
                 <!-- Additional Message -->
