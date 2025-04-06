@@ -4,12 +4,8 @@
 <div class="container mt-4">
     <h1>{{ org_name }} (ID: {{ org_id }})</h1>
     
-    {% if message %}
-    <div class="alert alert-info alert-dismissible fade show" role="alert">
-        {{ message }}
-        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-    </div>
-    {% endif %}
+    {% from "macros.html" import alert %}
+    {{ alert(message, 'info') }}
     
     <p>
         {% if show_all %}
@@ -23,387 +19,130 @@
     </p>
     
     <!-- Controls Section with Send Emails Button -->
-    <div class="controls-section mb-5">
-        <div class="row align-items-center">
-            <div class="col-md-6">
-                <form action="/check" method="post" class="form-inline">
-                    <input type="hidden" name="org_id" value="{{ org_id }}">
-                    <input type="hidden" name="effective_date_filter" value="{{ effective_date_filter }}">
-                    {% if effective_date_years %}
-                    <input type="hidden" name="effective_date_years" value="{{ effective_date_years }}">
-                    {% endif %}
-                    {% if effective_date_start %}
-                    <input type="hidden" name="effective_date_start" value="{{ effective_date_start }}">
-                    {% endif %}
-                    {% if effective_date_end %}
-                    <input type="hidden" name="effective_date_end" value="{{ effective_date_end }}">
-                    {% endif %}
-                    
-                    <div class="form-group">
-                        <label for="show_all" class="me-2">Display:</label>
-                        <div class="form-check form-check-inline">
-                            <input class="form-check-input" type="checkbox" id="show_all" name="show_all" value="true" 
-                                   {% if show_all %}checked{% endif %}>
-                            <label class="form-check-label" for="show_all">Show All</label>
-                        </div>
-                        
-                        <select name="sample_size" id="sample_size" class="form-select d-inline-block ms-2" style="width: auto;" {% if show_all %}disabled{% endif %}>
-                            {% for size in sample_sizes %}
-                            <option value="{{ size }}" {% if size == sample_size %}selected{% endif %}>{{ size }} contacts</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <button type="submit" class="btn btn-secondary mt-2">Update Display</button>
-                </form>
-            </div>
-            
-            <div class="col-md-6 text-center">
-                <div class="d-inline-block">
-                    <div class="btn-group dropstart me-2">
-                        <button class="btn btn-primary dropdown-toggle" type="button" id="sendEmailsDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-                            <i class="fas fa-paper-plane me-2"></i>Send Emails
-                        </button>
-                        <ul class="dropdown-menu" aria-labelledby="sendEmailsDropdown">
-                            <li>
-                                <form action="/send_emails" method="get" class="px-3 py-2">
-                                    <input type="hidden" name="org_id" value="{{ org_id }}">
-                                    <input type="hidden" name="show_all" value="{{ 'true' if show_all else 'false' }}">
-                                    <input type="hidden" name="sample_size" value="{{ sample_size }}">
-                                    <input type="hidden" name="effective_date_filter" value="{{ effective_date_filter }}">
-                                    {% if effective_date_years %}
-                                    <input type="hidden" name="effective_date_years" value="{{ effective_date_years }}">
-                                    {% endif %}
-                                    {% if effective_date_start %}
-                                    <input type="hidden" name="effective_date_start" value="{{ effective_date_start }}">
-                                    {% endif %}
-                                    {% if effective_date_end %}
-                                    <input type="hidden" name="effective_date_end" value="{{ effective_date_end }}">
-                                    {% endif %}
-                                    {% if state %}
-                                    <input type="hidden" name="state" value="{{ state }}">
-                                    {% endif %}
-                                    <input type="hidden" name="special_rules_only" value="{{ 'true' if special_rules_only else 'false' }}">
-                                    <!-- Pass the exact contact IDs that are currently displayed -->
-                                    {% for contact in contacts %}
-                                    <input type="hidden" name="contact_ids" value="{{ contact.contact_info.id }}">
-                                    {% endfor %}
-                                    <button type="submit" class="btn btn-outline-primary btn-sm w-100">
-                                        Send to Displayed Contacts ({{ contacts|length }})
-                                    </button>
-                                </form>
-                            </li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li>
-                                <form action="/send_emails" method="get" class="px-3 py-2">
-                                    <input type="hidden" name="org_id" value="{{ org_id }}">
-                                    <input type="hidden" name="show_all" value="{{ 'true' if show_all else 'false' }}">
-                                    <input type="hidden" name="sample_size" value="{{ sample_size }}">
-                                    <input type="hidden" name="effective_date_filter" value="{{ effective_date_filter }}">
-                                    {% if effective_date_years %}
-                                    <input type="hidden" name="effective_date_years" value="{{ effective_date_years }}">
-                                    {% endif %}
-                                    {% if effective_date_start %}
-                                    <input type="hidden" name="effective_date_start" value="{{ effective_date_start }}">
-                                    {% endif %}
-                                    {% if effective_date_end %}
-                                    <input type="hidden" name="effective_date_end" value="{{ effective_date_end }}">
-                                    {% endif %}
-                                    {% if state %}
-                                    <input type="hidden" name="state" value="{{ state }}">
-                                    {% endif %}
-                                    <input type="hidden" name="special_rules_only" value="{{ 'true' if special_rules_only else 'false' }}">
-                                    <input type="hidden" name="send_to_all" value="true">
-                                    <button type="submit" class="btn btn-outline-danger btn-sm w-100">
-                                        Send to ALL Matching Contacts ({{ total_contacts }})
-                                    </button>
-                                </form>
-                            </li>
-                        </ul>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+    {% include "partials/filter_controls.html" %}
 
     <!-- Contact Cards -->
     <div class="row" id="contact-cards">
         {% for contact in contacts %}
-        <div class="col-12 mb-4">
-            <div class="card">
-                <div class="card-header">
-                    <h5 class="mb-0">
-                        <button class="btn btn-link" type="button" data-bs-toggle="collapse" 
-                                data-bs-target="#contact-{{ contact.contact_info.id }}">
-                            {{ contact.contact_info.name }} ({{ contact.contact_info.state }})
-                        </button>
-                    </h5>
-                </div>
-                
-                <div class="collapse {% if loop.first %}show{% endif %}" id="contact-{{ contact.contact_info.id }}">
-                    <div class="contact-content">
-                        <div class="contact-info">
-                            <p><strong>Email:</strong> {{ contact.contact_info.email }}</p>
-                            <p><strong>Birth Date:</strong> {{ contact.contact_info.birth_date }}</p>
-                            <p><strong>Effective Date:</strong> {{ contact.contact_info.effective_date }}</p>
-                            <div class="link-section">
-                                <strong>Generated Link:</strong>
-                                {% set link = generate_link(org_id, contact.contact_info.id, 'effective_date', contact.contact_info.effective_date) %}
-                                <a href="{{ link }}" target="_blank" class="btn btn-sm btn-primary">View Quote</a>
-                            </div>
-                        </div>
-
-                        <div class="state-info">
-                            <h4>State Rules</h4>
-                            <ul class="mb-0">
-                                {% for rule in contact.scheduling_rules %}
-                                <li>{{ rule }}</li>
-                                {% endfor %}
-                            </ul>
-                        </div>
-
-                        <div class="timeline mt-4">
-                            <h4>Scheduled Emails</h4>
-                            <div class="table-responsive">
-                                <table class="table table-striped">
-                                    <thead>
-                                        <tr>
-                                            <th>Email Type</th>
-                                            <th>Date</th>
-                                            <th>Status</th>
-                                            <th>Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {% for email in contact.timeline_data.email_list %}
-                                        <tr>
-                                            <td>{{ email.type_display }}</td>
-                                            <td>{{ email.start }}</td>
-                                            <td>
-                                                {% if email.skipped %}
-                                                <span class="badge bg-warning text-dark">Skipped</span>
-                                                <br>
-                                                <small class="text-muted">{{ email.reason }}</small>
-                                                {% else %}
-                                                <span class="badge bg-success">Scheduled</span>
-                                                {% endif %}
-                                            </td>
-                                            <td>
-                                                {% if not email.skipped %}
-                                                <button class="btn btn-sm btn-outline-primary preview-email" 
-                                                        data-contact-id="{{ contact.contact_info.id }}"
-                                                        data-email-type="{{ email.type }}"
-                                                        data-email-date="{{ email.start }}">
-                                                    Preview
-                                                </button>
-                                                {% endif %}
-                                            </td>
-                                        </tr>
-                                        {% endfor %}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
+            {% include "partials/contact_card.html" with context %}
         {% endfor %}
     </div>
 
-    <!-- Modal for Send Emails -->
-    <div class="modal fade" id="sendEmailsModal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
+    <!-- Email Preview Modal -->
+    <div class="modal fade" id="emailPreviewModal" tabindex="-1">
+        <div class="modal-dialog modal-lg" style="max-width: 800px; max-height: 90vh; width: 90%; height: 90vh;">
+            <div class="modal-content" style="height: 100%;">
                 <div class="modal-header">
-                    <h5 class="modal-title">Send Scheduled Emails</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    <h5 class="modal-title">Email Preview</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
-                <div class="modal-body">
-                    <form id="sendEmailsForm" action="/send_emails" method="post">
-                        <input type="hidden" name="org_id" value="{{ org_id }}">
-                        <div class="mb-3">
-                            <label for="send_mode" class="form-label">Send Mode</label>
-                            <select class="form-select" id="send_mode" name="send_mode">
-                                <option value="test" selected>Test Mode (Default)</option>
-                                <option value="production">Production Mode</option>
-                            </select>
-                        </div>
-                        <div class="mb-3" id="test_emails_group">
-                            <label for="test_emails" class="form-label">Test Email Addresses (comma-separated)</label>
-                            <input type="text" class="form-control" id="test_emails" name="test_emails" placeholder="test1@example.com, test2@example.com">
-                        </div>
-                        <div class="mb-3">
-                            <label for="scope" class="form-label">Scope</label>
-                            <select class="form-select" id="scope" name="scope">
-                                <option value="bulk">Bulk Send (All Eligible)</option>
-                                <option value="today">Today's Scheduled Emails</option>
-                            </select>
-                        </div>
-                        <div class="mb-3">
-                            <label for="limit" class="form-label">Limit Number of Emails (Optional)</label>
-                            <input type="number" class="form-control" id="limit" name="limit" placeholder="e.g., 100">
-                        </div>
-                        <button type="submit" class="btn btn-primary">Send Emails</button>
-                    </form>
+                <div class="modal-body" style="height: calc(100% - 60px);">
+                    <div id="preview-loading" class="htmx-indicator text-center mb-2">
+                        <span class="spinner-border" role="status"></span>
+                        <p>Loading email preview...</p>
+                    </div>
+                    <iframe id="emailPreviewFrame" style="width: 100%; height: 100%; border: none;"></iframe>
                 </div>
             </div>
         </div>
     </div>
 
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            // Handle show all checkbox
-            const showAllCheckbox = document.getElementById('show_all');
-            const sampleSizeSelect = document.getElementById('sample_size');
-            
-            if (showAllCheckbox) {
-                showAllCheckbox.addEventListener('change', function() {
-                    sampleSizeSelect.disabled = this.checked;
-                });
+    <!-- Add custom CSS for the modal -->
+    <style>
+        .modal-dialog.modal-lg {
+            margin: 1.75rem auto;
+        }
+        @media (max-width: 768px) {
+            .modal-dialog.modal-lg {
+                max-width: 95%;
+                width: 95%;
+                margin: 0.5rem auto;
+            }
+        }
+
+        .controls-section {
+            background: #f8f9fa;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+
+        .send-emails-btn {
+            background: linear-gradient(45deg, #2196F3, #1976D2);
+            border: none;
+            padding: 12px 32px;
+            font-weight: 500;
+            letter-spacing: 0.5px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+            font-size: 1.1rem;
+        }
+
+        .send-emails-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+            background: linear-gradient(45deg, #1976D2, #1565C0);
+        }
+
+        .send-emails-btn:active {
+            transform: translateY(1px);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .send-emails-btn i {
+            transition: transform 0.3s ease;
+        }
+
+        .send-emails-btn:hover i {
+            transform: translateX(4px);
+        }
+
+        @media (max-width: 768px) {
+            .controls-section {
+                padding: 1rem;
             }
             
-            // Handle pagination clicks
-            document.querySelectorAll('.pagination .page-link').forEach(link => {
-                link.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    const page = this.getAttribute('data-page');
-                    if (!page) return; // Skip if no page number (like in ellipsis)
-                    
-                    // Create a form with all current parameters
-                    const form = document.createElement('form');
-                    form.method = 'post';
-                    form.action = '/check';
-
-                    // Add all current hidden inputs
-                    const currentForm = document.querySelector('form');
-                    const hiddenInputs = currentForm.querySelectorAll('input[type="hidden"]');
-                    hiddenInputs.forEach(input => {
-                        const newInput = document.createElement('input');
-                        newInput.type = 'hidden';
-                        newInput.name = input.name;
-                        newInput.value = input.value;
-                        form.appendChild(newInput);
-                    });
-
-                    // Add show_all status
-                    const showAllInput = document.createElement('input');
-                    showAllInput.type = 'hidden';
-                    showAllInput.name = 'show_all';
-                    showAllInput.value = 'true';
-                    form.appendChild(showAllInput);
-
-                    // Add the page number
-                    const pageInput = document.createElement('input');
-                    pageInput.type = 'hidden';
-                    pageInput.name = 'page';
-                    pageInput.value = page;
-                    form.appendChild(pageInput);
-
-                    // Submit the form
-                    document.body.appendChild(form);
-                    form.submit();
-                });
-            });
-            
-            // Handle email preview
-            document.querySelectorAll('.preview-email').forEach(button => {
-                button.addEventListener('click', function() {
-                    const contactId = this.getAttribute('data-contact-id');
-                    const emailType = this.getAttribute('data-email-type');
-                    const emailDate = this.getAttribute('data-email-date');
-                    const orgId = document.querySelector('input[name="org_id"]').value;
-                    
-                    const previewUrl = `/preview_email?org_id=${orgId}&contact_id=${contactId}&email_type=${emailType}&email_date=${emailDate}`;
-                    document.getElementById('emailPreviewFrame').src = previewUrl;
-                    
-                    const modal = new bootstrap.Modal(document.getElementById('emailPreviewModal'));
-                    modal.show();
-                });
-            });
-
-            document.getElementById('send_mode').addEventListener('change', function() {
-                const testEmailsGroup = document.getElementById('test_emails_group');
-                testEmailsGroup.style.display = this.value === 'test' ? 'block' : 'none';
-            });
-        });
-    </script>
+            .send-emails-btn {
+                width: 100%;
+                margin-top: 1rem;
+            }
+        }
+    </style>
 </div>
 
-<!-- Email Preview Modal -->
-<div class="modal fade" id="emailPreviewModal" tabindex="-1">
-    <div class="modal-dialog modal-lg" style="max-width: 800px; max-height: 90vh; width: 90%; height: 90vh;">
-        <div class="modal-content" style="height: 100%;">
-            <div class="modal-header">
-                <h5 class="modal-title">Email Preview</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            <div class="modal-body" style="height: calc(100% - 60px);">
-                <iframe id="emailPreviewFrame" style="width: 100%; height: 100%; border: none;"></iframe>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Add custom CSS for the modal -->
-<style>
-    .modal-dialog.modal-lg {
-        margin: 1.75rem auto;
-    }
-    @media (max-width: 768px) {
-        .modal-dialog.modal-lg {
-            max-width: 95%;
-            width: 95%;
-            margin: 0.5rem auto;
-        }
-    }
-
-    .controls-section {
-        background: #f8f9fa;
-        padding: 2rem;
-        border-radius: 12px;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-    }
-
-    .send-emails-btn {
-        background: linear-gradient(45deg, #2196F3, #1976D2);
-        border: none;
-        padding: 12px 32px;
-        font-weight: 500;
-        letter-spacing: 0.5px;
-        border-radius: 8px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        transition: all 0.3s ease;
-        font-size: 1.1rem;
-    }
-
-    .send-emails-btn:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
-        background: linear-gradient(45deg, #1976D2, #1565C0);
-    }
-
-    .send-emails-btn:active {
-        transform: translateY(1px);
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-    }
-
-    .send-emails-btn i {
-        transition: transform 0.3s ease;
-    }
-
-    .send-emails-btn:hover i {
-        transform: translateX(4px);
-    }
-
-    @media (max-width: 768px) {
-        .controls-section {
-            padding: 1rem;
-        }
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Handle show all checkbox
+        const showAllCheckbox = document.getElementById('show_all');
+        const sampleSizeSelect = document.getElementById('sample_size');
         
-        .send-emails-btn {
-            width: 100%;
-            margin-top: 1rem;
+        if (showAllCheckbox) {
+            showAllCheckbox.addEventListener('change', function() {
+                sampleSizeSelect.disabled = this.checked;
+            });
         }
-    }
-</style>
-{% endblock %} 
+    });
+    
+    // Initialize Bootstrap modal for email previews
+    document.addEventListener('DOMContentLoaded', function() {
+        // When preview button is clicked from a dynamically loaded section
+        document.body.addEventListener('click', function(event) {
+            // For non-HTMX elements (backward compatibility)
+            if (event.target.classList.contains('preview-email') && !event.target.hasAttribute('hx-get')) {
+                event.preventDefault();
+                const contactId = event.target.getAttribute('data-contact-id');
+                const emailType = event.target.getAttribute('data-email-type');
+                const emailDate = event.target.getAttribute('data-email-date');
+                const orgId = document.querySelector('input[name="org_id"]').value;
+                
+                const previewUrl = `/preview_email?org_id=${orgId}&contact_id=${contactId}&email_type=${emailType}&email_date=${emailDate}`;
+                document.getElementById('emailPreviewFrame').src = previewUrl;
+                
+                const modal = new bootstrap.Modal(document.getElementById('emailPreviewModal'));
+                modal.show();
+            }
+        });
+    });
+</script>
+{% endblock %}

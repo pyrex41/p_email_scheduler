@@ -1,0 +1,23 @@
+{# partials/emails_table.html - Reusable emails table component #}
+
+<div class="table-responsive">
+  <table class="table table-striped" id="emailsTable">
+    <thead>
+      <tr>
+        <th><a href="#" class="sort-link" data-sort="name">Contact Name</a></th>
+        <th>Email</th>
+        <th><a href="#" class="sort-link" data-sort="type">Email Type</a></th>
+        <th><a href="#" class="sort-link sorted" data-sort="date" data-direction="asc">Date <small>▲</small></a></th>
+        <th>Status</th>
+        {% if include_preview %}
+        <th>Actions</th>
+        {% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for email in emails %}
+        {% include "partials/email_row.html" %}
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

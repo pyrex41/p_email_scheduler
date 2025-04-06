@@ -1,0 +1,84 @@
+{# partials/batch_progress.html - Reusable batch progress component #}
+{% from "macros.html" import spinner %}
+
+<div class="card mb-4" id="batch-progress-card">
+  <div class="card-header bg-info text-white">
+    <h5 class="card-title mb-0">Batch Progress</h5>
+  </div>
+  <div class="card-body">
+    <div class="row mb-3">
+      <div class="col-md-6">
+        <h6>Batch Information</h6>
+        <p><strong>Batch ID:</strong> <span id="batch-id" class="font-monospace">{{ batch_id }}</span></p>
+        <p><strong>Send Mode:</strong> <span id="batch-mode">{{ send_mode }}</span></p>
+        {% if send_mode == 'test' and test_email %}
+        <p id="test-email-display"><strong>Test Email:</strong> <span id="batch-test-email">{{ test_email }}</span></p>
+        {% endif %}
+      </div>
+      <div class="col-md-6">
+        <h6>Email Progress</h6>
+        <p>
+          <strong>Total:</strong> <span id="total-emails">{{ total }}</span> | 
+          <strong>Sent:</strong> <span id="sent-emails" class="text-success">{{ sent }}</span> | 
+          <strong>Failed:</strong> <span id="failed-emails" class="text-danger">{{ failed }}</span> | 
+          <strong>Pending:</strong> <span id="pending-emails">{{ pending }}</span>
+        </p>
+        <div class="progress mb-3" style="height: 20px;">
+          {% set progress = (sent + failed) / total * 100 if total > 0 else 0 %}
+          <div id="progress-bar" class="progress-bar progress-bar-striped" role="progressbar" 
+               style="width: {{ progress|int }}%;" 
+               aria-valuenow="{{ progress|int }}" aria-valuemin="0" aria-valuemax="100">{{ progress|int }}%</div>
+        </div>
+      </div>
+    </div>
+    
+    <div class="d-flex justify-content-between">
+      <div>
+        <button id="process-chunk-btn" class="btn btn-success" 
+                hx-post="/api/process_batch_chunk" 
+                hx-vals='{"batch_id": "{{ batch_id }}", "chunk_size": {{ chunk_size }} }'
+                hx-target="#chunk-results"
+                hx-trigger="click"
+                hx-indicator="#chunk-indicator"
+                {% if pending == 0 %}disabled{% endif %}>
+          Process Next Chunk
+        </button>
+        <button id="pause-batch-btn" class="btn btn-warning" disabled>Pause</button>
+      </div>
+      <div>
+        <button id="retry-failed-btn" class="btn btn-danger" 
+                hx-post="/api/retry_failed_emails"
+                hx-vals='{"batch_id": "{{ batch_id }}", "chunk_size": {{ chunk_size }} }'
+                hx-target="#chunk-results"
+                hx-indicator="#retry-indicator"
+                {% if failed == 0 %}disabled{% endif %}>
+          Retry Failed
+        </button>
+        {% if failed > 0 %}
+        <a id="view-failed-btn" class="btn btn-outline-danger" href="/failed_emails?batch_id={{ batch_id }}&org_id={{ org_id }}">
+          View {{ failed }} Failed Email{{ 's' if failed != 1 }}
+        </a>
+        {% endif %}
+        <button id="new-batch-btn" class="btn btn-secondary"
+                hx-get="/email_batch/new_batch_form?org_id={{ org_id }}&contact_ids={{ contact_ids|join(',') }}"
+                hx-target="#batch-container"
+                hx-indicator="#new-batch-indicator"
+                hx-trigger="click">
+          New Batch
+        </button>
+      </div>
+    </div>
+    <div id="chunk-indicator" class="htmx-indicator mt-2">
+      <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+      Processing emails...
+    </div>
+    <div id="retry-indicator" class="htmx-indicator mt-2">
+      <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+      Retrying failed emails...
+    </div>
+    <div id="new-batch-indicator" class="htmx-indicator mt-2">
+      <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+      Loading new batch form...
+    </div>
+  </div>
+</div>

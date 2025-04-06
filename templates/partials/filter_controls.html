@@ -1,0 +1,118 @@
+{# partials/filter_controls.html - Reusable filter controls component #}
+{% from "macros.html" import form_group %}
+
+<div class="controls-section mb-5">
+  <div class="row align-items-center">
+    <div class="col-md-6">
+      <form hx-post="/check" 
+            hx-target="#contact-cards"
+            hx-indicator="#filter-indicator"
+            class="form-inline">
+        <input type="hidden" name="org_id" value="{{ org_id }}">
+        <input type="hidden" name="effective_date_filter" value="{{ effective_date_filter }}">
+        {% if effective_date_years %}
+        <input type="hidden" name="effective_date_years" value="{{ effective_date_years }}">
+        {% endif %}
+        {% if effective_date_start %}
+        <input type="hidden" name="effective_date_start" value="{{ effective_date_start }}">
+        {% endif %}
+        {% if effective_date_end %}
+        <input type="hidden" name="effective_date_end" value="{{ effective_date_end }}">
+        {% endif %}
+        {% if state %}
+        <input type="hidden" name="state" value="{{ state }}">
+        {% endif %}
+        {% if special_rules_only %}
+        <input type="hidden" name="special_rules_only" value="{{ special_rules_only }}">
+        {% endif %}
+        
+        <div class="form-group">
+          <label for="show_all" class="me-2">Display:</label>
+          <div class="form-check form-check-inline">
+            <input class="form-check-input" type="checkbox" id="show_all" name="show_all" value="true" 
+                   {% if show_all %}checked{% endif %} hx-trigger="click">
+            <label class="form-check-label" for="show_all">Show All</label>
+          </div>
+          
+          <select name="sample_size" id="sample_size" class="form-select d-inline-block ms-2" 
+                  style="width: auto;" {% if show_all %}disabled{% endif %} hx-trigger="change">
+            {% for size in sample_sizes %}
+            <option value="{{ size }}" {% if size == sample_size %}selected{% endif %}>{{ size }} contacts</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button type="submit" class="btn btn-secondary mt-2">Update Display</button>
+        <div id="filter-indicator" class="htmx-indicator mt-2">
+          <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+          Updating...
+        </div>
+      </form>
+    </div>
+    
+    <div class="col-md-6 text-center">
+      <div class="d-inline-block">
+        <div class="btn-group dropstart me-2">
+          <button class="btn btn-primary dropdown-toggle" type="button" id="sendEmailsDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+            <i class="fas fa-paper-plane me-2"></i>Send Emails
+          </button>
+          <ul class="dropdown-menu" aria-labelledby="sendEmailsDropdown">
+            <li>
+              <form action="/send_emails" method="get" class="px-3 py-2">
+                <input type="hidden" name="org_id" value="{{ org_id }}">
+                <input type="hidden" name="show_all" value="{{ 'true' if show_all else 'false' }}">
+                <input type="hidden" name="sample_size" value="{{ sample_size }}">
+                <input type="hidden" name="effective_date_filter" value="{{ effective_date_filter }}">
+                {% if effective_date_years %}
+                <input type="hidden" name="effective_date_years" value="{{ effective_date_years }}">
+                {% endif %}
+                {% if effective_date_start %}
+                <input type="hidden" name="effective_date_start" value="{{ effective_date_start }}">
+                {% endif %}
+                {% if effective_date_end %}
+                <input type="hidden" name="effective_date_end" value="{{ effective_date_end }}">
+                {% endif %}
+                {% if state %}
+                <input type="hidden" name="state" value="{{ state }}">
+                {% endif %}
+                <input type="hidden" name="special_rules_only" value="{{ 'true' if special_rules_only else 'false' }}">
+                <!-- Pass the exact contact IDs that are currently displayed -->
+                {% for contact in contacts %}
+                <input type="hidden" name="contact_ids" value="{{ contact.contact_info.id }}">
+                {% endfor %}
+                <button type="submit" class="btn btn-outline-primary btn-sm w-100">
+                  Send to Displayed Contacts ({{ contacts|length }})
+                </button>
+              </form>
+            </li>
+            <li><hr class="dropdown-divider"></li>
+            <li>
+              <form action="/send_emails" method="get" class="px-3 py-2">
+                <input type="hidden" name="org_id" value="{{ org_id }}">
+                <input type="hidden" name="show_all" value="{{ 'true' if show_all else 'false' }}">
+                <input type="hidden" name="sample_size" value="{{ sample_size }}">
+                <input type="hidden" name="effective_date_filter" value="{{ effective_date_filter }}">
+                {% if effective_date_years %}
+                <input type="hidden" name="effective_date_years" value="{{ effective_date_years }}">
+                {% endif %}
+                {% if effective_date_start %}
+                <input type="hidden" name="effective_date_start" value="{{ effective_date_start }}">
+                {% endif %}
+                {% if effective_date_end %}
+                <input type="hidden" name="effective_date_end" value="{{ effective_date_end }}">
+                {% endif %}
+                {% if state %}
+                <input type="hidden" name="state" value="{{ state }}">
+                {% endif %}
+                <input type="hidden" name="special_rules_only" value="{{ 'true' if special_rules_only else 'false' }}">
+                <input type="hidden" name="send_to_all" value="true">
+                <button type="submit" class="btn btn-outline-danger btn-sm w-100">
+                  Send to ALL Matching Contacts ({{ total_contacts }})
+                </button>
+              </form>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

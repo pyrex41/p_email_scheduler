@@ -1,0 +1,86 @@
+{# macros.html - Reusable Jinja macros for the Email Scheduler app #}
+
+{# Render a badge based on email type #}
+{% macro email_type_badge(email_type, display_name=None) %}
+  {% if email_type == 'birthday' %}
+    <span class="badge bg-primary">{{ display_name or 'Birthday' }}</span>
+  {% elif email_type == 'anniversary' or email_type == 'effective_date' %}
+    <span class="badge bg-success">{{ display_name or 'Effective Date' }}</span>
+  {% elif email_type == 'aep' %}
+    <span class="badge bg-info">{{ display_name or 'AEP' }}</span>
+  {% elif email_type == 'post_window' %}
+    <span class="badge bg-warning text-dark">{{ display_name or 'Post Window' }}</span>
+  {% else %}
+    <span class="badge bg-secondary">{{ display_name or email_type }}</span>
+  {% endif %}
+{% endmacro %}
+
+{# Render a status badge #}
+{% macro status_badge(status) %}
+  {% if status == 'sent' %}
+    <span class="badge bg-success">Sent</span>
+  {% elif status == 'failed' %}
+    <span class="badge bg-danger">Failed</span>
+  {% elif status == 'pending' %}
+    <span class="badge bg-secondary">Pending</span>
+  {% elif status == 'skipped' %}
+    <span class="badge bg-warning text-dark">Skipped</span>
+  {% elif status == 'scheduled' %}
+    <span class="badge bg-success">Scheduled</span>
+  {% else %}
+    <span class="badge bg-secondary">{{ status }}</span>
+  {% endif %}
+{% endmacro %}
+
+{# Render an alert message #}
+{% macro alert(message, type='info', dismissable=True) %}
+  {% if message %}
+    <div class="alert alert-{{ type }} {% if dismissable %}alert-dismissible fade show{% endif %}" role="alert">
+      {{ message }}
+      {% if dismissable %}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+      {% endif %}
+    </div>
+  {% endif %}
+{% endmacro %}
+
+{# Render a form group with label and control #}
+{% macro form_group(name, label, type='text', value='', placeholder='', required=False, options=None, help_text=None) %}
+  <div class="mb-3">
+    <label for="{{ name }}" class="form-label">{{ label }}{% if required %}<span class="text-danger">*</span>{% endif %}</label>
+    
+    {% if type == 'select' %}
+      <select class="form-select" id="{{ name }}" name="{{ name }}" {% if required %}required{% endif %}>
+        {% for option in options %}
+          <option value="{{ option.value }}" {% if option.value == value %}selected{% endif %}>{{ option.text }}</option>
+        {% endfor %}
+      </select>
+    {% elif type == 'textarea' %}
+      <textarea class="form-control" id="{{ name }}" name="{{ name }}" placeholder="{{ placeholder }}" 
+                {% if required %}required{% endif %}>{{ value }}</textarea>
+    {% elif type == 'checkbox' %}
+      <div class="form-check">
+        <input type="checkbox" class="form-check-input" id="{{ name }}" name="{{ name }}" 
+               {% if value %}checked{% endif %} value="true">
+        <label class="form-check-label" for="{{ name }}">{{ placeholder }}</label>
+      </div>
+    {% else %}
+      <input type="{{ type }}" class="form-control" id="{{ name }}" name="{{ name }}" 
+             value="{{ value }}" placeholder="{{ placeholder }}" {% if required %}required{% endif %}>
+    {% endif %}
+    
+    {% if help_text %}
+      <div class="form-text">{{ help_text }}</div>
+    {% endif %}
+  </div>
+{% endmacro %}
+
+{# Render a loading spinner #}
+{% macro spinner(size='md', text='Loading...', id='htmx-indicator', classes='') %}
+  <div class="htmx-indicator {{ classes }}" id="{{ id }}">
+    <div class="d-flex align-items-center">
+      <span class="spinner-border spinner-border-{{ size }} me-2" role="status" aria-hidden="true"></span>
+      <span>{{ text }}</span>
+    </div>
+  </div>
+{% endmacro %}

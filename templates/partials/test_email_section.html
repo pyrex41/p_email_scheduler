@@ -1,0 +1,36 @@
+{# partials/test_email_section.html - Reusable test email input section #}
+
+<div class="mb-3" id="test-email-section">
+  {% if send_mode == "test" %}
+    <label for="test_email" class="form-label">Test Email Address</label>
+    <div class="mb-2">
+      <div class="form-check form-check-inline">
+        <input class="form-check-input test-email-checkbox" type="checkbox" id="email_reuben" name="email_checkbox" value="reuben.brooks@medicaremax.ai">
+        <label class="form-check-label" for="email_reuben">Reuben</label>
+      </div>
+      <div class="form-check form-check-inline">
+        <input class="form-check-input test-email-checkbox" type="checkbox" id="email_josh_m" name="email_checkbox" value="josh.musick@medicaremax.ai">
+        <label class="form-check-label" for="email_josh_m">Josh M</label>
+      </div>
+      <div class="form-check form-check-inline">
+        <input class="form-check-input test-email-checkbox" type="checkbox" id="email_austin" name="email_checkbox" value="austin.park@medicaremax.ai">
+        <label class="form-check-label" for="email_austin">Austin</label>
+      </div>
+      <div class="form-check form-check-inline">
+        <input class="form-check-input test-email-checkbox" type="checkbox" id="email_josh_k" name="email_checkbox" value="josh.klein@medicaremax.ai">
+        <label class="form-check-label" for="email_josh_k">Josh K</label>
+      </div>
+    </div>
+    <input type="email" class="form-control" id="test_email" name="test_email" 
+           placeholder="Email address for test mode" required>
+    <div class="form-text">Check boxes above OR enter email address. At least one test email is required.</div>
+  {% else %}
+    <div class="alert alert-warning">
+      <strong>Production Mode Selected:</strong> Emails will be sent to actual contact email addresses.
+      {% if production_email_sending == "DISABLED" %}
+      <br><span class="text-danger">Note: Production email sending is currently DISABLED in system settings.</span>
+      {% endif %}
+    </div>
+    <input type="hidden" name="test_email" value="">
+  {% endif %}
+</div>

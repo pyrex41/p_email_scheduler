@@ -51,95 +51,6 @@
                         
                         <div class="col-md-6">
                             <h6 class="mb-3">Scheduled Email Timeline</h6>
-                            <!-- Use simple JavaScript for counting instead of Jinja -->
-                            <script>
-                                // This script calculates the number of emails in different time periods
-                                document.addEventListener('DOMContentLoaded', function() {
-                                    // Get today's date
-                                    const today = new Date();
-                                    today.setHours(0, 0, 0, 0); // normalize to start of day
-                                    
-                                    // Calculate date ranges
-                                    const next7Days = new Date(today);
-                                    next7Days.setDate(next7Days.getDate() + 7);
-                                    
-                                    const next30Days = new Date(today);
-                                    next30Days.setDate(next30Days.getDate() + 30);
-                                    
-                                    const next90Days = new Date(today);
-                                    next90Days.setDate(next90Days.getDate() + 90);
-                                    
-                                    const nextYear = new Date(today);
-                                    nextYear.setDate(nextYear.getDate() + 365);
-                                    
-                                    // Get all emails
-                                    const rows = document.querySelectorAll('.email-row');
-                                    let todayCount = 0;
-                                    let next7DaysCount = 0;
-                                    let next30DaysCount = 0;
-                                    let next90DaysCount = 0;
-                                    let nextYearCount = 0;
-                                    
-                                    // Count emails in each period
-                                    rows.forEach(row => {
-                                        if (row.dataset.date) {
-                                            try {
-                                                // Parse the date from the data attribute
-                                                const parts = row.dataset.date.split('-').map(p => parseInt(p));
-                                                // Create date object (months are 0-indexed in JS)
-                                                const emailDate = new Date(parts[0], parts[1]-1, parts[2]);
-                                                emailDate.setHours(0, 0, 0, 0); // normalize
-                                                
-                                                // Check which range this email falls into
-                                                if (emailDate.toDateString() === today.toDateString()) {
-                                                    todayCount++;
-                                                    next7DaysCount++;
-                                                    next30DaysCount++;
-                                                    next90DaysCount++;
-                                                    nextYearCount++;
-                                                } else if (emailDate <= next7Days) {
-                                                    next7DaysCount++;
-                                                    next30DaysCount++;
-                                                    next90DaysCount++;
-                                                    nextYearCount++;
-                                                } else if (emailDate <= next30Days) {
-                                                    next30DaysCount++;
-                                                    next90DaysCount++;
-                                                    nextYearCount++;
-                                                } else if (emailDate <= next90Days) {
-                                                    next90DaysCount++;
-                                                    nextYearCount++;
-                                                } else if (emailDate <= nextYear) {
-                                                    nextYearCount++;
-                                                }
-                                            } catch (e) {
-                                                console.error('Error parsing date:', e);
-                                            }
-                                        }
-                                    });
-                                    
-                                    // Update the counts in the table
-                                    document.getElementById('today-count').textContent = todayCount;
-                                    document.getElementById('next7-count').textContent = next7DaysCount;
-                                    document.getElementById('next30-count').textContent = next30DaysCount;
-                                    document.getElementById('next90-count').textContent = next90DaysCount;
-                                    document.getElementById('nextyear-count').textContent = nextYearCount;
-                                    
-                                    // Also update the dropdown options with the same counts
-                                    document.getElementById('scope-today-option').textContent = `Only Today's Scheduled Emails (${todayCount} emails)`;
-                                    document.getElementById('scope-next7-option').textContent = `Next 7 Days (${next7DaysCount} emails)`;
-                                    document.getElementById('scope-next30-option').textContent = `Next 30 Days (${next30DaysCount} emails)`;
-                                    document.getElementById('scope-next90-option').textContent = `Next 90 Days (${next90DaysCount} emails)`;
-                                });
-                            </script>
-                            
-                            <!-- Initial empty values, will be filled by JavaScript -->
-                            {% set today = 0 %}
-                            {% set next_7d = 0 %}
-                            {% set next_30d = 0 %}
-                            {% set next_90d = 0 %}
-                            {% set next_year = 0 %}
-                            
                             <div class="table-responsive">
                                 <table class="table table-sm">
                                     <thead>
@@ -188,12 +99,12 @@
     </div>
 
     <!-- Send Options Form -->
-    <div class="card mb-4">
+    <div class="card mb-4" id="send-options-form">
         <div class="card-header bg-primary text-white">
             <h5 class="card-title mb-0">Send Options</h5>
         </div>
         <div class="card-body">
-            <form action="/send_emails" method="post">
+            <form hx-post="/send_emails" hx-target="#send-results" hx-indicator="#send-indicator" id="send-emails-form">
                 <input type="hidden" name="org_id" value="{{ org_id }}">
                 <input type="hidden" name="show_all" value="{{ show_all }}">
                 <input type="hidden" name="sample_size" value="{{ sample_size }}">
@@ -220,7 +131,7 @@
 
                 <div class="mb-3">
                     <label for="send_mode" class="form-label">Send Mode</label>
-                    <select class="form-select" id="send_mode" name="send_mode">
+                    <select class="form-select" id="send_mode" name="send_mode" hx-trigger="change" hx-get="/send_emails/toggle_test_email" hx-target="#test_emails_group" hx-swap="outerHTML">
                         <option value="test" selected>Test Mode (Default)</option>
                         <option value="production">Production Mode</option>
                     </select>
@@ -262,14 +173,6 @@
                     <label for="batch_size" class="form-label">Batch Size</label>
                     <input type="number" class="form-control" id="batch_size" name="batch_size" value="100" min="1">
                 </div>
-                <div class="mb-3">
-                    <label for="batch_id" class="form-label">Select Batch to Resume</label>
-                    <select class="form-select" id="batch_id" name="batch_id">
-                        <option value="">Start New Batch</option>
-                        <!-- This will be populated via JavaScript -->
-                    </select>
-                    <div class="form-text">Select an existing batch with pending emails to resume, or start a new one.</div>
-                </div>
                 <div class="d-flex">
                     <button type="submit" class="btn btn-primary me-2" id="sendEmailsBtn">Send Emails</button>
                     <a href="/send_emails_redirect?org_id={{ org_id }}{% for contact_id in contacts %}&contact_ids={{ contact_id.id }}{% endfor %}" 
@@ -277,63 +180,15 @@
                         Use Advanced Batch Mode
                     </a>
                 </div>
-                <div class="mt-2 alert alert-info">
-                    <i class="bi bi-info-circle-fill"></i> 
-                    <strong>New:</strong> Try our improved batch email interface with better tracking and control!
+                <div id="send-indicator" class="htmx-indicator mt-3">
+                    <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                    Sending emails, please wait...
                 </div>
-                
-                <script>
-                    // Load batches with pending emails
-                    document.addEventListener('DOMContentLoaded', async function() {
-                        const orgId = {{ org_id }};
-                        const batchIdSelect = document.getElementById('batch_id');
-                        
-                        try {
-                            // Fetch batches with pending emails
-                            const response = await fetch(`/api/get_batches?org_id=${orgId}`);
-                            if (!response.ok) {
-                                throw new Error(`Server responded with status: ${response.status}`);
-                            }
-                            
-                            const batches = await response.json();
-                            
-                            if (batches.length === 0) {
-                                // Add a disabled option if no batches found
-                                const option = document.createElement('option');
-                                option.text = 'No batches with pending emails found';
-                                option.disabled = true;
-                                batchIdSelect.add(option);
-                                return;
-                            }
-                            
-                            // Add options for each batch
-                            batches.forEach(batch => {
-                                const option = document.createElement('option');
-                                option.value = batch.batch_id;
-                                
-                                // Format the date
-                                const createdDate = new Date(batch.created_at);
-                                const formattedDate = createdDate.toLocaleString();
-                                
-                                // Format the send mode
-                                const sendMode = batch.send_mode === 'test' ? 'Test Mode' : 'Production Mode';
-                                
-                                option.text = `${formattedDate} - ${batch.pending} pending (${sendMode})`;
-                                batchIdSelect.add(option);
-                            });
-                        } catch (error) {
-                            console.error('Error loading batches:', error);
-                            // Add a fallback option
-                            const option = document.createElement('option');
-                            option.text = 'Error loading batches';
-                            option.disabled = true;
-                            batchIdSelect.add(option);
-                        }
-                    });
-                </script>
             </form>
         </div>
     </div>
+
+    <div id="send-results"></div>
 
     <!-- Email List with Filtering -->
     <div class="card">
@@ -342,295 +197,34 @@
         </div>
         <div class="card-body">
             <!-- Filter Controls -->
-            <div class="row mb-3">
-                <div class="col-md-3">
-                    <select id="filterDateRange" class="form-select">
-                        <option value="all">All Dates</option>
-                        <option value="today">Today</option>
-                        <option value="next_7_days">Next 7 Days</option>
-                        <option value="next_30_days">Next 30 Days</option>
-                        <option value="next_90_days">Next 90 Days</option>
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <select id="filterEmailType" class="form-select">
-                        <option value="all">All Email Types</option>
-                        <option value="birthday">Birthday</option>
-                        <option value="effective_date">Effective Date</option>
-                        <option value="aep">AEP</option>
-                        <option value="post_window">Post Window</option>
-                    </select>
-                </div>
-                <div class="col-md-4">
-                    <input type="text" id="searchEmails" class="form-control" placeholder="Search by name or email...">
-                </div>
-                <div class="col-md-2">
-                    <span class="badge bg-secondary p-2" id="filteredCount">Showing all {{ emails|length }} emails</span>
-                </div>
-            </div>
+            {% include "partials/email_filter_controls.html" %}
 
-            <div class="table-responsive">
-                <table class="table table-striped" id="emailsTable">
-                    <thead>
-                        <tr>
-                            <th><a href="#" class="sort-link" data-sort="name">Contact Name</a></th>
-                            <th>Email</th>
-                            <th><a href="#" class="sort-link" data-sort="type">Email Type</a></th>
-                            <th><a href="#" class="sort-link sorted" data-sort="date" data-direction="asc">Date <small>▲</small></a></th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for email in emails|sort(attribute='start') %}
-                        <tr class="email-row" 
-                            data-date-range="{{ email.date_range }}" 
-                            data-email-type="{{ email.type }}" 
-                            data-date="{{ email.start }}"
-                            data-name="{{ email.contact.contact_info.name }}"
-                            data-email="{{ email.contact.contact_info.email }}">
-                            <td>{{ email.contact.contact_info.name }}</td>
-                            <td>{{ email.contact.contact_info.email }}</td>
-                            <td>
-                                {% if email.type == 'birthday' %}
-                                <span class="badge bg-primary">{{ email.type_display }}</span>
-                                {% elif email.type == 'anniversary' or email.type == 'effective_date' %}
-                                <span class="badge bg-success">Effective Date</span>
-                                {% elif email.type == 'aep' %}
-                                <span class="badge bg-info">{{ email.type_display }}</span>
-                                {% elif email.type == 'post_window' %}
-                                <span class="badge bg-warning text-dark">{{ email.type_display }}</span>
-                                {% else %}
-                                {{ email.type_display }}
-                                {% endif %}
-                            </td>
-                            <td>{{ email.start }}</td>
-                            <td>
-                                {% if email.skipped %}
-                                <span class="badge bg-warning text-dark">Skipped</span>
-                                {% else %}
-                                <span class="badge bg-success">Scheduled</span>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+            <!-- Emails Table -->
+            {% set include_preview = True %}
+            {% include "partials/emails_table.html" %}
+        </div>
+    </div>
+
+    <!-- Email Preview Modal -->
+    <div class="modal fade" id="emailPreviewModal" tabindex="-1">
+        <div class="modal-dialog modal-lg" style="max-width: 800px; max-height: 90vh; width: 90%; height: 90vh;">
+            <div class="modal-content" style="height: 100%;">
+                <div class="modal-header">
+                    <h5 class="modal-title">Email Preview</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" style="height: calc(100% - 60px);">
+                    <div id="preview-indicator" class="htmx-indicator text-center mb-2">
+                        <span class="spinner-border" role="status"></span>
+                        <p>Loading email preview...</p>
+                    </div>
+                    <iframe id="emailPreviewFrame" style="width: 100%; height: 100%; border: none;"></iframe>
+                </div>
             </div>
         </div>
     </div>
 
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            // Initial setup and variables
-            const table = document.getElementById('emailsTable');
-            const rows = table.querySelectorAll('tbody tr');
-            const filterDateRange = document.getElementById('filterDateRange');
-            const filterEmailType = document.getElementById('filterEmailType');
-            const searchInput = document.getElementById('searchEmails');
-            const filteredCount = document.getElementById('filteredCount');
-            let currentSort = { field: 'date', direction: 'asc' };
-            
-            // Function to apply all filters
-            function applyFilters() {
-                const dateFilter = filterDateRange.value;
-                const typeFilter = filterEmailType.value;
-                const searchTerm = searchInput.value.toLowerCase();
-                let visibleCount = 0;
-                
-                rows.forEach(row => {
-                    // Fix date range matching
-                    let dateRangeMatch;
-                    if (dateFilter === 'all') {
-                        dateRangeMatch = true; // Show all dates
-                    } else if (dateFilter === 'today') {
-                        // Only match today
-                        dateRangeMatch = row.dataset.dateRange === 'today';
-                    } else if (dateFilter === 'next_7_days') {
-                        // Match today and anything in next 7 days
-                        dateRangeMatch = row.dataset.dateRange === 'today' || 
-                                       row.dataset.dateRange === 'next_7_days';
-                    } else if (dateFilter === 'next_30_days') {
-                        // Match today, next 7 days, and next 30
-                        dateRangeMatch = row.dataset.dateRange === 'today' || 
-                                       row.dataset.dateRange === 'next_7_days' ||
-                                       row.dataset.dateRange === 'next_30_days';
-                    } else if (dateFilter === 'next_90_days') {
-                        // Match today through next 90
-                        dateRangeMatch = row.dataset.dateRange === 'today' || 
-                                       row.dataset.dateRange === 'next_7_days' ||
-                                       row.dataset.dateRange === 'next_30_days' ||
-                                       row.dataset.dateRange === 'next_90_days';
-                    }
-                    
-                    // Special handling for effective_date to also match anniversary emails 
-                    let typeMatch;
-                    if (typeFilter === 'all') {
-                        typeMatch = true;
-                    } else if (typeFilter === 'effective_date') {
-                        typeMatch = row.dataset.emailType === 'effective_date' || row.dataset.emailType === 'anniversary';
-                    } else {
-                        typeMatch = row.dataset.emailType === typeFilter;
-                    }
-                    const searchMatch = searchTerm === '' || 
-                                       row.dataset.name.toLowerCase().includes(searchTerm) || 
-                                       row.dataset.email.toLowerCase().includes(searchTerm);
-                    
-                    if (dateRangeMatch && typeMatch && searchMatch) {
-                        row.style.display = '';
-                        visibleCount++;
-                    } else {
-                        row.style.display = 'none';
-                    }
-                });
-                
-                // Update visible count
-                filteredCount.textContent = `Showing ${visibleCount} of ${rows.length} emails`;
-                
-                // After filtering, maintain the current sort
-                sortTable(currentSort.field, false);
-            }
-            
-            // Sorting function
-            function sortTable(field, updateDirection = true) {
-                // Update sort direction only if requested
-                if (updateDirection) {
-                    if (currentSort.field === field) {
-                        currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
-                    } else {
-                        currentSort.field = field;
-                        // For date fields, default to ascending (earliest dates first)
-                        currentSort.direction = 'asc';
-                    }
-                }
-                
-                // Convert rows to array for sorting (only visible rows)
-                const rowsArray = Array.from(rows).filter(row => row.style.display !== 'none');
-                
-                // Sort rows
-                rowsArray.sort((a, b) => {
-                    let aValue, bValue;
-                    
-                    if (field === 'name') {
-                        aValue = a.dataset.name;
-                        bValue = b.dataset.name;
-                        // Use simple string comparison
-                        let comparison = aValue.localeCompare(bValue);
-                        return currentSort.direction === 'desc' ? -comparison : comparison;
-                    } else if (field === 'type') {
-                        aValue = a.dataset.emailType;
-                        bValue = b.dataset.emailType;
-                        // Use simple string comparison
-                        let comparison = aValue.localeCompare(bValue);
-                        return currentSort.direction === 'desc' ? -comparison : comparison;
-                    } else if (field === 'date') {
-                        // For dates, use direct ISO string comparison (YYYY-MM-DD format)
-                        // This works reliably for sorting since the format is consistent
-                        aValue = a.dataset.date;
-                        bValue = b.dataset.date;
-                        
-                        // Direct string comparison works for ISO dates (YYYY-MM-DD)
-                        let comparison = aValue.localeCompare(bValue);
-                        return currentSort.direction === 'desc' ? -comparison : comparison;
-                    }
-                    
-                    // Fallback simple comparison
-                    return 0;
-                });
-                
-                // Reapply rows in new order
-                const tbody = table.querySelector('tbody');
-                
-                // First, get all hidden rows and keep them in place
-                const hiddenRows = Array.from(rows).filter(row => row.style.display === 'none');
-                
-                // Remove all rows
-                rows.forEach(row => row.remove());
-                
-                // Add back visible rows in sorted order
-                rowsArray.forEach(row => tbody.appendChild(row));
-                
-                // Add back hidden rows
-                hiddenRows.forEach(row => tbody.appendChild(row));
-            }
-            
-            // Event listeners
-            filterDateRange.addEventListener('change', applyFilters);
-            filterEmailType.addEventListener('change', applyFilters);
-            searchInput.addEventListener('input', applyFilters);
-            
-            // Sort links with visual indicators
-            document.querySelectorAll('.sort-link').forEach(link => {
-                link.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    const field = this.dataset.sort;
-                    
-                    // Update the sort
-                    sortTable(field, true);
-                    
-                    // Update visual indicators for all sort links
-                    document.querySelectorAll('.sort-link').forEach(l => {
-                        // Clear previous indicators
-                        l.classList.remove('sorted');
-                        l.innerHTML = l.dataset.sort.charAt(0).toUpperCase() + l.dataset.sort.slice(1);
-                    });
-                    
-                    // Add indicator to current sort link
-                    this.classList.add('sorted');
-                    this.dataset.direction = currentSort.direction;
-                    
-                    // Add arrow indicator
-                    const directionArrow = currentSort.direction === 'asc' ? '▲' : '▼';
-                    this.innerHTML = `${field.charAt(0).toUpperCase() + field.slice(1)} <small>${directionArrow}</small>`;
-                });
-            });
-            
-            // Set the initial sort to date ascending (earliest dates at top)
-            currentSort = { field: 'date', direction: 'asc' };
-            
-            // Apply filters first to ensure we're only working with visible rows
-            applyFilters();
-            
-            // Then apply the sort explicitly with date ascending
-            sortTable('date', false);
-            
-            // Add visual indicator for the current sort column
-            document.querySelectorAll('.sort-link').forEach(link => {
-                if (link.dataset.sort === 'date') {
-                    link.classList.add('sorted');
-                    link.dataset.direction = 'asc';
-                    link.innerHTML = `Date <small>▲</small>`;
-                }
-            });
-            
-            // Extra validation to ensure sort is correct
-            setTimeout(() => {
-                console.log("Current sort:", currentSort);
-                
-                // Force one more sort if needed
-                if (currentSort.field !== 'date' || currentSort.direction !== 'asc') {
-                    console.log("Correcting sort to date ascending");
-                    currentSort = { field: 'date', direction: 'asc' };
-                    sortTable('date', false);
-                }
-                
-                // Verify sort order
-                const visibleRows = Array.from(rows).filter(row => row.style.display !== 'none');
-                if (visibleRows.length >= 2) {
-                    const date1 = visibleRows[0].dataset.date;
-                    const date2 = visibleRows[1].dataset.date;
-                    console.log(`First two dates: ${date1}, ${date2}`);
-                    
-                    if (date1 > date2) {
-                        console.log("Dates still not sorted correctly, forcing correct order");
-                        // Use direct manipulation
-                        const tbody = table.querySelector('tbody');
-                        visibleRows.sort((a, b) => a.dataset.date.localeCompare(b.dataset.date));
-                        visibleRows.forEach(row => tbody.appendChild(row));
-                    }
-                }
-            }, 100);
-        });
-        
         // Function to update the required attribute for test emails field
         function updateTestEmailsRequired() {
             const testEmailsInput = document.getElementById('test_emails');
@@ -654,59 +248,176 @@
             }
         }
         
-        // Toggle test email field visibility and required attribute based on mode
-        document.getElementById('send_mode').addEventListener('change', function() {
-            const testEmailsGroup = document.getElementById('test_emails_group');
-            
-            if (this.value === 'test') {
-                testEmailsGroup.style.display = 'block';
-            } else {
-                testEmailsGroup.style.display = 'none';
-            }
-            
-            // Update required status
-            updateTestEmailsRequired();
-        });
-        
         // Add event listeners to all test email checkboxes
-        document.querySelectorAll('.test-email-checkbox').forEach(checkbox => {
-            checkbox.addEventListener('change', updateTestEmailsRequired);
-        });
-        
-        // Run once on page load to set initial state
-        updateTestEmailsRequired();
-        
-        // Process form submission to collect checked emails
-        document.querySelector('form').addEventListener('submit', function(e) {
-            const testEmailsInput = document.getElementById('test_emails');
-            const emailCheckboxes = document.querySelectorAll('.test-email-checkbox:checked');
-            const sendMode = document.getElementById('send_mode').value;
+        document.addEventListener('DOMContentLoaded', function() {
+            document.querySelectorAll('.test-email-checkbox').forEach(checkbox => {
+                checkbox.addEventListener('change', updateTestEmailsRequired);
+            });
             
-            // Only process in test mode
-            if (sendMode === 'test') {
-                // Get all checked email addresses
-                const checkedEmails = Array.from(emailCheckboxes).map(cb => cb.value);
+            // Calculate email counts
+            function countEmails() {
+                // Get today's date
+                const today = new Date();
+                today.setHours(0, 0, 0, 0); // normalize to start of day
                 
-                // Get any manually entered emails
-                let manualEmails = testEmailsInput.value.split(',')
-                    .map(email => email.trim())
-                    .filter(email => email.length > 0);
+                // Calculate date ranges
+                const next7Days = new Date(today);
+                next7Days.setDate(next7Days.getDate() + 7);
                 
-                // Combine all email addresses
-                const allEmails = [...checkedEmails, ...manualEmails];
+                const next30Days = new Date(today);
+                next30Days.setDate(next30Days.getDate() + 30);
                 
-                // If we have no emails and we're in test mode, prevent form submission
-                if (allEmails.length === 0) {
-                    e.preventDefault();
-                    alert('Please select at least one test email recipient');
-                    return false;
-                }
+                const next90Days = new Date(today);
+                next90Days.setDate(next90Days.getDate() + 90);
                 
-                // Update the test_emails field with all emails
-                testEmailsInput.value = allEmails.join(', ');
+                const nextYear = new Date(today);
+                nextYear.setDate(nextYear.getDate() + 365);
+                
+                // Get all emails
+                const rows = document.querySelectorAll('.email-row');
+                let todayCount = 0;
+                let next7DaysCount = 0;
+                let next30DaysCount = 0;
+                let next90DaysCount = 0;
+                let nextYearCount = 0;
+                
+                // Count emails in each period
+                rows.forEach(row => {
+                    if (row.dataset.date) {
+                        try {
+                            // Parse the date from the data attribute
+                            const parts = row.dataset.date.split('-').map(p => parseInt(p));
+                            // Create date object (months are 0-indexed in JS)
+                            const emailDate = new Date(parts[0], parts[1]-1, parts[2]);
+                            emailDate.setHours(0, 0, 0, 0); // normalize
+                            
+                            // Check which range this email falls into
+                            if (emailDate.toDateString() === today.toDateString()) {
+                                todayCount++;
+                                next7DaysCount++;
+                                next30DaysCount++;
+                                next90DaysCount++;
+                                nextYearCount++;
+                            } else if (emailDate <= next7Days) {
+                                next7DaysCount++;
+                                next30DaysCount++;
+                                next90DaysCount++;
+                                nextYearCount++;
+                            } else if (emailDate <= next30Days) {
+                                next30DaysCount++;
+                                next90DaysCount++;
+                                nextYearCount++;
+                            } else if (emailDate <= next90Days) {
+                                next90DaysCount++;
+                                nextYearCount++;
+                            } else if (emailDate <= nextYear) {
+                                nextYearCount++;
+                            }
+                        } catch (e) {
+                            console.error('Error parsing date:', e);
+                        }
+                    }
+                });
+                
+                // Update the counts in the table
+                document.getElementById('today-count').textContent = todayCount;
+                document.getElementById('next7-count').textContent = next7DaysCount;
+                document.getElementById('next30-count').textContent = next30DaysCount;
+                document.getElementById('next90-count').textContent = next90DaysCount;
+                document.getElementById('nextyear-count').textContent = nextYearCount;
+                
+                // Also update the dropdown options with the same counts
+                document.getElementById('scope-today-option').textContent = `Only Today's Scheduled Emails (${todayCount} emails)`;
+                document.getElementById('scope-next7-option').textContent = `Next 7 Days (${next7DaysCount} emails)`;
+                document.getElementById('scope-next30-option').textContent = `Next 30 Days (${next30DaysCount} emails)`;
+                document.getElementById('scope-next90-option').textContent = `Next 90 Days (${next90DaysCount} emails)`;
             }
+            
+            // Initialize email counts
+            countEmails();
+            
+            // Handle email filtering and sorting
+            const filterDateRange = document.getElementById('filterDateRange');
+            const filterEmailType = document.getElementById('filterEmailType');
+            const searchInput = document.getElementById('searchEmails');
+            const filteredCount = document.getElementById('filteredCount');
+            
+            // Add HTMX event listeners
+            document.body.addEventListener('htmx:afterSwap', function(event) {
+                // If the target is the email table body, update the counts
+                if(event.detail.target.id === 'emailsTable' || event.detail.target.closest('#emailsTable tbody')) {
+                    // Recalculate counts
+                    setTimeout(updateFilteredCount, 50);
+                }
+            });
+            
+            // Function to update filtered count
+            function updateFilteredCount() {
+                const visibleRows = Array.from(document.querySelectorAll('.email-row')).filter(
+                    row => row.style.display !== 'none'
+                );
+                filteredCount.textContent = `Showing ${visibleRows.length} of ${document.querySelectorAll('.email-row').length} emails`;
+            }
+            
+            // Process form submission to collect checked emails
+            document.querySelector('form').addEventListener('submit', function(e) {
+                const testEmailsInput = document.getElementById('test_emails');
+                const emailCheckboxes = document.querySelectorAll('.test-email-checkbox:checked');
+                const sendMode = document.getElementById('send_mode').value;
+                
+                // Only process in test mode
+                if (sendMode === 'test') {
+                    // Get all checked email addresses
+                    const checkedEmails = Array.from(emailCheckboxes).map(cb => cb.value);
+                    
+                    // Get any manually entered emails
+                    let manualEmails = testEmailsInput.value.split(',')
+                        .map(email => email.trim())
+                        .filter(email => email.length > 0);
+                    
+                    // Combine all email addresses
+                    const allEmails = [...checkedEmails, ...manualEmails];
+                    
+                    // If we have no emails and we're in test mode, prevent form submission
+                    if (allEmails.length === 0) {
+                        e.preventDefault();
+                        alert('Please select at least one test email recipient');
+                        return false;
+                    }
+                    
+                    // Update the test_emails field with all emails
+                    testEmailsInput.value = allEmails.join(', ');
+                }
+            });
+            
+            // Initial required state
+            updateTestEmailsRequired();
+            
+            // Initialize Bootstrap modal for email previews
+            document.body.addEventListener('click', function(event) {
+                // Open modal when preview button is clicked
+                if (!event.target.hasAttribute('hx-get') && event.target.classList.contains('preview-email')) {
+                    const contactId = event.target.getAttribute('data-contact-id');
+                    const emailType = event.target.getAttribute('data-email-type');
+                    const emailDate = event.target.getAttribute('data-email-date');
+                    const orgId = document.querySelector('input[name="org_id"]').value;
+                    
+                    const previewUrl = `/preview_email?org_id=${orgId}&contact_id=${contactId}&email_type=${emailType}&email_date=${emailDate}`;
+                    document.getElementById('emailPreviewFrame').src = previewUrl;
+                    
+                    const modal = new bootstrap.Modal(document.getElementById('emailPreviewModal'));
+                    modal.show();
+                }
+            });
+            
+            // Enable HTMX preview button to show modal
+            document.body.addEventListener('htmx:afterRequest', function(event) {
+                if(event.detail.target && event.detail.target.id === 'emailPreviewFrame') {
+                    const modal = new bootstrap.Modal(document.getElementById('emailPreviewModal'));
+                    modal.show();
+                }
+            });
         });
     </script>
 </div>
-
 {% endblock %}

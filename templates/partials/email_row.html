@@ -1,0 +1,34 @@
+{# partials/email_row.html - Reusable email row component for tables #}
+{% from "macros.html" import email_type_badge, status_badge %}
+
+<tr class="email-row" 
+    data-date-range="{{ email.date_range }}" 
+    data-email-type="{{ email.type }}" 
+    data-date="{{ email.start }}"
+    data-name="{{ email.contact.contact_info.name }}"
+    data-email="{{ email.contact.contact_info.email }}">
+  <td>{{ email.contact.contact_info.name }}</td>
+  <td>{{ email.contact.contact_info.email }}</td>
+  <td>{{ email_type_badge(email.type, email.type_display) }}</td>
+  <td>{{ email.start }}</td>
+  <td>
+    {% if email.skipped %}
+      {{ status_badge('skipped') }}
+    {% else %}
+      {{ status_badge('scheduled') }}
+    {% endif %}
+  </td>
+  {% if include_preview %}
+  <td>
+    {% if not email.skipped %}
+    <button class="btn btn-sm btn-outline-primary"
+            hx-get="/preview_email?org_id={{ org_id }}&contact_id={{ email.contact.contact_info.id }}&email_type={{ email.type }}&email_date={{ email.start }}"
+            hx-target="#emailPreviewFrame"
+            hx-trigger="click"
+            hx-indicator="#preview-indicator">
+      Preview
+    </button>
+    {% endif %}
+  </td>
+  {% endif %}
+</tr>

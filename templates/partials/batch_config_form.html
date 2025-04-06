@@ -1,0 +1,124 @@
+{# partials/batch_config_form.html - Reusable batch configuration form #}
+{% from "macros.html" import spinner, form_group %}
+
+<div class="card mb-4">
+  <div class="card-header bg-primary text-white">
+    <h5 class="card-title mb-0">Batch Configuration</h5>
+  </div>
+  <div class="card-body">
+    {% if has_contacts_no_emails %}
+    <div class="alert alert-info">
+      <strong>Note:</strong> The selected contacts don't have any scheduled emails in the system. 
+      Use the <strong>Bulk Send</strong> option in the <em>Date Range</em> dropdown to send emails to these contacts.
+    </div>
+    {% endif %}
+    
+    <form id="start-batch-form" hx-post="/api/initialize_batch" hx-target="#batch-results" hx-indicator="#batch-indicator">
+      <input type="hidden" name="org_id" value="{{ org_id }}">
+      {% for contact_id in contact_ids %}
+      <input type="hidden" name="contact_ids" value="{{ contact_id }}">
+      {% endfor %}
+      
+      <div class="row">
+        <div class="col-md-6">
+          <div class="mb-3">
+            <label for="send_mode" class="form-label">Send Mode</label>
+            <select class="form-select" id="send_mode" name="send_mode" hx-trigger="change" hx-get="/email_batch/toggle_test_email" hx-target="#test-email-section" hx-swap="outerHTML">
+              <option value="test" selected>Test Mode</option>
+              <option value="production">Production Mode</option>
+            </select>
+          </div>
+          
+          <div class="mb-3" id="test-email-section">
+            <label for="test_email" class="form-label">Test Email Address</label>
+            <div class="mb-2">
+              <div class="form-check form-check-inline">
+                <input class="form-check-input test-email-checkbox" type="checkbox" id="email_reuben" name="email_checkbox" value="reuben.brooks@medicaremax.ai">
+                <label class="form-check-label" for="email_reuben">Reuben</label>
+              </div>
+              <div class="form-check form-check-inline">
+                <input class="form-check-input test-email-checkbox" type="checkbox" id="email_josh_m" name="email_checkbox" value="josh.musick@medicaremax.ai">
+                <label class="form-check-label" for="email_josh_m">Josh M</label>
+              </div>
+              <div class="form-check form-check-inline">
+                <input class="form-check-input test-email-checkbox" type="checkbox" id="email_austin" name="email_checkbox" value="austin.park@medicaremax.ai">
+                <label class="form-check-label" for="email_austin">Austin</label>
+              </div>
+              <div class="form-check form-check-inline">
+                <input class="form-check-input test-email-checkbox" type="checkbox" id="email_josh_k" name="email_checkbox" value="josh.klein@medicaremax.ai">
+                <label class="form-check-label" for="email_josh_k">Josh K</label>
+              </div>
+            </div>
+            <input type="email" class="form-control" id="test_email" name="test_email" 
+                   placeholder="Email address for test mode" required>
+            <div class="form-text">Check boxes above OR enter email address. At least one test email is required.</div>
+          </div>
+        </div>
+        
+        <div class="col-md-6">
+          <div class="mb-3">
+            <label for="scope" class="form-label">Date Range</label>
+            <select class="form-select" id="scope" name="scope">
+              <option value="today">Today's Emails ({{ today_count }})</option>
+              <option value="next_7_days">Next 7 Days ({{ next_7_count }})</option>
+              <option value="next_30_days">Next 30 Days ({{ next_30_count }})</option>
+              <option value="all">All Scheduled Emails ({{ total_count }})</option>
+              <option value="bulk" selected class="fw-bold text-primary">Bulk Send ({{ contact_ids|length }} contacts)</option>
+            </select>
+            <div class="form-text">
+              <strong>Scheduled Mode:</strong> Sends emails according to the scheduling system.<br>
+              <strong>Bulk Send Mode:</strong> When "Post Window" is the only selected email type, sends exactly ONE email per contact. Otherwise sends all selected email types to each contact.<br>
+              <strong class="text-success">Enhanced:</strong> Using batch processing for faster email delivery.
+            </div>
+          </div>
+          
+          <div class="mb-3">
+            <label for="chunk_size" class="form-label">Chunk Size</label>
+            <input type="number" class="form-control" id="chunk_size" name="chunk_size" 
+                   value="25" min="1" max="100">
+            <div class="form-text">Number of emails to process in each chunk (1-100).</div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="mb-3">
+        <label class="form-label">Email Types to Include</label>
+        <div id="single-email-mode-notice" class="alert alert-success mb-2" style="display: none;">
+          <strong>Single Email Mode Active:</strong> Each contact will receive exactly ONE Post Window email. This is the recommended mode for most campaigns.
+        </div>
+        <div class="d-flex flex-wrap">
+          <div class="form-check me-4">
+            <input class="form-check-input email-type-checkbox" type="checkbox" id="type_birthday" name="email_types" value="birthday">
+            <label class="form-check-label" for="type_birthday">
+              Birthday ({{ birthday_count }})
+            </label>
+          </div>
+          <div class="form-check me-4">
+            <input class="form-check-input email-type-checkbox" type="checkbox" id="type_effective_date" name="email_types" value="effective_date">
+            <label class="form-check-label" for="type_effective_date">
+              Effective Date ({{ effective_date_count }})
+            </label>
+          </div>
+          <div class="form-check me-4">
+            <input class="form-check-input email-type-checkbox" type="checkbox" id="type_aep" name="email_types" value="aep">
+            <label class="form-check-label" for="type_aep">
+              AEP ({{ aep_count }})
+            </label>
+          </div>
+          <div class="form-check me-4">
+            <input class="form-check-input email-type-checkbox" type="checkbox" id="type_post_window" name="email_types" value="post_window" checked>
+            <label class="form-check-label text-primary fw-bold" for="type_post_window">
+              Post Window ({{ post_window_count }})
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-primary" id="start-batch-btn">Start New Batch</button>
+      <div id="batch-indicator" class="htmx-indicator">
+        <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+        Initializing batch...
+      </div>
+    </form>
+  </div>
+</div>

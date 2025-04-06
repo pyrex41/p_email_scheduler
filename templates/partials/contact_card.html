@@ -1,0 +1,86 @@
+{# partials/contact_card.html - A reusable contact card component #}
+{% from "macros.html" import email_type_badge, status_badge %}
+
+<div class="col-12 mb-4">
+  <div class="card">
+    <div class="card-header">
+      <h5 class="mb-0">
+        <button class="btn btn-link" type="button" data-bs-toggle="collapse" 
+                data-bs-target="#contact-{{ contact.contact_info.id }}">
+          {{ contact.contact_info.name }} ({{ contact.contact_info.state }})
+        </button>
+      </h5>
+    </div>
+    
+    <div class="collapse {% if is_expanded %}show{% endif %}" id="contact-{{ contact.contact_info.id }}">
+      <div class="contact-content">
+        <div class="contact-info">
+          <p><strong>Email:</strong> {{ contact.contact_info.email }}</p>
+          <p><strong>Birth Date:</strong> {{ contact.contact_info.birth_date }}</p>
+          <p><strong>Effective Date:</strong> {{ contact.contact_info.effective_date }}</p>
+          <div class="link-section">
+            <strong>Generated Link:</strong>
+            {% set link = generate_link(org_id, contact.contact_info.id, 'effective_date', contact.contact_info.effective_date) %}
+            <a href="{{ link }}" target="_blank" class="btn btn-sm btn-primary">View Quote</a>
+          </div>
+        </div>
+
+        <div class="state-info">
+          <h4>State Rules</h4>
+          <ul class="mb-0">
+            {% for rule in contact.scheduling_rules %}
+            <li>{{ rule }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+
+        <div class="timeline mt-4">
+          <h4>Scheduled Emails</h4>
+          <div class="table-responsive">
+            <table class="table table-striped">
+              <thead>
+                <tr>
+                  <th>Email Type</th>
+                  <th>Date</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for email in contact.timeline_data.email_list %}
+                <tr>
+                  <td>{{ email.type_display }}</td>
+                  <td>{{ email.start }}</td>
+                  <td>
+                    {% if email.skipped %}
+                      {{ status_badge('skipped') }}
+                      <br>
+                      <small class="text-muted">{{ email.reason }}</small>
+                    {% else %}
+                      {{ status_badge('scheduled') }}
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if not email.skipped %}
+                    <button class="btn btn-sm btn-outline-primary preview-email" 
+                            data-contact-id="{{ contact.contact_info.id }}"
+                            data-email-type="{{ email.type }}"
+                            data-email-date="{{ email.start }}"
+                            hx-get="/preview_email?org_id={{ org_id }}&contact_id={{ contact.contact_info.id }}&email_type={{ email.type }}&email_date={{ email.start }}"
+                            hx-target="#emailPreviewFrame"
+                            hx-trigger="click"
+                            hx-indicator="#preview-loading">
+                      Preview
+                    </button>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

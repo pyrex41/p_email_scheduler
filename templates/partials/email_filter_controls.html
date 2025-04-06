@@ -1,0 +1,46 @@
+{# partials/email_filter_controls.html - Reusable filter controls for email tables #}
+
+<div class="row mb-3">
+  <div class="col-md-3">
+    <select id="filterDateRange" class="form-select" hx-trigger="change" hx-get="/send_emails/filter" hx-target="#emailsTable tbody" hx-include="[name='filter_data']" hx-indicator="#filter-indicator">
+      <option value="all">All Dates</option>
+      <option value="today">Today</option>
+      <option value="next_7_days">Next 7 Days</option>
+      <option value="next_30_days">Next 30 Days</option>
+      <option value="next_90_days">Next 90 Days</option>
+    </select>
+  </div>
+  <div class="col-md-3">
+    <select id="filterEmailType" class="form-select" hx-trigger="change" hx-get="/send_emails/filter" hx-target="#emailsTable tbody" hx-include="[name='filter_data']" hx-indicator="#filter-indicator">
+      <option value="all">All Email Types</option>
+      <option value="birthday">Birthday</option>
+      <option value="effective_date">Effective Date</option>
+      <option value="aep">AEP</option>
+      <option value="post_window">Post Window</option>
+    </select>
+  </div>
+  <div class="col-md-4">
+    <input type="text" id="searchEmails" class="form-control" placeholder="Search by name or email..." 
+           hx-trigger="keyup changed delay:500ms" 
+           hx-get="/send_emails/filter" 
+           hx-target="#emailsTable tbody" 
+           hx-include="[name='filter_data']"
+           hx-indicator="#filter-indicator">
+  </div>
+  <div class="col-md-2">
+    <span class="badge bg-secondary p-2" id="filteredCount">Showing all {{ emails|length }} emails</span>
+    <div id="filter-indicator" class="htmx-indicator">
+      <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+    </div>
+  </div>
+</div>
+
+<input type="hidden" name="filter_data" value="{{ org_id }}">
+<input type="hidden" name="filter_data" value="{{ scope }}">
+<input type="hidden" name="filter_data" value="{{ show_all }}">
+<input type="hidden" name="filter_data" value="{{ sample_size }}"
+{% if contact_ids %}
+{% for contact_id in contact_ids %}
+<input type="hidden" name="filter_data" value="{{ contact_id }}">
+{% endfor %}
+{% endif %}

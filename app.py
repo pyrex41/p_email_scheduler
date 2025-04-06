@@ -121,6 +121,162 @@ app = FastAPI(title="Email Schedule Checker")
 # Initialize the Email Batch Manager
 batch_manager = EmailBatchManager()
 
+@app.get("/email_batch/toggle_test_email")
+async def toggle_test_email(request: Request):
+    """Toggle the test email field based on send mode."""
+    try:
+        # Get the send mode from query params
+        query_params = dict(request.query_params)
+        send_mode = query_params.get("send_mode", "test")
+        
+        # Render the appropriate partial
+        return templates.TemplateResponse(
+            "partials/test_email_section.html", 
+            {
+                "request": request,
+                "send_mode": send_mode
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error toggling test email section: {e}")
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+@app.get("/email_batch/new_batch_form")
+async def email_batch_new_form(
+    request: Request, 
+    org_id: int = Query(...),
+    contact_ids: Optional[str] = Query(None)
+):
+    """Render the form for creating a new email batch."""
+    try:
+        # Check if this is an HTMX request
+        is_htmx = request.headers.get("HX-Request") == "true"
+        logger.info(f"Received request to new_batch_form endpoint (HTMX: {is_htmx})")
+        
+        # Process contact IDs if provided
+        contact_id_list = []
+        if contact_ids:
+            contact_id_list = [id.strip() for id in contact_ids.split(',') if id.strip()]
+        
+        # For organization-level batch, get all contacts if none provided
+        if not contact_id_list:
+            # Get all contacts for this organization
+            all_contacts = get_all_contact_ids(org_id)
+            contact_id_list = [str(c['id']) for c in all_contacts]
+        
+        # Get scheduled email counts for different date ranges and email types
+        today = date.today()
+        
+        # Initialize counts
+        counts = {
+            "today_count": 0,
+            "next_7_count": 0,
+            "next_30_count": 0,
+            "total_count": 0,
+            "birthday_count": 0,
+            "effective_date_count": 0,
+            "aep_count": 0,
+            "post_window_count": len(contact_id_list)  # Default for bulk mode
+        }
+        
+        has_contacts_no_emails = True
+        
+        # Get scheduled emails JSON for these contacts
+        try:
+            schedule_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output_dir/scheduled_emails.json")
+            with open(schedule_file, 'r') as f:
+                all_scheduled = json.load(f)
+                
+            # Filter by contact IDs
+            scheduled_emails = [c for c in all_scheduled if str(c.get('contact_id')) in contact_id_list]
+            
+            # Count scheduled emails by date range and type
+            total_emails_scheduled = 0
+            for contact in scheduled_emails:
+                emails = contact.get('emails', [])
+                if emails:
+                    has_contacts_no_emails = False
+                    
+                for email in emails:
+                    # Skip skipped emails
+                    if email.get('skipped', False):
+                        continue
+                        
+                    total_emails_scheduled += 1
+                    email_type = email.get('type')
+                    email_date_str = email.get('date')
+                    
+                    try:
+                        email_date = datetime.strptime(email_date_str, "%Y-%m-%d").date()
+                        
+                        # Count by date
+                        if email_date == today:
+                            counts["today_count"] += 1
+                        
+                        if today <= email_date <= today + timedelta(days=7):
+                            counts["next_7_count"] += 1
+                            
+                        if today <= email_date <= today + timedelta(days=30):
+                            counts["next_30_count"] += 1
+                            
+                        counts["total_count"] += 1
+                        
+                        # Count by type
+                        if email_type == "birthday":
+                            counts["birthday_count"] += 1
+                        elif email_type == "effective_date":
+                            counts["effective_date_count"] += 1
+                        elif email_type == "aep":
+                            counts["aep_count"] += 1
+                        elif email_type == "post_window":
+                            counts["post_window_count"] += 1
+                    except Exception as e:
+                        # Skip invalid dates
+                        logger.warning(f"Invalid date format in scheduled email: {email_date_str} - {e}")
+                        continue
+                        
+        except Exception as e:
+            logger.error(f"Error loading scheduled emails for batch page: {e}")
+            # Continue anyway, we'll just have zero counts
+        
+        # Get organization details
+        org = get_organization_details(org_id)
+        
+        # For HTMX requests, return just the form
+        if is_htmx:
+            return templates.TemplateResponse(
+                "partials/batch_config_form.html", 
+                {
+                    "request": request,
+                    "org_id": org_id,
+                    "org_name": org['name'] if org else f"Organization {org_id}",
+                    "contact_ids": contact_id_list,
+                    "contact_count": len(contact_id_list),
+                    "has_contacts_no_emails": has_contacts_no_emails,
+                    "today": today.isoformat(),
+                    **counts
+                }
+            )
+        
+        # For regular requests, redirect to the email batch page
+        contact_ids_query = "&".join([f"contact_ids={cid}" for cid in contact_id_list])
+        return RedirectResponse(
+            url=f"/email_batch?org_id={org_id}&{contact_ids_query}",
+            status_code=303
+        )
+        
+    except Exception as e:
+        logger.error(f"Error preparing new batch form: {e}")
+        if is_htmx:
+            return templates.TemplateResponse(
+                "partials/error_message.html", 
+                {
+                    "request": request,
+                    "error": str(e)
+                }
+            )
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.on_event("startup")
 async def startup_event():
     """Run database updates when the application starts"""
@@ -2791,8 +2947,11 @@ async def email_batch_page(
 async def initialize_batch_endpoint(request: Request):
     """Initialize a new email batch using form data or JSON."""
     try:
+        # Check if this is an HTMX request
+        is_htmx = request.headers.get("HX-Request") == "true"
+        logger.info(f"Received request to initialize_batch endpoint (HTMX: {is_htmx})")
+        
         # Log the raw request details for debugging
-        logger.info("Received request to initialize_batch endpoint")
         content_type = request.headers.get("content-type", "").lower()
         logger.info(f"Request content type: {content_type}")
         
@@ -2808,6 +2967,7 @@ async def initialize_batch_endpoint(request: Request):
                 scope = form.get("scope", "all")
                 send_mode = form.get("send_mode", "test")
                 test_email = form.get("test_email", None)
+                chunk_size = int(form.get("chunk_size", "25"))
             except ValueError as e:
                 raise HTTPException(status_code=400, detail=f"Invalid form data: {str(e)}")
             
@@ -2842,6 +3002,7 @@ async def initialize_batch_endpoint(request: Request):
             test_email = json_data.get("test_email")
             contact_ids = json_data.get("contact_ids", [])
             email_types = json_data.get("email_types", [])
+            chunk_size = json_data.get("chunk_size", 25)
             
         else:
             # Try to guess the format from the raw body
@@ -2862,6 +3023,7 @@ async def initialize_batch_endpoint(request: Request):
                     test_email = json_data.get("test_email")
                     contact_ids = json_data.get("contact_ids", [])
                     email_types = json_data.get("email_types", [])
+                    chunk_size = json_data.get("chunk_size", 25)
                 else:
                     # Try form URL-encoded
                     import urllib.parse
@@ -2875,6 +3037,7 @@ async def initialize_batch_endpoint(request: Request):
                     test_email = form_data.get("test_email", [None])[0]
                     contact_ids = form_data.get("contact_ids", [])
                     email_types = form_data.get("email_types", [])
+                    chunk_size = int(form_data.get("chunk_size", ["25"])[0])
             except Exception as e:
                 logger.error(f"Failed to parse request body: {e}")
                 raise HTTPException(status_code=400, detail=f"Unsupported content type and failed to parse body: {e}")
@@ -2909,6 +3072,7 @@ async def initialize_batch_endpoint(request: Request):
                 send_mode=send_mode,
                 test_email=test_email
             )
+            batch_id = result.get("batch_id")
         else:
             # Standard batch initialization - the revised method returns just the batch_id
             start_time = time.time()
@@ -2927,7 +3091,35 @@ async def initialize_batch_endpoint(request: Request):
             result["processing_time"] = f"{duration:.2f}s"
         
         logger.info(f"Batch initialized successfully: {result}")
-        return JSONResponse(content=result)
+        
+        # For HTMX requests, return HTML fragment
+        if is_htmx:
+            # Get the full status for the template
+            batch_status = batch_manager.get_batch_status(batch_id)
+            
+            # Convert contact_ids list to comma-separated string for template
+            contact_ids_str = ",".join(contact_ids)
+            
+            # Return the batch_progress partial
+            return templates.TemplateResponse(
+                "partials/batch_progress.html", 
+                {
+                    "request": request,
+                    "batch_id": batch_id,
+                    "org_id": org_id,
+                    "send_mode": send_mode,
+                    "test_email": test_email,
+                    "total": batch_status.get("total", 0),
+                    "sent": batch_status.get("sent", 0),
+                    "failed": batch_status.get("failed", 0),
+                    "pending": batch_status.get("pending", 0),
+                    "contact_ids": contact_ids_str,
+                    "chunk_size": chunk_size
+                }
+            )
+        else:
+            # For regular API requests, return JSON as before
+            return JSONResponse(content=result)
     except HTTPException:
         logger.exception("HTTP exception in initialize_batch")
         raise
@@ -3074,16 +3266,40 @@ async def initialize_batch_fallback(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/process_batch_chunk")
-async def process_batch_chunk(data: BatchProcessParams):
+async def process_batch_chunk_endpoint(request: Request):
     """Process a chunk of emails from a batch."""
     try:
+        # Check if this is an HTMX request
+        is_htmx = request.headers.get("HX-Request") == "true"
+        logger.info(f"Received request to process_batch_chunk endpoint (HTMX: {is_htmx})")
+        
+        # Parse request data based on content type
+        content_type = request.headers.get("content-type", "").lower()
+        
+        if "application/json" in content_type:
+            # Parse as JSON
+            data = await request.json()
+            batch_id = data.get("batch_id")
+            chunk_size = int(data.get("chunk_size", 25))
+        else:
+            # Parse as form data
+            form = await request.form()
+            batch_id = form.get("batch_id")
+            try:
+                chunk_size = int(form.get("chunk_size", "25"))
+            except ValueError:
+                chunk_size = 25
+        
+        if not batch_id:
+            raise HTTPException(status_code=400, detail="Batch ID is required")
+            
         start_time = time.time()
-        logger.info(f"Processing batch chunk for batch {data.batch_id}, chunk size {data.chunk_size}")
+        logger.info(f"Processing batch chunk for batch {batch_id}, chunk size {chunk_size}")
         
         # Use the optimized async version for maximum performance
         result = await batch_manager.process_batch_chunk_async(
-            batch_id=data.batch_id,
-            chunk_size=data.chunk_size,
+            batch_id=batch_id,
+            chunk_size=chunk_size,
             delay=0.0  # No delay for maximum throughput
         )
         
@@ -3099,7 +3315,51 @@ async def process_batch_chunk(data: BatchProcessParams):
             result["processing_rate"] = f"{emails_per_second:.1f} emails/second"
         
         logger.info(f"Batch chunk processed in {total_duration:.2f}s: {result.get('sent', 0)} sent, {result.get('failed', 0)} failed")
-        return JSONResponse(content=result)
+        
+        # For HTMX requests, return HTML fragment
+        if is_htmx:
+            # Get the batch status for updating the UI
+            batch_status = batch_manager.get_batch_status(batch_id)
+            
+            # Get org_id for view failed button link
+            org_id = batch_status.get("org_id", 0)
+            
+            # Create a formatted log entry
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            log_content = (
+                f"[{timestamp}] Processed {result.get('processed', 0)} emails in {result.get('total_endpoint_time', '0s')}\n"
+                f"Sent: {result.get('sent', 0)}, Failed: {result.get('failed', 0)}, Remaining: {result.get('remaining', 0)}\n"
+                f"Processing rate: {result.get('processing_rate', '0 emails/second')}\n"
+            )
+            
+            # Add errors to log if any
+            errors = result.get("errors", [])
+            if errors:
+                log_content += "Errors:\n"
+                for error in errors[:5]:  # Limit to first 5 errors
+                    log_content += f"- {error}\n"
+                if len(errors) > 5:
+                    log_content += f"... and {len(errors) - 5} more errors\n"
+            
+            log_content += "\n"  # Add blank line between entries
+            
+            return templates.TemplateResponse(
+                "partials/chunk_results.html", 
+                {
+                    "request": request,
+                    "batch_id": batch_id,
+                    "org_id": org_id,
+                    "total": batch_status.get("total", 0),
+                    "sent": batch_status.get("sent", 0),
+                    "failed": batch_status.get("failed", 0),
+                    "pending": batch_status.get("pending", 0),
+                    "log_content": log_content,
+                    "chunk_size": chunk_size
+                }
+            )
+        else:
+            # For regular API requests, return JSON as before
+            return JSONResponse(content=result)
     except HTTPException:
         raise
     except Exception as e:
@@ -3125,17 +3385,94 @@ async def resume_batch(data: BatchResumeParams):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/retry_failed_emails")
-async def retry_failed_emails(data: BatchRetryParams):
+async def retry_failed_emails(request: Request):
     """Retry failed emails from a batch."""
     try:
+        # Check if this is an HTMX request
+        is_htmx = request.headers.get("HX-Request") == "true"
+        logger.info(f"Received request to retry_failed_emails endpoint (HTMX: {is_htmx})")
+        
+        # Parse request data based on content type
+        content_type = request.headers.get("content-type", "").lower()
+        
+        if "application/json" in content_type:
+            # Parse as JSON
+            data = await request.json()
+            batch_id = data.get("batch_id")
+            chunk_size = int(data.get("chunk_size", 25))
+        else:
+            # Parse as form data
+            form = await request.form()
+            batch_id = form.get("batch_id")
+            try:
+                chunk_size = int(form.get("chunk_size", "25"))
+            except ValueError:
+                chunk_size = 25
+        
+        if not batch_id:
+            raise HTTPException(status_code=400, detail="Batch ID is required")
+            
+        start_time = time.time()
+        logger.info(f"Retrying failed emails for batch {batch_id}, chunk size {chunk_size}")
+        
         # Use the async version for better performance
         result = await batch_manager.retry_failed_emails_async(
-            batch_id=data.batch_id,
-            chunk_size=data.chunk_size,
+            batch_id=batch_id,
+            chunk_size=chunk_size,
             delay=0.1  # Add a small delay between emails
         )
         
-        return JSONResponse(content=result)
+        # Calculate total processing time
+        total_duration = time.time() - start_time
+        result["total_endpoint_time"] = f"{total_duration:.2f}s"
+        
+        logger.info(f"Retry operation completed in {total_duration:.2f}s: " +
+                   f"{result.get('retry_successful', 0)} successful, {result.get('retry_failed', 0)} failed")
+        
+        # For HTMX requests, return HTML fragment
+        if is_htmx:
+            # Get the batch status for updating the UI
+            batch_status = batch_manager.get_batch_status(batch_id)
+            
+            # Get org_id for view failed button link
+            org_id = batch_status.get("org_id", 0)
+            
+            # Create a formatted log entry
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            log_content = (
+                f"[{timestamp}] RETRY OPERATION\n"
+                f"Retried {result.get('retry_total', 0)} failed emails in {result.get('total_endpoint_time', '0s')}\n"
+                f"Successful: {result.get('retry_successful', 0)}, Still Failed: {result.get('retry_failed', 0)}\n"
+            )
+            
+            # Add errors to log if any
+            errors = result.get("errors", [])
+            if errors:
+                log_content += "Errors:\n"
+                for error in errors[:5]:  # Limit to first 5 errors
+                    log_content += f"- {error}\n"
+                if len(errors) > 5:
+                    log_content += f"... and {len(errors) - 5} more errors\n"
+            
+            log_content += "\n"  # Add blank line between entries
+            
+            return templates.TemplateResponse(
+                "partials/chunk_results.html", 
+                {
+                    "request": request,
+                    "batch_id": batch_id,
+                    "org_id": org_id,
+                    "total": batch_status.get("total", 0),
+                    "sent": batch_status.get("sent", 0),
+                    "failed": batch_status.get("failed", 0),
+                    "pending": batch_status.get("pending", 0),
+                    "log_content": log_content,
+                    "chunk_size": chunk_size
+                }
+            )
+        else:
+            # For regular API requests, return JSON as before
+            return JSONResponse(content=result)
     except HTTPException:
         raise
     except Exception as e:

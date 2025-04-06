@@ -1,0 +1,76 @@
+{# partials/email_results.html - Reusable email sending results component #}
+{% from "macros.html" import alert %}
+
+<div class="card mb-4">
+    <div class="card-header bg-success text-white">
+        <h5 class="card-title mb-0">Email Send Results</h5>
+    </div>
+    <div class="card-body">
+        {{ alert(message, 'success') }}
+        
+        <div class="row">
+            <div class="col-md-6">
+                <h6>Batch Information</h6>
+                <p><strong>Batch ID:</strong> <span class="font-monospace">{{ batch_id }}</span></p>
+                <p><strong>Send Mode:</strong> {{ send_mode }}</p>
+                {% if send_mode == 'test' and test_emails %}
+                <p><strong>Test Email:</strong> {{ test_emails }}</p>
+                {% endif %}
+            </div>
+            <div class="col-md-6">
+                <h6>Summary</h6>
+                <p><strong>Total Emails Processed:</strong> {{ total_sent + failures }}</p>
+                <p><strong>Successfully Sent:</strong> <span class="text-success">{{ total_sent }}</span></p>
+                <p><strong>Failed:</strong> <span class="text-danger">{{ failures }}</span></p>
+                {% if processing_time %}
+                <p><strong>Processing Time:</strong> {{ processing_time }}</p>
+                {% endif %}
+                {% if emails_per_second %}
+                <p><strong>Performance:</strong> {{ emails_per_second }} emails/second</p>
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="text-center mt-3">
+            <a href="/check?org_id={{ org_id }}" class="btn btn-outline-secondary me-2">Return to Check Page</a>
+            <a href="/send_emails?org_id={{ org_id }}" class="btn btn-outline-primary me-2">Send More Emails</a>
+            {% if failures > 0 %}
+            <a href="/failed_emails?batch_id={{ batch_id }}&org_id={{ org_id }}" class="btn btn-outline-danger">
+                View Failed Emails
+            </a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+{% if emails_sent %}
+<div class="card mb-4">
+    <div class="card-header bg-info text-white">
+        <h5 class="card-title mb-0">Emails Sent</h5>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>Contact</th>
+                        <th>Email</th>
+                        <th>Type</th>
+                        <th>Date</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for email in emails_sent %}
+                    <tr>
+                        <td>{{ email.contact.contact_info.name }}</td>
+                        <td>{{ email.contact.contact_info.email }}</td>
+                        <td>{{ email.type }}</td>
+                        <td>{{ email.date }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}

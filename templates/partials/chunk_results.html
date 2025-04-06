@@ -1,0 +1,48 @@
+{# partials/chunk_results.html - Reusable chunk results log component #}
+
+<div class="card" id="chunk-results-card">
+  <div class="card-header bg-secondary text-white">
+    <h5 class="card-title mb-0">Chunk Results Log</h5>
+  </div>
+  <div class="card-body">
+    <textarea id="chunk-log" class="form-control" rows="8" readonly>{{ log_content }}</textarea>
+  </div>
+</div>
+
+<div id="batch-progress-container">
+  {% set progress = (sent + failed) / total * 100 if total > 0 else 0 %}
+  <div hx-swap-oob="true" id="progress-bar" class="progress-bar progress-bar-striped" role="progressbar" 
+      style="width: {{ progress|int }}%;" 
+      aria-valuenow="{{ progress|int }}" aria-valuemin="0" aria-valuemax="100">{{ progress|int }}%</div>
+
+  <div hx-swap-oob="true" id="total-emails">{{ total }}</div>
+  <div hx-swap-oob="true" id="sent-emails">{{ sent }}</div>
+  <div hx-swap-oob="true" id="failed-emails">{{ failed }}</div>
+  <div hx-swap-oob="true" id="pending-emails">{{ pending }}</div>
+
+  <div hx-swap-oob="true" id="process-chunk-btn" 
+       hx-post="/api/process_batch_chunk" 
+       hx-vals='{"batch_id": "{{ batch_id }}", "chunk_size": {{ chunk_size }} }'
+       hx-target="#chunk-results"
+       hx-trigger="click"
+       hx-indicator="#chunk-indicator"
+       {% if pending == 0 %}disabled{% endif %}>
+    Process Next Chunk
+  </div>
+
+  <div hx-swap-oob="true" id="retry-failed-btn"
+       hx-post="/api/retry_failed_emails"
+       hx-vals='{"batch_id": "{{ batch_id }}", "chunk_size": {{ chunk_size }} }'
+       hx-target="#chunk-results"
+       hx-indicator="#retry-indicator"
+       {% if failed == 0 %}disabled{% endif %}>
+    Retry Failed
+  </div>
+
+  {% if failed > 0 %}
+  <a hx-swap-oob="true" id="view-failed-btn" class="btn btn-outline-danger" 
+     href="/failed_emails?batch_id={{ batch_id }}&org_id={{ org_id }}">
+    View {{ failed }} Failed Email{{ 's' if failed != 1 }}
+  </a>
+  {% endif %}
+</div>
