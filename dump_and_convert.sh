@@ -90,6 +90,32 @@ normalize_dates() {
     fi
 }
 
+# Function to apply migrations to a SQLite database
+apply_migrations() {
+    local sqlite_file=$1
+    
+    echo -e "${YELLOW}Applying migrations to database: ${sqlite_file}...${NC}"
+    
+    # Ensure migrations directory exists
+    mkdir -p migrations
+    
+    # Apply all migration scripts in the migrations directory
+    for migration_file in migrations/*.sql; do
+        if [ -f "$migration_file" ]; then
+            echo -e "${YELLOW}Applying migration: ${migration_file}...${NC}"
+            if sqlite3 "${sqlite_file}" < "${migration_file}"; then
+                echo -e "${GREEN}Successfully applied migration: ${migration_file}${NC}"
+            else
+                echo -e "${RED}Failed to apply migration: ${migration_file}${NC}"
+                return 1
+            fi
+        fi
+    done
+    
+    echo -e "${GREEN}Successfully applied all migrations to database: ${sqlite_file}${NC}"
+    return 0
+}
+
 # Function to extract database ID from URL
 extract_db_id() {
     local url=$1
@@ -144,6 +170,9 @@ echo "${ORG_DATA}" | while IFS='|' read -r org_id name url token; do
     
     # Normalize dates in the SQLite database
     normalize_dates "${ORG_DB}"
+    
+    # Apply migrations to the SQLite database
+    apply_migrations "${ORG_DB}"
     
     echo -e "${GREEN}Processed organization ${org_id} (${name}) using database ${db_id}${NC}"
 done

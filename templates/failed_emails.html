@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>Failed Emails for Batch {{ batch_id }}</h1>
+    
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">Batch Summary</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <p><strong>Organization:</strong> {{ org_name }} (ID: {{ org_id }})</p>
+                            <p><strong>Batch ID:</strong> {{ batch_id }}</p>
+                            <p><strong>Send Mode:</strong> {{ batch_info.send_mode|title }}</p>
+                            {% if batch_info.send_mode == "test" %}
+                            <p><strong>Test Email:</strong> {{ batch_info.test_email }}</p>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6">
+                            <p><strong>Total Emails:</strong> {{ batch_info.total }}</p>
+                            <p><strong>Sent:</strong> <span class="text-success">{{ batch_info.sent }}</span></p>
+                            <p><strong>Failed:</strong> <span class="text-danger">{{ batch_info.failed }}</span></p>
+                            <p><strong>Pending:</strong> <span class="text-warning">{{ batch_info.pending }}</span></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Navigation Buttons -->
+    <div class="row mb-4">
+        <div class="col">
+            <a href="/email_batch?org_id={{ org_id }}" class="btn btn-primary">
+                <i class="fas fa-arrow-left me-2"></i>Return to Batch Management
+            </a>
+            
+            <button class="btn btn-warning ms-2" id="retryAllBtn" 
+                    data-batch-id="{{ batch_id }}" data-org-id="{{ org_id }}">
+                <i class="fas fa-redo me-2"></i>Retry All Failed
+            </button>
+        </div>
+    </div>
+    
+    {% if failed_emails %}
+    <div class="card">
+        <div class="card-header bg-danger text-white">
+            <h5 class="card-title mb-0">Failed Email Details</h5>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-striped" id="failedEmailsTable">
+                    <thead>
+                        <tr>
+                            <th>Contact</th>
+                            <th>Email</th>
+                            <th>Email Type</th>
+                            <th>Scheduled Date</th>
+                            <th>Last Attempt</th>
+                            <th>Attempts</th>
+                            <th>Error Message</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for email in failed_emails %}
+                        <tr>
+                            <td>{{ email.contact_name }}</td>
+                            <td>{{ email.contact_email }}</td>
+                            <td>
+                                {% if email.email_type == 'birthday' %}
+                                <span class="badge bg-primary">Birthday</span>
+                                {% elif email.email_type == 'anniversary' or email.email_type == 'effective_date' %}
+                                <span class="badge bg-success">Effective Date</span>
+                                {% elif email.email_type == 'aep' %}
+                                <span class="badge bg-info">AEP</span>
+                                {% elif email.email_type == 'post_window' %}
+                                <span class="badge bg-warning text-dark">Post Window</span>
+                                {% else %}
+                                <span class="badge bg-secondary">{{ email.email_type|title }}</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ email.scheduled_date }}</td>
+                            <td>{{ email.last_attempt_date }}</td>
+                            <td>{{ email.send_attempt_count }}</td>
+                            <td class="text-danger">{{ email.last_error }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="alert alert-info">
+        <i class="fas fa-info-circle me-2"></i> No failed emails found for this batch.
+    </div>
+    {% endif %}
+</div>
+
+<script>
+    // Handle retry all failed emails
+    document.getElementById('retryAllBtn').addEventListener('click', async function() {
+        const batchId = this.getAttribute('data-batch-id');
+        
+        if (!confirm('Are you sure you want to retry all failed emails in this batch?')) {
+            return;
+        }
+        
+        // Show loading state
+        this.disabled = true;
+        this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Retrying...';
+        
+        try {
+            const response = await fetch('/api/retry_failed_emails', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    batch_id: batchId,
+                    chunk_size: 100 // Retry up to 100 failed emails
+                })
+            });
+            
+            if (!response.ok) {
+                throw new Error(`Server responded with status: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            // Show success message
+            alert(`Retried ${data.retry_total} failed emails. ${data.retry_successful} were successfully sent.`);
+            
+            // Reload the page to show updated status
+            window.location.reload();
+            
+        } catch (error) {
+            console.error('Error retrying failed emails:', error);
+            alert(`Error retrying failed emails: ${error.message}`);
+            
+            // Reset button
+            this.disabled = false;
+            this.innerHTML = '<i class="fas fa-redo me-2"></i>Retry All Failed';
+        }
+    });
+</script>
+{% endblock %}

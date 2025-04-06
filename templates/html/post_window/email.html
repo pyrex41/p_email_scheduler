@@ -87,7 +87,7 @@
                 </div>
                 
                 <div class="button-wrapper">
-                  <a href="{{ quote_link }}" target="_blank" class="cta-button" style="background-color: {{ organization.primary_color|default('#03045E') }};">Review Your Medicare Options</a>
+                  <a href="{% if quote_link|default('') %}{{ quote_link }}{% else %}#{% endif %}" target="_blank" class="cta-button" style="background-color: {{ organization.primary_color|default('#03045E') }};">Review Your Medicare Options</a>
                 </div>
                 
                 <div class="message" style="margin-top: 30px;">

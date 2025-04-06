@@ -262,7 +262,75 @@
                     <label for="batch_size" class="form-label">Batch Size</label>
                     <input type="number" class="form-control" id="batch_size" name="batch_size" value="100" min="1">
                 </div>
-                <button type="submit" class="btn btn-primary" id="sendEmailsBtn">Send Emails</button>
+                <div class="mb-3">
+                    <label for="batch_id" class="form-label">Select Batch to Resume</label>
+                    <select class="form-select" id="batch_id" name="batch_id">
+                        <option value="">Start New Batch</option>
+                        <!-- This will be populated via JavaScript -->
+                    </select>
+                    <div class="form-text">Select an existing batch with pending emails to resume, or start a new one.</div>
+                </div>
+                <div class="d-flex">
+                    <button type="submit" class="btn btn-primary me-2" id="sendEmailsBtn">Send Emails</button>
+                    <a href="/send_emails_redirect?org_id={{ org_id }}{% for contact_id in contacts %}&contact_ids={{ contact_id.id }}{% endfor %}" 
+                       class="btn btn-success">
+                        Use Advanced Batch Mode
+                    </a>
+                </div>
+                <div class="mt-2 alert alert-info">
+                    <i class="bi bi-info-circle-fill"></i> 
+                    <strong>New:</strong> Try our improved batch email interface with better tracking and control!
+                </div>
+                
+                <script>
+                    // Load batches with pending emails
+                    document.addEventListener('DOMContentLoaded', async function() {
+                        const orgId = {{ org_id }};
+                        const batchIdSelect = document.getElementById('batch_id');
+                        
+                        try {
+                            // Fetch batches with pending emails
+                            const response = await fetch(`/api/get_batches?org_id=${orgId}`);
+                            if (!response.ok) {
+                                throw new Error(`Server responded with status: ${response.status}`);
+                            }
+                            
+                            const batches = await response.json();
+                            
+                            if (batches.length === 0) {
+                                // Add a disabled option if no batches found
+                                const option = document.createElement('option');
+                                option.text = 'No batches with pending emails found';
+                                option.disabled = true;
+                                batchIdSelect.add(option);
+                                return;
+                            }
+                            
+                            // Add options for each batch
+                            batches.forEach(batch => {
+                                const option = document.createElement('option');
+                                option.value = batch.batch_id;
+                                
+                                // Format the date
+                                const createdDate = new Date(batch.created_at);
+                                const formattedDate = createdDate.toLocaleString();
+                                
+                                // Format the send mode
+                                const sendMode = batch.send_mode === 'test' ? 'Test Mode' : 'Production Mode';
+                                
+                                option.text = `${formattedDate} - ${batch.pending} pending (${sendMode})`;
+                                batchIdSelect.add(option);
+                            });
+                        } catch (error) {
+                            console.error('Error loading batches:', error);
+                            // Add a fallback option
+                            const option = document.createElement('option');
+                            option.text = 'Error loading batches';
+                            option.disabled = true;
+                            batchIdSelect.add(option);
+                        }
+                    });
+                </script>
             </form>
         </div>
     </div>

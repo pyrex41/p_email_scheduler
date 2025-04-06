@@ -1,0 +1,927 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>Email Batch Management - {{ org_name }} (ID: {{ org_id }})</h1>
+    
+    <div class="row">
+        <div class="col-md-12">
+            <!-- Previous Batches Card -->
+            <div class="card mb-4">
+                <div class="card-header bg-secondary text-white">
+                    <h5 class="card-title mb-0">Resume Previous Batch</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-8">
+                            <select id="previous-batches" class="form-select">
+                                <option value="">-- Select a previous batch to resume --</option>
+                                <!-- This will be populated via JavaScript -->
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <button id="load-previous-batch-btn" class="btn btn-secondary" disabled>Load Selected Batch</button>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-8">
+                            <div class="btn-group" role="group">
+                                <button type="button" class="btn btn-outline-primary btn-sm filter-batch" data-status="pending">Pending</button>
+                                <button type="button" class="btn btn-outline-danger btn-sm filter-batch" data-status="failed">Failed</button>
+                                <button type="button" class="btn btn-outline-success btn-sm filter-batch" data-status="sent">Sent</button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm filter-batch" data-status="all">All</button>
+                            </div>
+                        </div>
+                        <div class="col-md-4 text-end">
+                            <button id="refresh-batches-btn" class="btn btn-sm btn-outline-secondary">
+                                <i class="fas fa-sync-alt"></i> Refresh List
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Batch Configuration Card -->
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">Batch Configuration</h5>
+                </div>
+                <div class="card-body">
+                    {% if has_contacts_no_emails %}
+                    <div class="alert alert-info">
+                        <strong>Note:</strong> The selected contacts don't have any scheduled emails in the system. 
+                        Use the <strong>Bulk Send</strong> option in the <em>Date Range</em> dropdown to send emails to these contacts.
+                    </div>
+                    {% endif %}
+                    <form id="start-batch-form">
+                        <input type="hidden" name="org_id" value="{{ org_id }}">
+                        {% for contact_id in contact_ids %}
+                        <input type="hidden" name="contact_ids" value="{{ contact_id }}">
+                        {% endfor %}
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="send_mode" class="form-label">Send Mode</label>
+                                    <select class="form-select" id="send_mode" name="send_mode" onchange="toggleTestEmail(this)">
+                                        <option value="test" selected>Test Mode</option>
+                                        <option value="production">Production Mode</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="mb-3" id="test-email-section">
+                                    <label for="test_email" class="form-label">Test Email Address</label>
+                                    <div class="mb-2">
+                                        <div class="form-check form-check-inline">
+                                            <input class="form-check-input test-email-checkbox" type="checkbox" id="email_reuben" name="email_checkbox" value="reuben.brooks@medicaremax.ai">
+                                            <label class="form-check-label" for="email_reuben">Reuben</label>
+                                        </div>
+                                        <div class="form-check form-check-inline">
+                                            <input class="form-check-input test-email-checkbox" type="checkbox" id="email_josh_m" name="email_checkbox" value="josh.musick@medicaremax.ai">
+                                            <label class="form-check-label" for="email_josh_m">Josh M</label>
+                                        </div>
+                                        <div class="form-check form-check-inline">
+                                            <input class="form-check-input test-email-checkbox" type="checkbox" id="email_austin" name="email_checkbox" value="austin.park@medicaremax.ai">
+                                            <label class="form-check-label" for="email_austin">Austin</label>
+                                        </div>
+                                        <div class="form-check form-check-inline">
+                                            <input class="form-check-input test-email-checkbox" type="checkbox" id="email_josh_k" name="email_checkbox" value="josh.klein@medicaremax.ai">
+                                            <label class="form-check-label" for="email_josh_k">Josh K</label>
+                                        </div>
+                                    </div>
+                                    <input type="email" class="form-control" id="test_email" name="test_email" 
+                                           placeholder="Email address for test mode" required>
+                                    <div class="form-text">Check boxes above OR enter email address. At least one test email is required.</div>
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="scope" class="form-label">Date Range</label>
+                                    <select class="form-select" id="scope" name="scope">
+                                        <option value="today">Today's Emails ({{ today_count }})</option>
+                                        <option value="next_7_days">Next 7 Days ({{ next_7_count }})</option>
+                                        <option value="next_30_days">Next 30 Days ({{ next_30_count }})</option>
+                                        <option value="all">All Scheduled Emails ({{ total_count }})</option>
+                                        <option value="bulk" selected class="fw-bold text-primary">Bulk Send ({{ contact_ids|length }} contacts)</option>
+                                    </select>
+                                    <div class="form-text">
+                                        <strong>Scheduled Mode:</strong> Sends emails according to the scheduling system.<br>
+                                        <strong>Bulk Send Mode:</strong> When "Post Window" is the only selected email type, sends exactly ONE email per contact. Otherwise sends all selected email types to each contact.<br>
+                                        <strong class="text-success">Enhanced:</strong> Using batch processing for faster email delivery.
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="chunk_size" class="form-label">Chunk Size</label>
+                                    <input type="number" class="form-control" id="chunk_size" name="chunk_size" 
+                                           value="25" min="1" max="100">
+                                    <div class="form-text">Number of emails to process in each chunk (1-100).</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Email Types to Include</label>
+                            <div id="single-email-mode-notice" class="alert alert-success mb-2" style="display: none;">
+                                <strong>Single Email Mode Active:</strong> Each contact will receive exactly ONE Post Window email. This is the recommended mode for most campaigns.
+                            </div>
+                            <div class="d-flex flex-wrap">
+                                <div class="form-check me-4">
+                                    <input class="form-check-input email-type-checkbox" type="checkbox" id="type_birthday" name="email_types" value="birthday">
+                                    <label class="form-check-label" for="type_birthday">
+                                        Birthday ({{ birthday_count }})
+                                    </label>
+                                </div>
+                                <div class="form-check me-4">
+                                    <input class="form-check-input email-type-checkbox" type="checkbox" id="type_effective_date" name="email_types" value="effective_date">
+                                    <label class="form-check-label" for="type_effective_date">
+                                        Effective Date ({{ effective_date_count }})
+                                    </label>
+                                </div>
+                                <div class="form-check me-4">
+                                    <input class="form-check-input email-type-checkbox" type="checkbox" id="type_aep" name="email_types" value="aep">
+                                    <label class="form-check-label" for="type_aep">
+                                        AEP ({{ aep_count }})
+                                    </label>
+                                </div>
+                                <div class="form-check me-4">
+                                    <input class="form-check-input email-type-checkbox" type="checkbox" id="type_post_window" name="email_types" value="post_window" checked>
+                                    <label class="form-check-label text-primary fw-bold" for="type_post_window">
+                                        Post Window ({{ post_window_count }})
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary" id="start-batch-btn">Start New Batch</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Batch Progress Card -->
+            <div class="card mb-4" id="batch-progress-card" style="display: none;">
+                <div class="card-header bg-info text-white">
+                    <h5 class="card-title mb-0">Batch Progress</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <h6>Batch Information</h6>
+                            <p><strong>Batch ID:</strong> <span id="batch-id" class="font-monospace"></span></p>
+                            <p><strong>Send Mode:</strong> <span id="batch-mode"></span></p>
+                            <p id="test-email-display" style="display: none;"><strong>Test Email:</strong> <span id="batch-test-email"></span></p>
+                        </div>
+                        <div class="col-md-6">
+                            <h6>Email Progress</h6>
+                            <p>
+                                <strong>Total:</strong> <span id="total-emails">0</span> | 
+                                <strong>Sent:</strong> <span id="sent-emails" class="text-success">0</span> | 
+                                <strong>Failed:</strong> <span id="failed-emails" class="text-danger">0</span> | 
+                                <strong>Pending:</strong> <span id="pending-emails">0</span>
+                            </p>
+                            <div class="progress mb-3" style="height: 20px;">
+                                <div id="progress-bar" class="progress-bar progress-bar-striped" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <button id="process-chunk-btn" class="btn btn-success">Process Next Chunk</button>
+                            <button id="pause-batch-btn" class="btn btn-warning" disabled>Pause</button>
+                        </div>
+                        <div>
+                            <button id="retry-failed-btn" class="btn btn-danger" disabled>Retry Failed</button>
+                            <a id="view-failed-btn" class="btn btn-outline-danger" style="display: none;">View Failed Emails</a>
+                            <button id="new-batch-btn" class="btn btn-secondary">New Batch</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chunk Results Card -->
+            <div class="card" id="chunk-results-card" style="display: none;">
+                <div class="card-header bg-secondary text-white">
+                    <h5 class="card-title mb-0">Chunk Results Log</h5>
+                </div>
+                <div class="card-body">
+                    <textarea id="chunk-log" class="form-control" rows="8" readonly></textarea>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Toggle test email input based on send mode
+function toggleTestEmail(select) {
+    const testEmailSection = document.getElementById('test-email-section');
+    const testEmailInput = document.getElementById('test_email');
+    
+    if (select.value === 'test') {
+        testEmailSection.style.display = 'block';
+        
+        // Check if any checkboxes are checked
+        const checkboxes = document.querySelectorAll('.test-email-checkbox:checked');
+        if (checkboxes.length > 0) {
+            testEmailInput.removeAttribute('required');
+        } else {
+            testEmailInput.setAttribute('required', 'required');
+        }
+    } else {
+        testEmailSection.style.display = 'none';
+        testEmailInput.removeAttribute('required');
+    }
+}
+
+// Function to update the required attribute for test emails field
+function updateTestEmailsRequired() {
+    const testEmailInput = document.getElementById('test_email');
+    const sendMode = document.getElementById('send_mode').value;
+    const checkboxes = document.querySelectorAll('.test-email-checkbox:checked');
+    
+    if (sendMode === 'test') {
+        if (checkboxes.length > 0) {
+            // If at least one checkbox is checked, the input is not required
+            testEmailInput.removeAttribute('required');
+            testEmailInput.placeholder = "Additional email addresses (optional)";
+        } else {
+            // If no checkbox is checked, the input is required
+            testEmailInput.setAttribute('required', 'required');
+            testEmailInput.placeholder = "Email address for test mode";
+        }
+    }
+}
+
+// Add event listeners to all test email checkboxes
+document.querySelectorAll('.test-email-checkbox').forEach(checkbox => {
+    checkbox.addEventListener('change', updateTestEmailsRequired);
+});
+
+// Format dates for display
+function formatDate(dateString) {
+    const date = new Date(dateString);
+    return date.toLocaleString();
+}
+
+// Update progress bar
+function updateProgressBar(sent, failed, total) {
+    const progress = Math.round(((sent + failed) / total) * 100);
+    const progressBar = document.getElementById('progress-bar');
+    progressBar.style.width = `${progress}%`;
+    progressBar.innerText = `${progress}%`;
+    progressBar.setAttribute('aria-valuenow', progress);
+}
+
+// Start a new batch
+document.getElementById('start-batch-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    // Validate form
+    const form = e.target;
+    const sendMode = form.send_mode.value;
+    
+    if (sendMode === 'production') {
+        if (!confirm('WARNING: You are about to send emails in PRODUCTION mode. These emails will be sent to actual recipients. Are you sure you want to continue?')) {
+            return;
+        }
+    }
+    
+    // Collect email types
+    const selectedTypes = Array.from(form.querySelectorAll('input[name="email_types"]:checked'))
+        .map(checkbox => checkbox.value);
+        
+    if (selectedTypes.length === 0) {
+        alert('Please select at least one email type.');
+        return;
+    }
+    
+    // Disable the start button
+    const startBtn = document.getElementById('start-batch-btn');
+    startBtn.disabled = true;
+    startBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Initializing...';
+    
+    // Prepare form data
+    const formData = new FormData(form);
+    formData.delete('email_types'); // Remove default email_types entries
+    selectedTypes.forEach(type => formData.append('email_types', type)); // Add selected email types
+    
+    // Process test emails if in test mode
+    if (sendMode === 'test') {
+        // Get all checked email addresses
+        const checkedEmails = Array.from(document.querySelectorAll('.test-email-checkbox:checked'))
+            .map(cb => cb.value);
+            
+        // Get any manually entered emails
+        let manualEmails = form.test_email.value.split(',')
+            .map(email => email.trim())
+            .filter(email => email.length > 0);
+        
+        // Combine all email addresses
+        const allEmails = [...checkedEmails, ...manualEmails];
+        
+        // If we have no emails and we're in test mode, prevent form submission
+        if (allEmails.length === 0) {
+            alert('Please select at least one test email recipient');
+            return;
+        }
+        
+        // Update the test_email field with all emails
+        formData.set('test_email', allEmails.join(', '));
+    }
+    
+    try {
+        // Debug: Log form data contents before sending
+        console.log("Sending form data to initialize_batch endpoint");
+        for (let [key, value] of formData.entries()) {
+            console.log(`${key}: ${value}`);
+        }
+        
+        // Call initialize_batch endpoint
+        console.log("Sending request to /api/initialize_batch");
+        let response;
+        let fallbackUsed = false;
+        let mainError = null;
+        
+        try {
+            response = await fetch('/api/initialize_batch', {
+                method: 'POST',
+                body: formData
+            });
+            
+            console.log("Response status:", response.status);
+            console.log("Response headers:", [...response.headers.entries()]);
+            
+            if (!response.ok) {
+                // Try to get error details if available
+                let errorDetail = "Unknown error";
+                try {
+                    const errorJson = await response.json();
+                    errorDetail = errorJson.detail || JSON.stringify(errorJson);
+                } catch (jsonError) {
+                    try {
+                        errorDetail = await response.text();
+                    } catch (textError) {
+                        errorDetail = `Could not parse error response: ${textError}`;
+                    }
+                }
+                console.error("Server error details:", errorDetail);
+                mainError = new Error(`Server responded with status: ${response.status}. Details: ${errorDetail}`);
+                throw mainError;
+            }
+        } catch (error) {
+            console.error("Error with main endpoint, trying fallback:", error);
+            
+            // Try the fallback endpoint
+            console.log("Sending request to fallback endpoint: /api/initialize_batch/fallback");
+            
+            // Create a copy of the form data for the fallback request
+            const fallbackFormData = new FormData();
+            for (let [key, value] of formData.entries()) {
+                fallbackFormData.append(key, value);
+            }
+            
+            // Try sending as JSON if FormData fails
+            try {
+                // First try with FormData
+                response = await fetch('/api/initialize_batch/fallback', {
+                    method: 'POST',
+                    body: fallbackFormData
+                });
+                
+                if (!response.ok) {
+                    console.log("Fallback with FormData failed, trying with JSON");
+                    
+                    // Convert formData to JSON
+                    const jsonData = {};
+                    for (let [key, value] of formData.entries()) {
+                        // Handle multiple values for same key (like contact_ids and email_types)
+                        if (key in jsonData) {
+                            if (Array.isArray(jsonData[key])) {
+                                jsonData[key].push(value);
+                            } else {
+                                jsonData[key] = [jsonData[key], value];
+                            }
+                        } else {
+                            jsonData[key] = value;
+                        }
+                    }
+                    
+                    // Try with JSON
+                    response = await fetch('/api/initialize_batch/fallback', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(jsonData)
+                    });
+                }
+                
+                console.log("Fallback response status:", response.status);
+                console.log("Fallback response headers:", [...response.headers.entries()]);
+                
+                if (!response.ok) {
+                    // If fallback also failed, combine both errors
+                    let fallbackError = `Fallback endpoint also failed with status: ${response.status}`;
+                    try {
+                        const errorJson = await response.json();
+                        fallbackError += ` Details: ${errorJson.detail || JSON.stringify(errorJson)}`;
+                    } catch (e) {
+                        // Ignore parsing errors for fallback error details
+                    }
+                    
+                    throw new Error(`${mainError.message}\n${fallbackError}`);
+                }
+                
+                fallbackUsed = true;
+            } catch (fallbackError) {
+                console.error("Both main and fallback endpoints failed:", fallbackError);
+                throw fallbackError;
+            }
+        }
+        
+        if (fallbackUsed) {
+            console.log("Successfully used fallback endpoint");
+        }
+        
+        const data = await response.json();
+        console.log("Response data:", data);
+        
+        // Show batch progress section
+        document.getElementById('batch-progress-card').style.display = 'block';
+        document.getElementById('chunk-results-card').style.display = 'block';
+        
+        // Update batch info
+        document.getElementById('batch-id').textContent = data.batch_id;
+        document.getElementById('batch-mode').textContent = sendMode === 'test' ? 'Test Mode' : 'Production Mode';
+        
+        if (sendMode === 'test') {
+            document.getElementById('test-email-display').style.display = 'block';
+            document.getElementById('batch-test-email').textContent = form.test_email.value;
+        }
+        
+        // Update counters
+        document.getElementById('total-emails').textContent = data.total_emails;
+        document.getElementById('pending-emails').textContent = data.total_emails;
+        
+        // Enable process chunk button
+        document.getElementById('process-chunk-btn').disabled = false;
+        
+        // Log initialization
+        document.getElementById('chunk-log').value = `Batch ${data.batch_id} initialized with ${data.total_emails} emails.\n`;
+        
+    } catch (error) {
+        console.error('Error initializing batch:', error);
+        alert(`Error initializing batch: ${error.message}`);
+    } finally {
+        // Re-enable the start button
+        startBtn.disabled = false;
+        startBtn.innerHTML = 'Start New Batch';
+    }
+});
+
+// Process next chunk
+document.getElementById('process-chunk-btn').addEventListener('click', async () => {
+    const batchId = document.getElementById('batch-id').textContent;
+    const chunkButton = document.getElementById('process-chunk-btn');
+    const pauseButton = document.getElementById('pause-batch-btn');
+    const chunkSize = document.getElementById('chunk_size').value;
+    
+    if (!batchId) {
+        alert('No active batch. Please start a new batch first.');
+        return;
+    }
+    
+    // Disable buttons
+    chunkButton.disabled = true;
+    chunkButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Processing...';
+    pauseButton.disabled = false;
+    
+    try {
+        // Call process_chunk endpoint
+        const response = await fetch('/api/process_batch_chunk', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                batch_id: batchId,
+                chunk_size: parseInt(chunkSize, 10)
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Server responded with status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        // Update counters
+        const currentSent = parseInt(document.getElementById('sent-emails').textContent, 10);
+        const currentFailed = parseInt(document.getElementById('failed-emails').textContent, 10);
+        const totalEmails = parseInt(document.getElementById('total-emails').textContent, 10);
+        
+        const newSent = currentSent + data.sent;
+        const newFailed = currentFailed + data.failed;
+        
+        document.getElementById('sent-emails').textContent = newSent;
+        document.getElementById('failed-emails').textContent = newFailed;
+        document.getElementById('pending-emails').textContent = data.remaining;
+        
+        // Update progress
+        updateProgressBar(newSent, newFailed, totalEmails);
+        
+        // Update the View Failed button
+        updateViewFailedButton(newFailed, batchId, {{ org_id }});
+        
+        // Update log
+        const logTextarea = document.getElementById('chunk-log');
+        logTextarea.value = `Processed ${data.processed} emails\n`;
+        logTextarea.value += `- Sent: ${data.sent}\n`;
+        logTextarea.value += `- Failed: ${data.failed}\n`;
+        logTextarea.value += `- Remaining: ${data.remaining}\n\n`;
+        
+        if (data.errors && data.errors.length > 0) {
+            logTextarea.value += `Errors:\n`;
+            data.errors.forEach((error, index) => {
+                logTextarea.value += `${index + 1}. ${error}\n`;
+            });
+        }
+        
+        // Enable/disable buttons based on remaining emails
+        if (data.remaining === 0) {
+            chunkButton.disabled = true;
+            pauseButton.disabled = true;
+            document.getElementById('retry-failed-btn').disabled = false;
+            logTextarea.value += `\nBatch complete! All emails have been processed.`;
+        } else {
+            chunkButton.disabled = false;
+        }
+        
+    } catch (error) {
+        console.error('Error processing chunk:', error);
+        alert(`Error processing chunk: ${error.message}`);
+    } finally {
+        // Reset button
+        chunkButton.disabled = false;
+        chunkButton.innerHTML = 'Process Next Chunk';
+    }
+});
+
+// Retry failed emails
+document.getElementById('retry-failed-btn').addEventListener('click', async () => {
+    const batchId = document.getElementById('batch-id').textContent;
+    const retryButton = document.getElementById('retry-failed-btn');
+    const chunkSize = document.getElementById('chunk_size').value;
+    
+    if (!batchId) {
+        alert('No active batch. Please start a new batch first.');
+        return;
+    }
+    
+    // Confirm retry
+    if (!confirm('Are you sure you want to retry failed emails in this batch?')) {
+        return;
+    }
+    
+    // Disable button
+    retryButton.disabled = true;
+    retryButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Retrying...';
+    
+    try {
+        // Call retry_failed endpoint
+        const response = await fetch('/api/retry_failed_emails', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                batch_id: batchId,
+                chunk_size: parseInt(chunkSize, 10)
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Server responded with status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        // Update counters
+        const currentSent = parseInt(document.getElementById('sent-emails').textContent, 10);
+        const newSent = currentSent + data.retry_successful;
+        document.getElementById('sent-emails').textContent = newSent;
+        document.getElementById('failed-emails').textContent = data.retry_failed;
+        
+        // Update the View Failed button
+        updateViewFailedButton(data.retry_failed, batchId, {{ org_id }});
+        
+        // Update log
+        const logTextarea = document.getElementById('chunk-log');
+        logTextarea.value = `Retried ${data.retry_total} failed emails\n`;
+        logTextarea.value += `- Successfully sent: ${data.retry_successful}\n`;
+        logTextarea.value += `- Failed again: ${data.retry_failed}\n\n`;
+        
+        if (data.errors && data.errors.length > 0) {
+            logTextarea.value += `Errors:\n`;
+            data.errors.forEach((error, index) => {
+                logTextarea.value += `${index + 1}. ${error}\n`;
+            });
+        }
+        
+    } catch (error) {
+        console.error('Error retrying failed emails:', error);
+        alert(`Error retrying failed emails: ${error.message}`);
+    } finally {
+        // Reset button
+        retryButton.disabled = false;
+        retryButton.innerHTML = 'Retry Failed';
+    }
+});
+
+// New batch button
+document.getElementById('new-batch-btn').addEventListener('click', () => {
+    // Hide progress and results sections
+    document.getElementById('batch-progress-card').style.display = 'none';
+    document.getElementById('chunk-results-card').style.display = 'none';
+    
+    // Clear form
+    document.getElementById('start-batch-form').reset();
+    
+    // Show test email section (default is test mode)
+    document.getElementById('test-email-section').style.display = 'block';
+    
+    // Enable all required form elements
+    document.getElementById('start-batch-btn').disabled = false;
+    document.getElementById('test_email').setAttribute('required', 'required');
+    
+    // Reset checkboxes
+    document.querySelectorAll('input[name="email_types"]').forEach(checkbox => {
+        checkbox.checked = true;
+    });
+});
+
+// Load batches with filter
+async function loadBatches(status = 'pending') {
+    const orgId = {{ org_id }};
+    const previousBatchesSelect = document.getElementById('previous-batches');
+    
+    try {
+        // Update button states
+        document.querySelectorAll('.filter-batch').forEach(btn => {
+            if (btn.dataset.status === status) {
+                btn.classList.remove('btn-outline-primary', 'btn-outline-danger', 'btn-outline-success', 'btn-outline-secondary');
+                if (status === 'pending') btn.classList.add('btn-primary');
+                else if (status === 'failed') btn.classList.add('btn-danger');
+                else if (status === 'sent') btn.classList.add('btn-success');
+                else btn.classList.add('btn-secondary');
+            } else {
+                btn.classList.remove('btn-primary', 'btn-danger', 'btn-success', 'btn-secondary');
+                if (btn.dataset.status === 'pending') btn.classList.add('btn-outline-primary');
+                else if (btn.dataset.status === 'failed') btn.classList.add('btn-outline-danger');
+                else if (btn.dataset.status === 'sent') btn.classList.add('btn-outline-success');
+                else btn.classList.add('btn-outline-secondary');
+            }
+        });
+        
+        // Show loading indicator
+        const loadingOption = document.createElement('option');
+        loadingOption.text = 'Loading batches...';
+        loadingOption.disabled = true;
+        
+        // Clear existing options except the default one
+        while (previousBatchesSelect.options.length > 1) {
+            previousBatchesSelect.remove(1);
+        }
+        previousBatchesSelect.add(loadingOption);
+        
+        // Fetch batches with the specified status
+        const url = status === 'all' 
+            ? `/api/list_batches?org_id=${orgId}&limit=20` 
+            : `/api/list_batches?org_id=${orgId}&status=${status}&limit=20`;
+            
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`Server responded with status: ${response.status}`);
+        }
+        
+        const batches = await response.json();
+        
+        // Remove loading option
+        previousBatchesSelect.remove(previousBatchesSelect.options.length - 1);
+        
+        // Add options for each batch
+        batches.forEach(batch => {
+            const option = document.createElement('option');
+            option.value = batch.batch_id;
+            
+            // Format the date
+            const createdDate = new Date(batch.created_at);
+            const formattedDate = createdDate.toLocaleString();
+            
+            // Create option text with batch details
+            const sendMode = batch.send_mode === 'test' ? 'Test Mode' : 'Production Mode';
+            
+            // Construct status text based on batch progress
+            let statusText = '';
+            if (batch.pending > 0) {
+                statusText += `${batch.pending} pending`;
+            }
+            if (batch.failed > 0) {
+                statusText += statusText ? `, ${batch.failed} failed` : `${batch.failed} failed`;
+            }
+            if (batch.sent > 0) {
+                statusText += statusText ? `, ${batch.sent} sent` : `${batch.sent} sent`;
+            }
+            
+            option.text = `${formattedDate} - ${statusText} (${sendMode})`;
+            
+            // Add data attributes for loading batch details
+            option.dataset.batchId = batch.batch_id;
+            option.dataset.sendMode = batch.send_mode;
+            option.dataset.totalEmails = batch.total;
+            option.dataset.sentEmails = batch.sent;
+            option.dataset.failedEmails = batch.failed;
+            option.dataset.pendingEmails = batch.pending;
+            option.dataset.testEmail = batch.test_email || '';
+            
+            previousBatchesSelect.add(option);
+        });
+        
+        // Enable/disable the load button based on selection
+        document.getElementById('load-previous-batch-btn').disabled = previousBatchesSelect.value === '';
+        
+        if (batches.length === 0) {
+            // Add a disabled option if no batches found
+            const option = document.createElement('option');
+            option.text = `No batches ${status !== 'all' ? `with ${status} emails` : ''} found`;
+            option.disabled = true;
+            previousBatchesSelect.add(option);
+        }
+    } catch (error) {
+        console.error('Error loading batches:', error);
+        alert(`Error loading batches: ${error.message}`);
+    }
+}
+
+// Handle selection of previous batch
+document.getElementById('previous-batches').addEventListener('change', function() {
+    const loadButton = document.getElementById('load-previous-batch-btn');
+    loadButton.disabled = this.value === '';
+});
+
+// Handle loading of previous batch
+document.getElementById('load-previous-batch-btn').addEventListener('click', async function() {
+    const selectElement = document.getElementById('previous-batches');
+    const selectedOption = selectElement.options[selectElement.selectedIndex];
+    
+    if (!selectedOption.value) {
+        return;
+    }
+    
+    const batchId = selectedOption.value;
+    const totalEmails = parseInt(selectedOption.dataset.totalEmails, 10);
+    const sentEmails = parseInt(selectedOption.dataset.sentEmails, 10);
+    const failedEmails = parseInt(selectedOption.dataset.failedEmails, 10);
+    const pendingEmails = parseInt(selectedOption.dataset.pendingEmails, 10);
+    const sendMode = selectedOption.dataset.sendMode;
+    const testEmail = selectedOption.dataset.testEmail;
+    const orgId = {{ org_id }};
+    
+    // Show batch progress section
+    document.getElementById('batch-progress-card').style.display = 'block';
+    document.getElementById('chunk-results-card').style.display = 'block';
+    
+    // Update batch info
+    document.getElementById('batch-id').textContent = batchId;
+    document.getElementById('batch-mode').textContent = sendMode === 'test' ? 'Test Mode' : 'Production Mode';
+    
+    // Show test email if in test mode
+    if (sendMode === 'test' && testEmail) {
+        document.getElementById('test-email-display').style.display = 'block';
+        document.getElementById('batch-test-email').textContent = testEmail;
+    } else {
+        document.getElementById('test-email-display').style.display = 'none';
+    }
+    
+    // Update counters
+    document.getElementById('total-emails').textContent = totalEmails;
+    document.getElementById('sent-emails').textContent = sentEmails;
+    document.getElementById('failed-emails').textContent = failedEmails;
+    document.getElementById('pending-emails').textContent = pendingEmails;
+    
+    // Update progress bar
+    updateProgressBar(sentEmails, failedEmails, totalEmails);
+    
+    // Enable buttons
+    document.getElementById('process-chunk-btn').disabled = pendingEmails === 0;
+    document.getElementById('retry-failed-btn').disabled = failedEmails === 0;
+    
+    // Update the View Failed button
+    updateViewFailedButton(failedEmails, batchId, orgId);
+    
+    // Log resumption
+    document.getElementById('chunk-log').value = `Loaded batch ${batchId} with ${pendingEmails} pending emails and ${failedEmails} failed emails.\n`;
+    document.getElementById('chunk-log').value += `Ready to continue processing.`;
+});
+
+// Handle filter batch buttons
+document.querySelectorAll('.filter-batch').forEach(button => {
+    button.addEventListener('click', function() {
+        const status = this.dataset.status;
+        loadBatches(status);
+    });
+});
+
+// Refresh batches button
+document.getElementById('refresh-batches-btn').addEventListener('click', function() {
+    // Get the currently active filter
+    const activeFilter = document.querySelector('.filter-batch.btn-primary, .filter-batch.btn-danger, .filter-batch.btn-success, .filter-batch.btn-secondary');
+    const status = activeFilter ? activeFilter.dataset.status : 'pending';
+    loadBatches(status);
+});
+
+// Enable View Failed Emails button when there are failed emails
+function updateViewFailedButton(failedCount, batchId, orgId) {
+    const viewFailedBtn = document.getElementById('view-failed-btn');
+    
+    if (failedCount > 0) {
+        viewFailedBtn.style.display = 'inline-block';
+        viewFailedBtn.href = `/failed_emails?batch_id=${batchId}&org_id=${orgId}`;
+        viewFailedBtn.textContent = `View ${failedCount} Failed Email${failedCount !== 1 ? 's' : ''}`;
+    } else {
+        viewFailedBtn.style.display = 'none';
+    }
+}
+
+// Function to check if we're in single email mode and update the UI
+function updateSingleEmailModeStatus() {
+    const scope = document.getElementById('scope').value;
+    const emailTypeCheckboxes = document.querySelectorAll('.email-type-checkbox:checked');
+    
+    // Check if we're in bulk mode and only post_window is selected
+    const isBulkMode = (scope === 'bulk');
+    const onlyPostWindowSelected = (
+        emailTypeCheckboxes.length === 1 && 
+        emailTypeCheckboxes[0].value === 'post_window'
+    );
+    
+    // Show/hide the notice
+    const notice = document.getElementById('single-email-mode-notice');
+    if (isBulkMode && onlyPostWindowSelected) {
+        notice.style.display = 'block';
+        
+        // Also update the start button text to reflect this mode
+        const startButton = document.getElementById('start-batch-btn');
+        startButton.textContent = "Start Single-Email Batch";
+        startButton.classList.add('btn-success');
+        startButton.classList.remove('btn-primary');
+    } else {
+        notice.style.display = 'none';
+        
+        // Reset the start button text
+        const startButton = document.getElementById('start-batch-btn');
+        startButton.textContent = "Start New Batch";
+        startButton.classList.add('btn-primary');
+        startButton.classList.remove('btn-success');
+    }
+}
+
+// Initialize the page
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize with test mode selected
+    document.getElementById('send_mode').value = 'test';
+    document.getElementById('test-email-section').style.display = 'block';
+    
+    // Always set to bulk mode and ensure only post_window is checked
+    document.getElementById('scope').value = 'bulk';
+    
+    // Ensure only post_window is checked (in case HTML defaults are changed)
+    document.querySelectorAll('.email-type-checkbox').forEach(checkbox => {
+        if (checkbox.value === 'post_window') {
+            checkbox.checked = true;
+        } else {
+            checkbox.checked = false;
+        }
+    });
+    
+    // Initialize the test email required state
+    updateTestEmailsRequired();
+    
+    // Add event listeners for single email mode checking
+    document.getElementById('scope').addEventListener('change', updateSingleEmailModeStatus);
+    
+    // Add event listeners to email type checkboxes
+    document.querySelectorAll('.email-type-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', updateSingleEmailModeStatus);
+    });
+    
+    // Initial check for single email mode
+    updateSingleEmailModeStatus();
+    
+    // Load batches with pending emails by default
+    loadBatches('pending');
+});
+</script>
+{% endblock %}

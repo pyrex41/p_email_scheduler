@@ -8,9 +8,16 @@ import logging
 import os
 import json
 from typing import Optional
+from dotenv_config import get_app_config, load_env
+
+# Load environment variables
+load_env()
+
+# Get application configuration
+app_config = get_app_config()
+LOG_FILE = app_config["log_file"]
 
 # Configure logging
-LOG_FILE = os.environ.get('LOG_FILE', 'logs/email_scheduler.log')
 logger = logging.getLogger("email_scheduler")
 logger.setLevel(logging.INFO)
 

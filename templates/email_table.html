@@ -18,6 +18,11 @@
                     <h5 class="card-title mb-0">Summary</h5>
                 </div>
                 <div class="card-body">
+                    {% if using_all_contacts %}
+                    <div class="alert alert-success mb-3">
+                        <strong>Success:</strong> Processed emails for <strong>ALL {{ contacts|length }} contacts</strong> matching your filters.
+                    </div>
+                    {% endif %}
                     <div class="row">
                         <div class="col-md-6">
                             <h6>Send Details</h6>
@@ -27,6 +32,9 @@
                             {% endif %}
                             <p><strong>Total Sent:</strong> {{ total_sent }}</p>
                             <p><strong>Failures:</strong> {{ failures }}</p>
+                            {% if batch_id %}
+                            <p><strong>Batch ID:</strong> <span class="font-monospace">{{ batch_id }}</span></p>
+                            {% endif %}
                         </div>
                         <div class="col-md-6">
                             <h6>Filter Criteria</h6>
@@ -150,7 +158,12 @@
                 <li>Template rendering errors</li>
                 <li>Missing or invalid API key (in production mode)</li>
             </ul>
-            <p>Check the application logs for detailed error messages.</p>
+            <div class="d-flex justify-content-between">
+                <p>Check the application logs for detailed error messages.</p>
+                {% if batch_id %}
+                <a href="/failed_emails?batch_id={{ batch_id }}&org_id={{ org_id }}" class="btn btn-warning">View Failed Emails</a>
+                {% endif %}
+            </div>
         </div>
     </div>
     {% endif %}

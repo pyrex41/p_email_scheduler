@@ -6,7 +6,7 @@ These plans offer the same comprehensive benefits you currently enjoy, potential
 
 Many Medicare beneficiaries don't realize they can be paying different rates for identical coverage. We'd be happy to show you your options and potential savings. If we don't find a better value now, we'll keep monitoring rates and reach out when we find something promising.
 
-To review your Medicare options, visit: {{ quote_link }}
+To review your Medicare options, visit: {% if quote_link|default('') %}{{ quote_link }}{% else %}Contact us for a quote.{% endif %}
 
 If you have any questions, give me a call: {{ organization.phone|phone }}
 

@@ -3,6 +3,14 @@
 # Disable history expansion to prevent issues with ! in arguments
 set +H
 
+# Load environment variables from .env file if it exists
+if [ -f .env ]; then
+    echo "Loading environment variables from .env file..."
+    set -a # automatically export all variables
+    source .env
+    set +a # stop automatically exporting
+fi
+
 # This script is a simple wrapper to run Python scripts with UV
 # Usage: ./run_with_uv.sh [python_options] <script_name.py> [args]
 #   or   ./run_with_uv.sh -c 'python code'  (use single quotes to avoid issues with special characters)

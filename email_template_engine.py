@@ -105,6 +105,9 @@ class EmailTemplateEngine:
         if 'quote_link' in contact:
             logger.info(f"Preserving quote_link from contact data: {contact['quote_link']}")
             vars['quote_link'] = contact['quote_link']
+        else:
+            # We'll handle this with defaults in the template, but log it as a warning
+            logger.warning("No quote_link found in contact data")
         
         # Add organization data if present in the contact
         if 'organization' in contact:
@@ -118,6 +121,15 @@ class EmailTemplateEngine:
             company_name = "Medicare Services"
             phone = "1-800-MEDICARE"
             website = "www.medicare.gov"
+            
+            # Create a default organization object to prevent template errors
+            vars['organization'] = {
+                'name': company_name,
+                'phone': phone,
+                'website': website,
+                'primary_color': '#03045E',  # Default blue color
+                'logo_data': None
+            }
         
         # Set company data for backwards compatibility
         vars['company_name'] = company_name

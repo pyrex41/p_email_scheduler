@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request, Form, Body, Query
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from fastapi.exceptions import HTTPException
+from fastapi import HTTPException
 from pydantic import BaseModel
 import pandas as pd
 import tempfile
@@ -16,22 +16,24 @@ import logging
 import os
 from utils import generate_link
 from email_template_engine import EmailTemplateEngine
+from email_batch_manager import EmailBatchManager
 import aiosqlite
 import sqlite3
+import uuid
+from dotenv_config import load_env, get_email_config
+import time
+
+# Load environment variables from .env file
+load_env()
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-# Environment variables to control email sending
-# TEST_EMAIL_SENDING controls sending real emails in test mode
-# PRODUCTION_EMAIL_SENDING controls sending real emails in production mode
-
-# Test mode email sending (default: ENABLED - can send real emails in test mode)
-TEST_EMAIL_SENDING = os.environ.get("TEST_EMAIL_SENDING", "ENABLED").upper() == "ENABLED"
-
-# Production mode email sending (default: DISABLED - won't send real emails in production)
-PRODUCTION_EMAIL_SENDING = os.environ.get("PRODUCTION_EMAIL_SENDING", "DISABLED").upper() == "ENABLED"
+# Get email configuration from environment
+email_config = get_email_config()
+TEST_EMAIL_SENDING = email_config["test_email_sending"]
+PRODUCTION_EMAIL_SENDING = email_config["production_email_sending"]
 
 if TEST_EMAIL_SENDING:
     logger.info("Test email sending is ENABLED - test emails will be sent to test addresses")
@@ -115,6 +117,9 @@ async def refresh_databases(org_id: int) -> None:
         print(f"Skipping database refresh for org {org_id}")
 
 app = FastAPI(title="Email Schedule Checker")
+
+# Initialize the Email Batch Manager
+batch_manager = EmailBatchManager()
 
 @app.on_event("startup")
 async def startup_event():
@@ -361,6 +366,27 @@ async def dashboard(request: Request):
             "year_round_enrollment_states": YEAR_ROUND_ENROLLMENT_STATES
         }
     )
+
+# Batch operation models
+class BatchInitParams(BaseModel):
+    org_id: int
+    contact_ids: List[str]
+    email_types: List[str] 
+    send_mode: str
+    test_email: Optional[str] = None
+    scope: str = "all"
+
+class BatchProcessParams(BaseModel):
+    batch_id: str
+    chunk_size: int = 25
+
+class BatchResumeParams(BaseModel):
+    batch_id: str
+    chunk_size: int = 25
+
+class BatchRetryParams(BaseModel):
+    batch_id: str
+    chunk_size: int = 25
 
 # Simulator data model
 class SimulationRequest(BaseModel):
@@ -1841,6 +1867,9 @@ async def send_emails(
         special_rules_only: Whether to only include states with special rules
         contact_ids: List of specific contact IDs to process (overrides filtering parameters if provided)
     """
+    # Start timing for performance tracking
+    start_time = time.time()
+    
     # Validate inputs
     if send_mode not in ["test", "production"]:
         raise HTTPException(status_code=400, detail="Invalid send mode")
@@ -1851,6 +1880,10 @@ async def send_emails(
 
     # Initialize components
     from sendgrid_client import SendGridClient
+    
+    # Generate a batch ID for tracking
+    batch_id = f"batch_{uuid.uuid4().hex[:10]}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    logger.info(f"Starting email batch {batch_id} for org_id={org_id}, scope={scope}")
     
     # Determine if we should use dry run mode based on the send mode and environment variables
     use_dry_run = False
@@ -1873,6 +1906,17 @@ async def send_emails(
     template_engine = EmailTemplateEngine()
     scheduler = EmailScheduler()
     org_db_path = f"org_dbs/org-{org_id}.db"
+
+    # Create the email_send_tracking table if it doesn't exist
+    try:
+        conn = sqlite3.connect(org_db_path)
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "migrations/add_email_tracking.sql"), 'r') as f:
+            migration_sql = f.read()
+            conn.executescript(migration_sql)
+        conn.close()
+    except Exception as e:
+        logger.error(f"Error ensuring email_send_tracking table exists: {e}")
+        # Continue as the table might already exist
 
     # Get organization details
     org_details = get_organization_details(main_db, org_id)
@@ -1902,10 +1946,17 @@ async def send_emails(
     if not special_rules_only:  # Only use form special_rules if not provided as parameter
         special_rules_only = form_data.get("special_rules_only", "false").lower() == "true"
         
-    # First check if we have the contact_ids passed from the send_emails form
+    # Check if we should use all contacts instead of just the displayed ones
+    query_params = dict(request.query_params)
+    send_to_all = query_params.get("send_to_all", "false").lower() == "true"
+    
     formatted_contacts = []
     
-    if contact_ids:
+    if send_to_all:
+        # Skip using the contact_ids and use all contacts matching the filters instead
+        logger.info("Using ALL contacts matching filters, ignoring contact_ids")
+        # The contact processing will happen in the "if not formatted_contacts" block below
+    elif contact_ids:
         logger.info(f"Using {len(contact_ids)} specific contact IDs passed from send_emails form")
         # Get the specific contacts by their IDs
         contacts = get_contacts_from_org_db(org_db_path, org_id, contact_ids=contact_ids)
@@ -2019,83 +2070,366 @@ async def send_emails(
 
     # Get scheduled emails
     emails_to_send = []
-    for contact in formatted_contacts:
-        timeline = scheduler.process_contact(contact, today, end_date)
-        scheduled_emails = timeline.get("scheduled", [])
-        skipped_emails = timeline.get("skipped", [])
-
-        # Calculate date ranges for filtering
-        today_str = today.isoformat()
-        next_7_days = today + timedelta(days=7)
-        next_30_days = today + timedelta(days=30)
-        next_90_days = today + timedelta(days=90)
+    
+    # Set a flag to indicate if we're using all contacts or just the displayed ones
+    using_all_contacts = send_to_all
+    
+    # Connect to database for email tracking
+    conn = sqlite3.connect(org_db_path)
+    cursor = conn.cursor()
+    
+    try:
+        # First, check which emails have already been sent to avoid duplicates
+        # This is the main improvement to the send_emails function - track what's been sent
+        sent_emails = {}
+        cursor.execute("""
+            SELECT contact_id, email_type, scheduled_date 
+            FROM email_send_tracking 
+            WHERE org_id = ? AND send_status = 'sent'
+        """, (org_id,))
         
-        if scope == "bulk":
-            # For bulk sends, always use post_window script since it's not specific to any time window
-            # This is appropriate for both testing and production bulk sends
+        for row in cursor.fetchall():
+            contact_id, email_type, scheduled_date = row
+            key = f"{contact_id}_{email_type}_{scheduled_date}"
+            sent_emails[key] = True
             
-            # Create a post_window email for today
-            logger.info(f"Creating post_window email for bulk send to contact {contact.get('id')}")
-            emails_to_send.append({
-                "contact": contact, 
-                "type": "post_window", 
-                "date": today_str
-            })
-            logger.info(f"Selected email type post_window for contact {contact.get('id')}")
+        logger.info(f"Found {len(sent_emails)} previously sent emails for org_id={org_id}")
+        
+        # Process contacts to find unsent emails
+        for contact in formatted_contacts:
+            timeline = scheduler.process_contact(contact, today, end_date)
+            scheduled_emails = timeline.get("scheduled", [])
+
+            # Calculate date ranges for filtering
+            today_str = today.isoformat()
+            next_7_days = today + timedelta(days=7)
+            next_30_days = today + timedelta(days=30)
+            next_90_days = today + timedelta(days=90)
+            
+            if scope == "bulk":
+                # For bulk sends, always use post_window script since it's not specific to any time window
+                # This is appropriate for both testing and production bulk sends
                 
-        elif scope == "today":
-            # Only today's emails
-            emails_to_send.extend([
-                {"contact": contact, "type": email["type"], "date": email.get("scheduled_date") or email.get("date")}
-                for email in scheduled_emails
-                if (email.get("scheduled_date") or email.get("date")) == today_str
-            ])
-            
-        elif scope == "next_7_days":
-            # Emails scheduled for the next 7 days
-            emails_to_send.extend([
-                {"contact": contact, "type": email["type"], "date": email.get("scheduled_date") or email.get("date")}
-                for email in scheduled_emails
-                if datetime.strptime(email.get("scheduled_date") or email.get("date"), '%Y-%m-%d').date() <= next_7_days
-            ])
-            
-        elif scope == "next_30_days":
-            # Emails scheduled for the next 30 days
-            emails_to_send.extend([
-                {"contact": contact, "type": email["type"], "date": email.get("scheduled_date") or email.get("date")}
-                for email in scheduled_emails
-                if datetime.strptime(email.get("scheduled_date") or email.get("date"), '%Y-%m-%d').date() <= next_30_days
-            ])
-            
-        elif scope == "next_90_days":
-            # Emails scheduled for the next 90 days
-            emails_to_send.extend([
-                {"contact": contact, "type": email["type"], "date": email.get("scheduled_date") or email.get("date")}
-                for email in scheduled_emails
-                if datetime.strptime(email.get("scheduled_date") or email.get("date"), '%Y-%m-%d').date() <= next_90_days
-            ])
-
-    # Apply batch size as limit if specified
-    if batch_size and batch_size > 0:
-        emails_to_send = emails_to_send[:batch_size]
-
-    # If no emails to send, render email_table.html with error message
-    if not emails_to_send:
-        logger.warning(f"No emails to send for org_id={org_id}, scope={scope}")
-        # Create string representation of all the filters for debugging
-        filter_info = f"org_id={org_id}, scope={scope}, state={state}, special_rules_only={special_rules_only}, " \
-                     f"effective_date_filter={effective_date_filter}, contacts={len(formatted_contacts)}"
-        logger.warning(f"Filter info: {filter_info}")
+                # Check if this bulk email has already been sent
+                contact_id = str(contact.get('id'))
+                email_type = "post_window"
+                key = f"{contact_id}_{email_type}_{today_str}"
+                
+                if key not in sent_emails:
+                    logger.info(f"Creating post_window email for bulk send to contact {contact_id}")
+                    emails_to_send.append({
+                        "contact": contact, 
+                        "type": email_type, 
+                        "date": today_str
+                    })
+                else:
+                    logger.info(f"Skipping already sent post_window email for contact {contact_id}")
+                    
+            elif scope == "today":
+                # Only today's emails
+                for email in scheduled_emails:
+                    email_date = email.get("scheduled_date") or email.get("date")
+                    if email_date == today_str:
+                        contact_id = str(contact.get('id'))
+                        email_type = email["type"]
+                        key = f"{contact_id}_{email_type}_{email_date}"
+                        
+                        if key not in sent_emails:
+                            emails_to_send.append({
+                                "contact": contact, 
+                                "type": email_type, 
+                                "date": email_date
+                            })
+                
+            elif scope == "next_7_days":
+                # Emails scheduled for the next 7 days
+                for email in scheduled_emails:
+                    email_date = email.get("scheduled_date") or email.get("date")
+                    if datetime.strptime(email_date, '%Y-%m-%d').date() <= next_7_days:
+                        contact_id = str(contact.get('id'))
+                        email_type = email["type"]
+                        key = f"{contact_id}_{email_type}_{email_date}"
+                        
+                        if key not in sent_emails:
+                            emails_to_send.append({
+                                "contact": contact, 
+                                "type": email_type, 
+                                "date": email_date
+                            })
+                
+            elif scope == "next_30_days":
+                # Emails scheduled for the next 30 days
+                for email in scheduled_emails:
+                    email_date = email.get("scheduled_date") or email.get("date")
+                    if datetime.strptime(email_date, '%Y-%m-%d').date() <= next_30_days:
+                        contact_id = str(contact.get('id'))
+                        email_type = email["type"]
+                        key = f"{contact_id}_{email_type}_{email_date}"
+                        
+                        if key not in sent_emails:
+                            emails_to_send.append({
+                                "contact": contact, 
+                                "type": email_type, 
+                                "date": email_date
+                            })
+                
+            elif scope == "next_90_days":
+                # Emails scheduled for the next 90 days
+                for email in scheduled_emails:
+                    email_date = email.get("scheduled_date") or email.get("date")
+                    if datetime.strptime(email_date, '%Y-%m-%d').date() <= next_90_days:
+                        contact_id = str(contact.get('id'))
+                        email_type = email["type"]
+                        key = f"{contact_id}_{email_type}_{email_date}"
+                        
+                        if key not in sent_emails:
+                            emails_to_send.append({
+                                "contact": contact, 
+                                "type": email_type, 
+                                "date": email_date
+                            })
         
+        # Log the eligible unsent emails
+        logger.info(f"Found {len(emails_to_send)} unsent emails matching criteria for org_id={org_id}")
+        
+        # Register all emails in the tracking table before sending
+        for email in emails_to_send:
+            contact = email["contact"]
+            email_type = email["type"]
+            email_date = email["date"]
+            contact_id = str(contact.get('id'))
+            
+            # First, check if this exact email is already registered
+            cursor.execute("""
+                SELECT id, send_status FROM email_send_tracking
+                WHERE org_id = ? AND contact_id = ? AND email_type = ? AND scheduled_date = ? AND batch_id = ?
+            """, (org_id, contact_id, email_type, email_date, batch_id))
+            
+            existing = cursor.fetchone()
+            
+            if not existing:
+                # Register the email in the tracking table with 'pending' status
+                cursor.execute("""
+                    INSERT INTO email_send_tracking
+                    (org_id, contact_id, email_type, scheduled_date, send_status, send_mode, test_email, batch_id)
+                    VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)
+                """, (
+                    org_id,
+                    contact_id,
+                    email_type,
+                    email_date,
+                    send_mode,
+                    test_emails if send_mode == 'test' else None,
+                    batch_id
+                ))
+        
+        # Commit the registrations
+        conn.commit()
+        
+        # Apply batch size as limit if specified
+        if batch_size and batch_size > 0 and len(emails_to_send) > batch_size:
+            logger.info(f"Limiting batch to {batch_size} emails out of {len(emails_to_send)} total")
+            emails_to_send = emails_to_send[:batch_size]
+
+        # If no emails to send, render email_table.html with error message
+        if not emails_to_send:
+            logger.warning(f"No new emails to send for org_id={org_id}, scope={scope}")
+            # Create string representation of all the filters for debugging
+            filter_info = f"org_id={org_id}, scope={scope}, state={state}, special_rules_only={special_rules_only}, " \
+                        f"effective_date_filter={effective_date_filter}, contacts={len(formatted_contacts)}"
+            logger.warning(f"Filter info: {filter_info}")
+            
+            return templates.TemplateResponse(
+                "email_table.html",
+                {
+                    "request": request,
+                    "org_id": org_id,
+                    "org_name": org_details["name"],
+                    "message": "No new emails to send based on current criteria",
+                    "total_sent": 0,
+                    "failures": 0,
+                    "contacts": formatted_contacts,
+                    "show_all": show_all,
+                    "sample_size": sample_size,
+                    "state": state,
+                    "special_rules_only": special_rules_only,
+                    "effective_date_filter": effective_date_filter,
+                    "effective_date_years": effective_date_years,
+                    "effective_date_start": effective_date_start,
+                    "effective_date_end": effective_date_end,
+                    "send_mode": send_mode,
+                    "batch_id": batch_id
+                }
+            )
+
+        # Prepare test email list
+        test_email_list = []
+        if send_mode == "test" and test_emails:
+            # Split by commas, strip whitespace, and filter out empty strings
+            test_email_list = [email.strip() for email in test_emails.split(",") if email.strip()]
+        
+        # Check if we have test emails in test mode
+        if send_mode == "test" and not test_email_list:
+            raise HTTPException(status_code=400, detail="No valid test email addresses provided")
+
+        # Send emails in batches using the batch_size parameter
+        # Initialize counters
+        total_sent = 0
+        failures = 0
+        
+        # Use semaphore to limit concurrent operations, similar to the optimized batch code
+        semaphore = asyncio.Semaphore(10)  # Limit to 10 concurrent sends
+        
+        # Define an async function to process a single email
+        async def process_email(email_data):
+            async with semaphore:  # Ensure we don't overwhelm the system
+                contact = email_data["contact"]
+                email_type = email_data["type"]
+                email_date = email_data["date"]
+                contact_id = str(contact.get('id'))
+                
+                # Choose recipient based on mode
+                recipient = random.choice(test_email_list) if send_mode == 'test' else contact["email"]
+                
+                try:
+                    # Render email content
+                    content = await asyncio.to_thread(
+                        template_engine.render_email,
+                        email_type,
+                        contact,
+                        email_date
+                    )
+                    
+                    html_content = await asyncio.to_thread(
+                        template_engine.render_email,
+                        email_type,
+                        contact,
+                        email_date,
+                        html=True
+                    )
+
+                    # Set subject line (add [TEST] prefix for test mode)
+                    subject = content["subject"]
+                    if send_mode == 'test':
+                        subject = f"[TEST] {subject}"
+                    
+                    # Send email - use thread to avoid blocking
+                    logger.info(f"Sending {email_type} email to contact {contact_id} via {recipient}")
+                    try:
+                        success = await asyncio.to_thread(
+                            sendgrid_client.send_email,
+                            to_email=recipient,
+                            subject=subject,
+                            content=content["body"],
+                            html_content=html_content["html"]
+                        )
+                        if not success:
+                            logger.error(f"SendGrid returned failure for {email_type} email to contact {contact_id} via {recipient}")
+                    except Exception as send_err:
+                        logger.error(f"Exception during SendGrid call for contact {contact_id}: {str(send_err)}")
+                        raise send_err
+
+                    # Update tracking record with result
+                    update_time = datetime.now().isoformat()
+                    if success:
+                        cursor.execute("""
+                            UPDATE email_send_tracking
+                            SET send_status = 'sent',
+                                send_attempt_count = send_attempt_count + 1,
+                                last_attempt_date = ?
+                            WHERE org_id = ? AND contact_id = ? AND email_type = ? AND scheduled_date = ? AND batch_id = ?
+                        """, (
+                            update_time,
+                            org_id,
+                            contact_id,
+                            email_type,
+                            email_date,
+                            batch_id
+                        ))
+                        return {"success": True, "contact_id": contact_id}
+                    else:
+                        cursor.execute("""
+                            UPDATE email_send_tracking
+                            SET send_status = 'failed',
+                                send_attempt_count = send_attempt_count + 1,
+                                last_attempt_date = ?,
+                                last_error = ?
+                            WHERE org_id = ? AND contact_id = ? AND email_type = ? AND scheduled_date = ? AND batch_id = ?
+                        """, (
+                            update_time,
+                            "Failed to send email",
+                            org_id,
+                            contact_id,
+                            email_type,
+                            email_date,
+                            batch_id
+                        ))
+                        return {"success": False, "contact_id": contact_id, "error": "Failed to send email"}
+                        
+                except Exception as e:
+                    error_message = str(e)
+                    logger.error(f"Error sending {email_type} email to contact {contact_id}: {error_message}")
+                    
+                    # Update tracking record with error
+                    update_time = datetime.now().isoformat()
+                    cursor.execute("""
+                        UPDATE email_send_tracking
+                        SET send_status = 'failed',
+                            send_attempt_count = send_attempt_count + 1,
+                            last_attempt_date = ?,
+                            last_error = ?
+                        WHERE org_id = ? AND contact_id = ? AND email_type = ? AND scheduled_date = ? AND batch_id = ?
+                    """, (
+                        update_time,
+                        error_message[:500],
+                        org_id,
+                        contact_id,
+                        email_type,
+                        email_date,
+                        batch_id
+                    ))
+                    return {"success": False, "contact_id": contact_id, "error": error_message[:100]}
+        
+        # Process all emails in parallel
+        tasks = [process_email(email) for email in emails_to_send]
+        results = await asyncio.gather(*tasks)
+        conn.commit()
+        
+        # Count results
+        for result in results:
+            if result["success"]:
+                total_sent += 1
+            else:
+                failures += 1
+        
+        # Calculate performance metrics
+        end_time = time.time()
+        duration = end_time - start_time
+        emails_per_second = len(emails_to_send) / duration if duration > 0 else 0
+        
+        logger.info(
+            f"Batch {batch_id} completed in {duration:.2f}s: "
+            f"{total_sent} sent, {failures} failed, "
+            f"{emails_per_second:.1f} emails/second"
+        )
+        
+        # Create a success message and show results
+        dry_run_note = "[DRY RUN ONLY - NO ACTUAL EMAILS SENT] " if sendgrid_client.dry_run else ""
+        message = f"{dry_run_note}Successfully processed {total_sent} emails in {send_mode} mode"
+        if failures > 0:
+            message += f" with {failures} failures"
+        
+        # Return a results page with the send details
         return templates.TemplateResponse(
             "email_table.html",
             {
                 "request": request,
                 "org_id": org_id,
                 "org_name": org_details["name"],
-                "message": "No emails to send based on current criteria",
-                "total_sent": 0,
-                "failures": 0,
+                "message": message,
+                "total_sent": total_sent,
+                "failures": failures,
+                "emails_sent": emails_to_send,
                 "contacts": formatted_contacts,
                 "show_all": show_all,
                 "sample_size": sample_size,
@@ -2105,100 +2439,34 @@ async def send_emails(
                 "effective_date_years": effective_date_years,
                 "effective_date_start": effective_date_start,
                 "effective_date_end": effective_date_end,
-                "send_mode": send_mode
+                "send_mode": send_mode,
+                "test_emails": test_emails if send_mode == "test" else None,
+                "using_all_contacts": using_all_contacts,
+                "batch_id": batch_id,
+                "processing_time": f"{duration:.2f}s",
+                "emails_per_second": f"{emails_per_second:.1f}"
             }
         )
-
-    # Prepare test email list
-    test_email_list = []
-    if send_mode == "test" and test_emails:
-        # Split by commas, strip whitespace, and filter out empty strings
-        test_email_list = [email.strip() for email in test_emails.split(",") if email.strip()]
     
-    # Check if we have test emails in test mode
-    if send_mode == "test" and not test_email_list:
-        raise HTTPException(status_code=400, detail="No valid test email addresses provided")
-
-    # Send emails in batches (using batch_size from function parameters)
-    # Initialize counters
-    total_sent = 0
-    failures = 0
+    except Exception as e:
+        logger.error(f"Error in send_emails endpoint: {e}")
+        # Rollback any pending database changes
+        conn.rollback()
+        
+        # Return error page
+        return templates.TemplateResponse(
+            "error.html",
+            {
+                "request": request,
+                "org_id": org_id,
+                "message": f"Error processing email batch: {str(e)}",
+                "details": traceback.format_exc()
+            }
+        )
     
-    for i in range(0, len(emails_to_send), batch_size):
-        batch = emails_to_send[i:i + batch_size]
-        for email in batch:
-            contact = email["contact"]
-            email_type = email["type"]
-            email_date = email["date"]
-            
-            # Choose recipient based on mode
-            recipient = random.choice(test_email_list) if send_mode == "test" else contact["email"]
-            
-            try:
-                # Render email content
-                content = template_engine.render_email(email_type, contact, email_date)
-                html_content = template_engine.render_email(email_type, contact, email_date, html=True)
-
-                # For test emails, use the same subject line as production
-                # Do not add any test indicators to the subject line
-                subject = content["subject"]
-                
-                # Send email with unmodified subject line
-                success = sendgrid_client.send_email(
-                    to_email=recipient,
-                    subject=subject,
-                    content=content["body"],
-                    html_content=html_content["html"]
-                )
-
-                # Log to database
-                log_email_send(org_db_path, contact["id"], email_type, email_date, send_mode, recipient, success)
-                
-                if success:
-                    total_sent += 1
-                else:
-                    failures += 1
-                    
-            except Exception as e:
-                logger.error(f"Error sending email to {recipient}: {e}")
-                failures += 1
-                # Log the error to database
-                log_email_send(org_db_path, contact["id"], email_type, email_date, send_mode, recipient, False, str(e))
-
-        # Delay between batches to respect rate limits
-        if i + batch_size < len(emails_to_send):
-            await asyncio.sleep(1)
-
-    # Create a success message and show results
-    dry_run_note = "[DRY RUN ONLY - NO ACTUAL EMAILS SENT] " if sendgrid_client.dry_run else ""
-    message = f"{dry_run_note}Successfully processed {total_sent} emails in {send_mode} mode"
-    if failures > 0:
-        message += f" with {failures} failures"
-    
-    # Return a results page with the send details
-    return templates.TemplateResponse(
-        "email_table.html",
-        {
-            "request": request,
-            "org_id": org_id,
-            "org_name": org_details["name"],
-            "message": message,
-            "total_sent": total_sent,
-            "failures": failures,
-            "emails_sent": emails_to_send,
-            "contacts": formatted_contacts,
-            "show_all": show_all,
-            "sample_size": sample_size,
-            "state": state,
-            "special_rules_only": special_rules_only,
-            "effective_date_filter": effective_date_filter,
-            "effective_date_years": effective_date_years,
-            "effective_date_start": effective_date_start,
-            "effective_date_end": effective_date_end,
-            "send_mode": send_mode,
-            "test_emails": test_emails if send_mode == "test" else None
-        }
-    )
+    finally:
+        # Ensure connection is closed
+        conn.close()
 
 def log_email_send(
     db_path: str, 
@@ -2208,10 +2476,11 @@ def log_email_send(
     mode: str, 
     recipient: str, 
     success: bool, 
-    error_message: str = None
+    error_message: str = None,
+    batch_id: str = None
 ):
     """
-    Log email send events to the contact_events table
+    Log email send events to both contact_events and email_send_tracking tables
     
     Args:
         db_path: Path to the organization's database
@@ -2222,11 +2491,80 @@ def log_email_send(
         recipient: Email address of the recipient
         success: Whether the send was successful
         error_message: Optional error message if send failed
+        batch_id: Optional batch ID for tracking (auto-generated if not provided)
     """
     try:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
+        # Get current timestamp in ISO format
+        timestamp = datetime.now().isoformat()
+        
+        # Get organization ID from the database path
+        try:
+            org_id = int(db_path.split('org-')[1].split('.')[0])
+        except:
+            org_id = 0
+            logger.warning(f"Could not extract org_id from db_path: {db_path}, using 0")
+        
+        # Generate a batch ID if not provided
+        if not batch_id:
+            batch_id = f"auto_{uuid.uuid4().hex[:8]}_{timestamp.replace(':', '').replace('-', '').replace('.', '')}"
+        
+        # 1. Create and update email_send_tracking record
+        # First, ensure the email_send_tracking table exists
+        try:
+            with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "migrations/add_email_tracking.sql"), 'r') as f:
+                migration_sql = f.read()
+                conn.executescript(migration_sql)
+        except Exception as e:
+            logger.error(f"Error ensuring email_send_tracking table exists: {e}")
+            # Continue as the table might already exist
+        
+        # Check if an entry already exists for this email
+        cursor.execute("""
+            SELECT id FROM email_send_tracking
+            WHERE org_id = ? AND contact_id = ? AND email_type = ? AND scheduled_date = ?
+            ORDER BY created_at DESC LIMIT 1
+        """, (org_id, contact_id, email_type, email_date))
+        
+        existing_record = cursor.fetchone()
+        
+        if existing_record:
+            # Update existing record
+            record_id = existing_record[0]
+            status = "sent" if success else "failed"
+            
+            cursor.execute("""
+                UPDATE email_send_tracking
+                SET send_status = ?,
+                    send_attempt_count = send_attempt_count + 1,
+                    last_attempt_date = ?,
+                    last_error = ?
+                WHERE id = ?
+            """, (status, timestamp, error_message if not success else None, record_id))
+            
+            logger.debug(f"Updated email_send_tracking record id={record_id} with status={status}")
+        else:
+            # Create a new record
+            status = "sent" if success else "failed"
+            test_email = recipient if mode == "test" else None
+            
+            cursor.execute("""
+                INSERT INTO email_send_tracking (
+                    org_id, contact_id, email_type, scheduled_date,
+                    send_status, send_mode, test_email, send_attempt_count,
+                    last_attempt_date, last_error, batch_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                org_id, contact_id, email_type, email_date,
+                status, mode, test_email, 1,
+                timestamp, error_message if not success else None, batch_id
+            ))
+            
+            logger.debug(f"Created new email_send_tracking record for contact_id={contact_id}, type={email_type}")
+        
+        # 2. Also log to traditional contact_events table for backward compatibility
         # Create contact_events table if it doesn't exist
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS contact_events (
@@ -2247,7 +2585,8 @@ def log_email_send(
             "scheduled_date": email_date,
             "mode": mode,
             "recipient": recipient,
-            "success": success
+            "success": success,
+            "batch_id": batch_id
         }
         
         # Add error message if provided
@@ -2262,10 +2601,19 @@ def log_email_send(
             "INSERT INTO contact_events (contact_id, event_type, metadata) VALUES (?, ?, ?)",
             (contact_id, "email_sent", metadata_json)
         )
+        
+        # Commit all changes
         conn.commit()
+        logger.info(f"Logged email {email_type} for contact {contact_id}, success={success}")
         
     except Exception as e:
         logger.error(f"Error logging email send to database: {e}")
+        # Try to rollback in case of error
+        try:
+            if conn:
+                conn.rollback()
+        except:
+            pass
     finally:
         if conn:
             conn.close()
@@ -2296,8 +2644,692 @@ if __name__ == "__main__":
     import uvicorn
     import argparse
     
+# Batch Email Management API Endpoints
+
+class BatchInitParams(BaseModel):
+    org_id: int
+    contact_ids: List[str]
+    email_types: List[str]
+    send_mode: str
+    test_email: Optional[str] = None
+    scope: str = "all"
+    chunk_size: Optional[int] = 25
+
+class BatchProcessParams(BaseModel):
+    batch_id: str
+    chunk_size: Optional[int] = 25
+
+class BatchRetryParams(BaseModel):
+    batch_id: str
+    chunk_size: Optional[int] = 100
+
+class BatchResumeParams(BaseModel):
+    batch_id: str
+    chunk_size: Optional[int] = 100
+
+@app.get("/email_batch", response_class=HTMLResponse)
+async def email_batch_page(
+    request: Request,
+    org_id: int = Query(...),
+    contact_ids: List[str] = Query([])
+):
+    """Show the batch email management page."""
+    try:
+        # Get organization details
+        org_db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "org_dbs", f"org-{org_id}.db")
+        main_db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "main.db")
+        org_details = get_organization_details(main_db_path, org_id)
+        
+        # Load scheduled emails from JSON files
+        schedule_directory = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output_dir")
+        schedule_file = os.path.join(schedule_directory, "scheduled_emails.json")
+        
+        if not os.path.exists(schedule_file):
+            raise HTTPException(status_code=404, detail=f"Scheduled emails file not found: {schedule_file}")
+        
+        try:
+            with open(schedule_file, 'r') as f:
+                scheduled_data = json.load(f)
+        except Exception as e:
+            logger.error(f"Error loading scheduled emails from {schedule_file}: {e}")
+            raise HTTPException(status_code=500, detail=f"Error loading scheduled emails: {e}")
+        
+        # Calculate date ranges for scope options
+        today = date.today()
+        next_7_days = today + timedelta(days=7)
+        next_30_days = today + timedelta(days=30)
+        
+        # Filter emails by contact_ids if provided
+        emails = []
+        
+        # Keep track of which contact IDs actually have data
+        included_contact_ids = set()
+        
+        for contact_data in scheduled_data:
+            contact_id = contact_data.get('contact_id')
+            included_contact_ids.add(str(contact_id))
+            
+            # Skip if contact_id not in the list (if filtering is applied)
+            if contact_ids and str(contact_id) not in contact_ids:
+                continue
+            
+            # Include all emails for this contact
+            emails.extend(contact_data.get('emails', []))
+        
+        # Count emails by type and date range
+        today_count = 0
+        next_7_count = 0
+        next_30_count = 0
+        total_count = 0
+        
+        birthday_count = 0
+        effective_date_count = 0
+        aep_count = 0
+        post_window_count = 0
+        
+        for email in emails:
+            if email.get('skipped', False):
+                continue
+                
+            total_count += 1
+            email_type = email.get('type')
+            
+            if email_type == 'birthday':
+                birthday_count += 1
+            elif email_type in ['effective_date', 'anniversary']:
+                effective_date_count += 1
+            elif email_type == 'aep':
+                aep_count += 1
+            elif email_type == 'post_window':
+                post_window_count += 1
+            
+            try:
+                email_date = datetime.strptime(email.get('date', '2099-01-01'), "%Y-%m-%d").date()
+                
+                if email_date == today:
+                    today_count += 1
+                    next_7_count += 1
+                    next_30_count += 1
+                elif email_date <= next_7_days:
+                    next_7_count += 1
+                    next_30_count += 1
+                elif email_date <= next_30_days:
+                    next_30_count += 1
+            except:
+                continue
+        
+        # If we have contacts but no scheduled emails, set a flag to indicate this
+        # This will help explain to the user why the counts are zero
+        has_contacts_no_emails = len(contact_ids) > 0 and total_count == 0
+        
+        return templates.TemplateResponse(
+            "email_batch.html",
+            {
+                "request": request,
+                "org_name": org_details["name"],
+                "org_id": org_id,
+                "contact_ids": contact_ids,
+                "today_count": today_count,
+                "next_7_count": next_7_count,
+                "next_30_count": next_30_count,
+                "total_count": total_count,
+                "birthday_count": birthday_count,
+                "effective_date_count": effective_date_count,
+                "aep_count": aep_count,
+                "post_window_count": post_window_count,
+                "has_contacts_no_emails": has_contacts_no_emails
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error preparing batch email page: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Initialize batch endpoint handling both multipart/form-data and JSON
+@app.post("/api/initialize_batch")
+async def initialize_batch_endpoint(request: Request):
+    """Initialize a new email batch using form data or JSON."""
+    try:
+        # Log the raw request details for debugging
+        logger.info("Received request to initialize_batch endpoint")
+        content_type = request.headers.get("content-type", "").lower()
+        logger.info(f"Request content type: {content_type}")
+        
+        # Different parsing based on content type
+        if "multipart/form-data" in content_type or "application/x-www-form-urlencoded" in content_type:
+            # Parse as form data
+            form = await request.form()
+            logger.info("Parsed request as form data")
+
+            # Get required fields with defaults
+            try:
+                org_id = int(form.get("org_id", "0"))
+                scope = form.get("scope", "all")
+                send_mode = form.get("send_mode", "test")
+                test_email = form.get("test_email", None)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=f"Invalid form data: {str(e)}")
+            
+            # Extract multi-value fields 
+            contact_ids = []
+            email_types = []
+            
+            # Get all values from the form (both single and multi-valued)
+            for key, value in form.items():
+                if key == 'contact_ids':
+                    contact_ids.append(str(value))
+                elif key == 'email_types':
+                    email_types.append(str(value))
+            
+            # Also process multi-items (for multiple values with same key)
+            multi_items = list(form.multi_items())
+            for key, value in multi_items:
+                if key == 'contact_ids' and str(value) not in contact_ids:
+                    contact_ids.append(str(value))
+                elif key == 'email_types' and str(value) not in email_types:
+                    email_types.append(str(value))
+                    
+        elif "application/json" in content_type:
+            # Parse as JSON
+            json_data = await request.json()
+            logger.info("Parsed request as JSON data")
+            
+            # Extract fields from JSON
+            org_id = json_data.get("org_id", 0)
+            scope = json_data.get("scope", "all")
+            send_mode = json_data.get("send_mode", "test")
+            test_email = json_data.get("test_email")
+            contact_ids = json_data.get("contact_ids", [])
+            email_types = json_data.get("email_types", [])
+            
+        else:
+            # Try to guess the format from the raw body
+            body = await request.body()
+            logger.info(f"Unknown content type, trying to parse raw body (length: {len(body)})")
+            
+            try:
+                # Try to parse as JSON first
+                body_text = body.decode('utf-8')
+                if body_text.strip().startswith('{'):
+                    json_data = json.loads(body_text)
+                    logger.info("Parsed raw body as JSON")
+                    
+                    # Extract fields from JSON
+                    org_id = json_data.get("org_id", 0)
+                    scope = json_data.get("scope", "all")
+                    send_mode = json_data.get("send_mode", "test")
+                    test_email = json_data.get("test_email")
+                    contact_ids = json_data.get("contact_ids", [])
+                    email_types = json_data.get("email_types", [])
+                else:
+                    # Try form URL-encoded
+                    import urllib.parse
+                    form_data = urllib.parse.parse_qs(body_text)
+                    logger.info(f"Parsed raw body as form-encoded: {form_data}")
+                    
+                    # Extract fields
+                    org_id = int(form_data.get("org_id", ["0"])[0])
+                    scope = form_data.get("scope", ["all"])[0]
+                    send_mode = form_data.get("send_mode", ["test"])[0]
+                    test_email = form_data.get("test_email", [None])[0]
+                    contact_ids = form_data.get("contact_ids", [])
+                    email_types = form_data.get("email_types", [])
+            except Exception as e:
+                logger.error(f"Failed to parse request body: {e}")
+                raise HTTPException(status_code=400, detail=f"Unsupported content type and failed to parse body: {e}")
+        
+        # Log the extracted parameters
+        logger.info(f"Extracted parameters: org_id={org_id}, contact_ids_count={len(contact_ids)}, "
+                   f"email_types={email_types}, send_mode={send_mode}, scope={scope}")
+        
+        # Validate required fields
+        if not org_id:
+            raise HTTPException(status_code=400, detail="Organization ID is required")
+            
+        if not contact_ids:
+            raise HTTPException(status_code=400, detail="Contact IDs are required")
+            
+        # Make sure we have at least one email type
+        if not email_types:
+            raise HTTPException(status_code=400, detail="At least one email type must be selected")
+            
+        # If this is a bulk send with post_window email type and only that type, use the new mode
+        use_single_email_mode = (scope == "bulk" and 
+                               "post_window" in email_types and 
+                               len(email_types) == 1)
+            
+        if use_single_email_mode:
+            logger.info("Using single email per contact mode for post_window bulk send")
+            # Modified initialize_batch that sends one email per contact
+            result = batch_manager.initialize_batch_single_email(
+                org_id=org_id,
+                contact_ids=contact_ids,
+                email_type="post_window",  # Only use post_window in this mode
+                send_mode=send_mode,
+                test_email=test_email
+            )
+        else:
+            # Standard batch initialization - the revised method returns just the batch_id
+            start_time = time.time()
+            batch_id = batch_manager.initialize_batch(
+                org_id=org_id,
+                contact_ids=contact_ids,
+                email_types=email_types,
+                send_mode=send_mode,
+                test_email=test_email,
+                scope=scope
+            )
+            duration = time.time() - start_time
+            
+            # Get batch status for response
+            result = batch_manager.get_batch_status(batch_id)
+            result["processing_time"] = f"{duration:.2f}s"
+        
+        logger.info(f"Batch initialized successfully: {result}")
+        return JSONResponse(content=result)
+    except HTTPException:
+        logger.exception("HTTP exception in initialize_batch")
+        raise
+    except Exception as e:
+        logger.exception(f"Unhandled exception in initialize_batch: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Removed duplicate endpoints for list_batches
+
+@app.get("/api/batch_status/{batch_id}")
+async def get_batch_status(batch_id: str):
+    """Get the status of a batch."""
+    try:
+        result = batch_manager.get_batch_status(batch_id)
+        return JSONResponse(content=result)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting batch status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/list_batches")
+async def list_batches(
+    org_id: Optional[int] = None,
+    limit: int = Query(20, ge=1, le=100),
+    status: Optional[str] = Query(None, regex="^(pending|sent|failed|skipped)?$")
+):
+    """
+    List recent email batches.
+    
+    Optional status filter:
+    - pending: Only batches with pending emails
+    - sent: Only batches with sent emails
+    - failed: Only batches with failed emails
+    - skipped: Only batches with skipped emails
+    - None: All batches
+    """
+    try:
+        result = batch_manager.list_batches(org_id, limit, status)
+        return JSONResponse(content=result)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error listing batches: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/get_batches")
+async def get_batches(org_id: int):
+    """Get a list of batches with pending emails."""
+    try:
+        # Use the list_batches method with the pending status filter
+        batches = batch_manager.list_batches(org_id=org_id, status="pending")
+        return JSONResponse(content=batches)
+    except Exception as e:
+        logger.error(f"Error getting batches: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Fallback endpoint that handles any format of request to initialize_batch
+# This is a last resort if other methods fail
+@app.post("/api/initialize_batch/fallback")
+async def initialize_batch_fallback(request: Request):
+    """A fallback endpoint for initializing a batch that accepts any format."""
+    logger.info("Using fallback initialize_batch endpoint")
+    
+    try:
+        # Try to get the data in any format we can
+        data = None
+        content_type = request.headers.get('content-type', '').lower()
+        logger.info(f"Fallback endpoint: Content-Type is {content_type}")
+        
+        if 'application/json' in content_type:
+            # Parse as JSON
+            data = await request.json()
+            logger.info(f"Fallback: Parsed JSON data: {data}")
+        elif 'application/x-www-form-urlencoded' in content_type or 'multipart/form-data' in content_type:
+            # Parse as form data
+            form_data = await request.form()
+            data = dict(form_data)
+            # Handle multiple values for same key
+            for key, value in data.items():
+                if isinstance(value, list) and len(value) == 1:
+                    data[key] = value[0]
+            logger.info(f"Fallback: Parsed form data: {data}")
+        else:
+            # Try to parse the body directly
+            body = await request.body()
+            logger.info(f"Fallback: Raw body (first 1000 chars): {body[:1000]}")
+            
+            # Try to decode as URL-encoded form data
+            try:
+                decoded_body = body.decode('utf-8')
+                logger.info(f"Fallback: Decoded body: {decoded_body}")
+                
+                # Try parsing as query string
+                import urllib.parse
+                parsed_qs = urllib.parse.parse_qs(decoded_body)
+                data = {k: v[0] if len(v) == 1 else v for k, v in parsed_qs.items()}
+                logger.info(f"Fallback: Parsed query string: {data}")
+            except Exception as parse_error:
+                logger.error(f"Fallback: Error parsing body: {parse_error}")
+                raise HTTPException(status_code=400, detail=f"Could not parse request body: {str(parse_error)}")
+        
+        # If we couldn't get any data, return an error
+        if not data:
+            raise HTTPException(status_code=400, detail="Could not parse request data in any format")
+        
+        # Extract the required parameters
+        org_id = int(data.get('org_id'))
+        contact_ids = data.get('contact_ids', [])
+        if isinstance(contact_ids, str):
+            contact_ids = [contact_ids]
+        
+        email_types = data.get('email_types', [])
+        if isinstance(email_types, str):
+            email_types = [email_types]
+        
+        send_mode = data.get('send_mode')
+        test_email = data.get('test_email')
+        scope = data.get('scope', 'all')
+        
+        logger.info(f"Fallback: Using parameters: org_id={org_id}, contact_ids_count={len(contact_ids)}, "
+                   f"email_types={email_types}, send_mode={send_mode}, scope={scope}")
+        
+        # Initialize the batch - the revised method returns just the batch_id
+        start_time = time.time()
+        batch_id = batch_manager.initialize_batch(
+            org_id=org_id,
+            contact_ids=contact_ids,
+            email_types=email_types,
+            send_mode=send_mode,
+            test_email=test_email,
+            scope=scope
+        )
+        duration = time.time() - start_time
+        
+        # Get batch status for response
+        result = batch_manager.get_batch_status(batch_id)
+        result["processing_time"] = f"{duration:.2f}s"
+        
+        logger.info(f"Fallback: Batch initialized successfully: {result}")
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.exception(f"Fallback: Error initializing batch: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/process_batch_chunk")
+async def process_batch_chunk(data: BatchProcessParams):
+    """Process a chunk of emails from a batch."""
+    try:
+        start_time = time.time()
+        logger.info(f"Processing batch chunk for batch {data.batch_id}, chunk size {data.chunk_size}")
+        
+        # Use the optimized async version for maximum performance
+        result = await batch_manager.process_batch_chunk_async(
+            batch_id=data.batch_id,
+            chunk_size=data.chunk_size,
+            delay=0.0  # No delay for maximum throughput
+        )
+        
+        # Calculate total processing time
+        total_duration = time.time() - start_time
+        
+        # Add endpoint processing stats to the result
+        result["total_endpoint_time"] = f"{total_duration:.2f}s"
+        
+        # Add human-readable processing rate
+        if total_duration > 0 and result["processed"] > 0:
+            emails_per_second = result["processed"] / total_duration
+            result["processing_rate"] = f"{emails_per_second:.1f} emails/second"
+        
+        logger.info(f"Batch chunk processed in {total_duration:.2f}s: {result.get('sent', 0)} sent, {result.get('failed', 0)} failed")
+        return JSONResponse(content=result)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing batch chunk: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/resume_batch")
+async def resume_batch(data: BatchResumeParams):
+    """Resume a batch by processing the next chunk of pending emails."""
+    try:
+        # Use the async version for better performance
+        result = await batch_manager.resume_batch_async(
+            batch_id=data.batch_id,
+            chunk_size=data.chunk_size,
+            delay=0.1  # Add a small delay between emails
+        )
+        
+        return JSONResponse(content=result)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error resuming batch: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/retry_failed_emails")
+async def retry_failed_emails(data: BatchRetryParams):
+    """Retry failed emails from a batch."""
+    try:
+        # Use the async version for better performance
+        result = await batch_manager.retry_failed_emails_async(
+            batch_id=data.batch_id,
+            chunk_size=data.chunk_size,
+            delay=0.1  # Add a small delay between emails
+        )
+        
+        return JSONResponse(content=result)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrying failed emails: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Removed duplicate endpoint
+# @app.get("/api/list_batches")
+# This endpoint was a duplicate of the one at line ~2495
+
+@app.get("/failed_emails", response_class=HTMLResponse)
+async def failed_emails(request: Request, batch_id: str, org_id: int):
+    """Display detailed information about failed emails in a batch."""
+    try:
+        # Connect to the organization database
+        org_db_path = os.path.join(org_db_dir, f"org-{org_id}.db")
+        
+        conn = sqlite3.connect(org_db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        # Get batch information
+        batch_info = batch_manager.get_batch_status(batch_id)
+        
+        # Get failed emails for this batch
+        cursor.execute("""
+            SELECT id, contact_id, email_type, scheduled_date, send_attempt_count, last_attempt_date, last_error
+            FROM email_send_tracking
+            WHERE batch_id = ? AND send_status = 'failed'
+            ORDER BY last_attempt_date DESC
+        """, (batch_id,))
+        
+        failed_emails = []
+        for row in cursor.fetchall():
+            # Get contact details
+            contact_cursor = conn.cursor()
+            contact_cursor.execute("""
+                SELECT first_name, last_name, email
+                FROM contacts
+                WHERE id = ?
+            """, (row['contact_id'],))
+            
+            contact = contact_cursor.fetchone()
+            contact_name = f"{contact['first_name']} {contact['last_name']}" if contact else "Unknown"
+            contact_email = contact['email'] if contact else "Unknown"
+            
+            failed_emails.append({
+                "id": row['id'],
+                "contact_id": row['contact_id'],
+                "contact_name": contact_name,
+                "contact_email": contact_email,
+                "email_type": row['email_type'],
+                "scheduled_date": row['scheduled_date'],
+                "last_attempt_date": row['last_attempt_date'],
+                "send_attempt_count": row['send_attempt_count'],
+                "last_error": row['last_error']
+            })
+        
+        conn.close()
+        
+        org_name = get_organization_details(org_id).get('name', f'Organization {org_id}')
+        
+        return templates.TemplateResponse("failed_emails.html", {
+            "request": request,
+            "failed_emails": failed_emails,
+            "batch_id": batch_id,
+            "org_id": org_id,
+            "org_name": org_name,
+            "batch_info": batch_info
+        })
+    except Exception as e:
+        logger.error(f"Error getting failed emails: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Add a button to the send_emails page to go to the batch interface
+@app.get("/send_emails_redirect")
+async def send_emails_redirect(
+    org_id: int,
+    contact_ids: List[str] = Query([])
+):
+    """Redirect to the batch email interface with the selected contacts."""
+    contact_ids_params = "&".join([f"contact_ids={contact_id}" for contact_id in contact_ids])
+    return RedirectResponse(url=f"/email_batch?org_id={org_id}&{contact_ids_params}")
+
+# Add a specific handler for 400 Bad Request errors
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """Handle HTTP exceptions and provide detailed logging for 400 errors."""
+    # Get request path and method
+    path = request.url.path
+    method = request.method
+    
+    # Log the exception with detailed information
+    if exc.status_code == 400:
+        logger.error(f"400 Bad Request in {method} {path}: {exc.detail}")
+        
+        # Also log request details that might help with debugging
+        try:
+            headers = dict(request.headers)
+            # Remove sensitive headers
+            if "authorization" in headers:
+                headers["authorization"] = "[REDACTED]"
+            if "cookie" in headers:
+                headers["cookie"] = "[REDACTED]"
+                
+            logger.error(f"Request headers for 400 error: {headers}")
+            
+            # Log request body if possible
+            body = await request.body()
+            logger.error(f"Request body for 400 error (first 1000 chars): {body[:1000]}")
+        except Exception as log_error:
+            logger.error(f"Error logging request details for 400 error: {log_error}")
+    else:
+        logger.error(f"HTTP {exc.status_code} in {method} {path}: {exc.detail}")
+    
+    # Return the error with the original status code
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail}
+    )
+
+# Add a global exception handler to catch and log any unhandled exceptions
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Global exception handler to log all unhandled exceptions."""
+    # Get request path and method
+    path = request.url.path
+    method = request.method
+    
+    # Log the exception with detailed information
+    logger.exception(f"Unhandled exception in {method} {path}: {str(exc)}")
+    
+    # Also log request details that might help with debugging
+    try:
+        headers = dict(request.headers)
+        # Remove sensitive headers
+        if "authorization" in headers:
+            headers["authorization"] = "[REDACTED]"
+        if "cookie" in headers:
+            headers["cookie"] = "[REDACTED]"
+            
+        logger.error(f"Request headers: {headers}")
+        
+        # Log request body if possible
+        body = await request.body()
+        logger.error(f"Request body (first 1000 chars): {body[:1000]}")
+    except Exception as log_error:
+        logger.error(f"Error logging request details: {log_error}")
+    
+    # Return a proper error response
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Internal server error: {str(exc)}"}
+    )
+
+# Log all registered routes to help with debugging
+@app.on_event("startup")
+async def log_routes():
+    """Log all registered routes on startup for debugging."""
+    routes = []
+    for route in app.routes:
+        if hasattr(route, "methods") and hasattr(route, "path"):
+            methods = route.methods
+            path = route.path
+            name = route.name if hasattr(route, "name") else "unnamed"
+            routes.append(f"{', '.join(methods)} {path} -> {name}")
+    
+    # Sort routes alphabetically by path for easier reading
+    routes.sort()
+    
+    logger.info("Registered routes:")
+    for route in routes:
+        logger.info(f"  {route}")
+    
+    # Specifically check for our problematic endpoint
+    initialize_batch_routes = [r for r in routes if "/api/initialize_batch" in r]
+    if initialize_batch_routes:
+        logger.info(f"Found initialize_batch routes: {initialize_batch_routes}")
+    else:
+        logger.warning("No initialize_batch routes found!")
+
+# Main entry point
+if __name__ == "__main__":
+    import uvicorn
+    import argparse
+    
     parser = argparse.ArgumentParser(description="Email Scheduler App")
     parser.add_argument("--port", type=int, default=8000, help="Port to run the server on")
     args = parser.parse_args()
     
-    uvicorn.run(app, host="0.0.0.0", port=args.port) 
+    # Set up more detailed logging for Uvicorn
+    log_config = uvicorn.config.LOGGING_CONFIG
+    log_config["formatters"]["access"]["fmt"] = "%(asctime)s - %(levelname)s - %(message)s"
+    log_config["formatters"]["default"]["fmt"] = "%(asctime)s - %(levelname)s - %(message)s"
+    
+    logger.info("Starting server with enhanced debugging")
+    uvicorn.run(app, host="0.0.0.0", port=args.port, log_config=log_config) 

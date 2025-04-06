@@ -13,13 +13,15 @@ def generate_link(org_id: int, contact_id: str, email_type: str, email_date: str
         Generated URL for tracking
     """
     import hashlib
-    import os
+    from dotenv_config import get_app_config
 
     # Convert contact_id to int for quote ID generation
     contact_id_int = int(contact_id)
     
-    # Get quote secret from environment with default fallback
-    quote_secret = os.environ.get('QUOTE_SECRET', 'your-default-secret-key')
+    # Get application configuration from environment
+    app_config = get_app_config()
+    quote_secret = app_config["quote_secret"]
+    base_url = app_config["base_url"]
     
     # Create data string to hash - EXACTLY matching TypeScript implementation
     # Convert numbers to strings first to ensure exact string concatenation
@@ -32,9 +34,6 @@ def generate_link(org_id: int, contact_id: str, email_type: str, email_date: str
     
     # Combine components into quote ID
     quote_id = f"{org_id}-{contact_id_int}-{hash_value}"
-    
-    # Get base URL from environment or use default
-    base_url = os.environ.get('EMAIL_SCHEDULER_BASE_URL', 'https://maxretain.com')
     
     # Ensure quote ID is properly URL encoded
     from urllib.parse import quote
