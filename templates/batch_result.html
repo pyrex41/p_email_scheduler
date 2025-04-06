@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>Email Batch Results</h1>
+    
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="/check?org_id={{ org_id }}">Contact Check</a></li>
+            <li class="breadcrumb-item"><a href="/email_history?org_id={{ org_id }}">Email History</a></li>
+            <li class="breadcrumb-item"><a href="/email_details?batch_id={{ batch_id }}&org_id={{ org_id }}">Batch Details</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Processing Results</li>
+        </ol>
+    </nav>
+    
+    <div class="row">
+        <div class="col-md-12">
+            <div class="card mb-4">
+                <div class="card-header bg-success text-white">
+                    <h5 class="card-title mb-0">Processing Results</h5>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-success">
+                        <h5>{{ message }}</h5>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6>Operation Details</h6>
+                            <p><strong>Processed:</strong> {{ result.processed }}</p>
+                            <p><strong>Sent Successfully:</strong> <span class="text-success">{{ result.sent }}</span></p>
+                            <p><strong>Failed:</strong> <span class="text-danger">{{ result.failed }}</span></p>
+                            {% if result.remaining is defined %}
+                            <p><strong>Remaining:</strong> {{ result.remaining }}</p>
+                            {% endif %}
+                            {% if result.duration_seconds is defined %}
+                            <p><strong>Processing Time:</strong> {{ result.duration_seconds|round(2) }}s</p>
+                            {% endif %}
+                            {% if result.emails_per_second is defined %}
+                            <p><strong>Performance:</strong> {{ result.emails_per_second|round(1) }} emails/second</p>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6">
+                            <h6>Batch Status</h6>
+                            <p><strong>Total Emails:</strong> {{ batch_status.total }}</p>
+                            <p><strong>Sent:</strong> <span class="text-success">{{ batch_status.sent }}</span></p>
+                            <p><strong>Failed:</strong> <span class="text-danger">{{ batch_status.failed }}</span></p>
+                            <p><strong>Pending:</strong> <span class="text-warning">{{ batch_status.pending }}</span></p>
+                            
+                            <div class="progress mb-3" style="height: 20px;">
+                                {% set progress = (batch_status.sent + batch_status.failed) / batch_status.total * 100 if batch_status.total > 0 else 0 %}
+                                {% set success_percent = batch_status.sent / batch_status.total * 100 if batch_status.total > 0 else 0 %}
+                                {% set failed_percent = batch_status.failed / batch_status.total * 100 if batch_status.total > 0 else 0 %}
+                                
+                                <div class="progress-bar bg-success" role="progressbar" style="width: {{ success_percent|int }}%;"
+                                     aria-valuenow="{{ success_percent|int }}" aria-valuemin="0" aria-valuemax="100">{{ success_percent|int }}%</div>
+                                     
+                                <div class="progress-bar bg-danger" role="progressbar" style="width: {{ failed_percent|int }}%;"
+                                     aria-valuenow="{{ failed_percent|int }}" aria-valuemin="0" aria-valuemax="100">{{ failed_percent|int }}%</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    {% if result.errors and result.errors|length > 0 %}
+                    <div class="mt-4">
+                        <h5>Errors</h5>
+                        <div class="alert alert-danger">
+                            <ul>
+                                {% for error in result.errors %}
+                                <li>{{ error }}</li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                    </div>
+                    {% endif %}
+                    
+                    <div class="mt-4">
+                        <a href="/email_details?batch_id={{ batch_id }}&org_id={{ org_id }}" class="btn btn-primary">View Batch Details</a>
+                        
+                        {% if batch_status.pending > 0 %}
+                        <a href="/resume_batch?batch_id={{ batch_id }}&org_id={{ org_id }}" class="btn btn-success ms-2">Continue Processing</a>
+                        {% endif %}
+                        
+                        {% if batch_status.failed > 0 %}
+                        <a href="/retry_failed_emails?batch_id={{ batch_id }}&org_id={{ org_id }}" class="btn btn-danger ms-2">Retry Failed Emails</a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

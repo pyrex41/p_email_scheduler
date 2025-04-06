@@ -439,7 +439,7 @@ class EmailBatchManager:
                         to_email=to_email,
                         subject=subject,
                         content=content['body'],
-                        html_content=html_content,
+                        html_content=html_content['html'],  # Extract just the HTML string from the dictionary
                         # Use dry_run if sending is disabled for this mode
                         dry_run=not can_send
                     )
@@ -661,7 +661,7 @@ class EmailBatchManager:
                             to_email=to_email,
                             subject=subject,
                             content=content['body'],
-                            html_content=html_content,
+                            html_content=html_content['html'],  # Extract just the HTML string from the dictionary
                             dry_run=not allow_send
                         )
                         
@@ -896,7 +896,7 @@ class EmailBatchManager:
                         to_email=to_email,
                         subject=subject,
                         content=content['body'],
-                        html_content=html_content,
+                        html_content=html_content['html'],  # Extract just the HTML string from the dictionary
                         # Use dry_run if sending is disabled for this mode
                         dry_run=not can_send
                     )
@@ -1046,7 +1046,7 @@ class EmailBatchManager:
                         to_email=to_email,
                         subject=subject,
                         content=content['body'],
-                        html_content=html_content,
+                        html_content=html_content['html'],  # Extract just the HTML string from the dictionary
                         dry_run=not can_send
                     )
                     

@@ -121,6 +121,329 @@ app = FastAPI(title="Email Schedule Checker")
 # Initialize the Email Batch Manager
 batch_manager = EmailBatchManager()
 
+@app.get("/email_history")
+async def email_history(request: Request, org_id: int):
+    """Show email sending history for an organization."""
+    try:
+        # Get organization details
+        org_details = get_organization_details(main_db, org_id)
+        if not org_details:
+            raise HTTPException(status_code=404, detail=f"Organization {org_id} not found")
+        
+        # Get the database path
+        org_db_path = f"org_dbs/org-{org_id}.db"
+        
+        # Connect to database
+        conn = sqlite3.connect(org_db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        try:
+            # Get all batches for this organization
+            cursor.execute("""
+                SELECT 
+                    batch_id,
+                    MAX(created_at) as created_at,
+                    MAX(updated_at) as updated_at,
+                    COUNT(*) as total,
+                    SUM(CASE WHEN send_status = 'sent' THEN 1 ELSE 0 END) as sent,
+                    SUM(CASE WHEN send_status = 'failed' THEN 1 ELSE 0 END) as failed,
+                    SUM(CASE WHEN send_status = 'pending' THEN 1 ELSE 0 END) as pending,
+                    MAX(send_mode) as send_mode,
+                    MAX(test_email) as test_email
+                FROM email_send_tracking
+                WHERE org_id = ?
+                GROUP BY batch_id
+                ORDER BY created_at DESC
+                LIMIT 50
+            """, (org_id,))
+            
+            batches = []
+            for row in cursor.fetchall():
+                batch = dict(row)
+                # Add derived fields
+                batch["is_complete"] = batch["pending"] == 0
+                batch["has_failures"] = batch["failed"] > 0
+                
+                # Determine a status for filtering
+                if batch["is_complete"] and batch["has_failures"] == 0:
+                    batch["status"] = "sent"
+                elif batch["has_failures"]:
+                    batch["status"] = "failed"
+                else:
+                    batch["status"] = "pending"
+                    
+                batches.append(batch)
+            
+            # Get summary statistics
+            cursor.execute("""
+                SELECT
+                    SUM(CASE WHEN send_status = 'sent' THEN 1 ELSE 0 END) as total_sent,
+                    SUM(CASE WHEN send_status = 'failed' THEN 1 ELSE 0 END) as total_failed,
+                    SUM(CASE WHEN email_type = 'birthday' AND send_status = 'sent' THEN 1 ELSE 0 END) as birthday,
+                    SUM(CASE WHEN email_type = 'effective_date' AND send_status = 'sent' THEN 1 ELSE 0 END) as effective_date,
+                    SUM(CASE WHEN email_type = 'aep' AND send_status = 'sent' THEN 1 ELSE 0 END) as aep,
+                    SUM(CASE WHEN email_type = 'post_window' AND send_status = 'sent' THEN 1 ELSE 0 END) as post_window
+                FROM email_send_tracking
+                WHERE org_id = ?
+            """, (org_id,))
+            
+            stats = dict(cursor.fetchone())
+            
+            # Prepare email types dictionary
+            email_types = {
+                "birthday": stats.get("birthday", 0),
+                "effective_date": stats.get("effective_date", 0),
+                "aep": stats.get("aep", 0),
+                "post_window": stats.get("post_window", 0)
+            }
+            
+            # Render the template
+            return templates.TemplateResponse(
+                "email_history.html", 
+                {
+                    "request": request,
+                    "org_id": org_id,
+                    "org_name": org_details.get("name", f"Organization {org_id}"),
+                    "batches": batches,
+                    "total_sent": stats.get("total_sent", 0),
+                    "total_failed": stats.get("total_failed", 0),
+                    "email_types": email_types
+                }
+            )
+            
+        finally:
+            conn.close()
+            
+    except Exception as e:
+        logger.error(f"Error retrieving email history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/email_details")
+async def email_details(request: Request, batch_id: str, org_id: int):
+    """Show detailed information about a specific email batch."""
+    try:
+        # Get organization details
+        org_details = get_organization_details(main_db, org_id)
+        if not org_details:
+            raise HTTPException(status_code=404, detail=f"Organization {org_id} not found")
+        
+        # Get the database path
+        org_db_path = f"org_dbs/org-{org_id}.db"
+        
+        # Connect to database
+        conn = sqlite3.connect(org_db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        try:
+            # Get batch summary
+            cursor.execute("""
+                SELECT 
+                    batch_id,
+                    MAX(created_at) as created_at,
+                    MAX(updated_at) as updated_at,
+                    COUNT(*) as total,
+                    SUM(CASE WHEN send_status = 'sent' THEN 1 ELSE 0 END) as sent,
+                    SUM(CASE WHEN send_status = 'failed' THEN 1 ELSE 0 END) as failed,
+                    SUM(CASE WHEN send_status = 'pending' THEN 1 ELSE 0 END) as pending,
+                    MAX(send_mode) as send_mode,
+                    MAX(test_email) as test_email
+                FROM email_send_tracking
+                WHERE batch_id = ? AND org_id = ?
+                GROUP BY batch_id
+            """, (batch_id, org_id))
+            
+            batch_details = dict(cursor.fetchone() or {})
+            if not batch_details:
+                raise HTTPException(status_code=404, detail=f"Batch {batch_id} not found")
+            
+            # Get emails in this batch
+            cursor.execute("""
+                SELECT 
+                    e.*,
+                    c.first_name || ' ' || c.last_name as contact_name,
+                    c.email as contact_email
+                FROM email_send_tracking e
+                LEFT JOIN contacts c ON e.contact_id = c.id
+                WHERE e.batch_id = ? AND e.org_id = ?
+                ORDER BY 
+                    CASE e.send_status 
+                        WHEN 'failed' THEN 1
+                        WHEN 'pending' THEN 2
+                        WHEN 'sent' THEN 3
+                        ELSE 4
+                    END,
+                    e.scheduled_date
+            """, (batch_id, org_id))
+            
+            emails = [dict(row) for row in cursor.fetchall()]
+            
+            # Render the template
+            return templates.TemplateResponse(
+                "email_details.html", 
+                {
+                    "request": request,
+                    "org_id": org_id,
+                    "org_name": org_details.get("name", f"Organization {org_id}"),
+                    "batch_id": batch_id,
+                    "batch_details": batch_details,
+                    "emails": emails
+                }
+            )
+            
+        finally:
+            conn.close()
+            
+    except Exception as e:
+        logger.error(f"Error retrieving email details: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/resume_batch")
+async def resume_batch_endpoint(request: Request, batch_id: str, org_id: int):
+    """Resume sending a batch of emails."""
+    try:
+        # Get organization details
+        org_details = get_organization_details(main_db, org_id)
+        if not org_details:
+            raise HTTPException(status_code=404, detail=f"Organization {org_id} not found")
+            
+        # Create a form for resuming the batch
+        return templates.TemplateResponse(
+            "resume_batch.html", 
+            {
+                "request": request,
+                "org_id": org_id,
+                "org_name": org_details.get("name", f"Organization {org_id}"),
+                "batch_id": batch_id,
+                "batch_details": batch_manager.get_batch_status(batch_id)
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error preparing resume batch page: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/resume_batch")
+async def resume_batch_post(
+    request: Request,
+    batch_id: str = Form(...),
+    org_id: int = Form(...),
+    chunk_size: int = Form(25)
+):
+    """Process resuming a batch of emails."""
+    try:
+        # Get organization details
+        org_details = get_organization_details(main_db, org_id)
+        if not org_details:
+            raise HTTPException(status_code=404, detail=f"Organization {org_id} not found")
+            
+        # Use the batch manager to process the next chunk
+        result = await batch_manager.process_batch_chunk_async(
+            batch_id=batch_id,
+            chunk_size=chunk_size
+        )
+        
+        # Get the full batch status after processing
+        batch_status = batch_manager.get_batch_status(batch_id)
+        
+        # Create a success message
+        processed = result.get("processed", 0)
+        sent = result.get("sent", 0)
+        failed = result.get("failed", 0)
+        
+        message = f"Successfully processed {processed} emails: {sent} sent, {failed} failed"
+        
+        # Render the results page
+        return templates.TemplateResponse(
+            "batch_result.html", 
+            {
+                "request": request,
+                "org_id": org_id,
+                "org_name": org_details.get("name", f"Organization {org_id}"),
+                "batch_id": batch_id,
+                "batch_status": batch_status,
+                "result": result,
+                "message": message
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error resuming batch: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/retry_failed_emails")
+async def retry_failed_emails_endpoint(request: Request, batch_id: str, org_id: int):
+    """Show a form to retry failed emails."""
+    try:
+        # Get organization details
+        org_details = get_organization_details(main_db, org_id)
+        if not org_details:
+            raise HTTPException(status_code=404, detail=f"Organization {org_id} not found")
+            
+        # Get batch details to show failed count
+        batch_details = batch_manager.get_batch_status(batch_id)
+        
+        # Render the form
+        return templates.TemplateResponse(
+            "retry_failed.html", 
+            {
+                "request": request,
+                "org_id": org_id,
+                "org_name": org_details.get("name", f"Organization {org_id}"),
+                "batch_id": batch_id,
+                "batch_details": batch_details
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error preparing retry failed emails page: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/retry_failed_emails")
+async def retry_failed_emails_post(
+    request: Request,
+    batch_id: str = Form(...),
+    org_id: int = Form(...),
+    chunk_size: int = Form(25)
+):
+    """Process retrying failed emails."""
+    try:
+        # Get organization details
+        org_details = get_organization_details(main_db, org_id)
+        if not org_details:
+            raise HTTPException(status_code=404, detail=f"Organization {org_id} not found")
+            
+        # Use the batch manager to retry failed emails
+        result = await batch_manager.retry_failed_emails_async(
+            batch_id=batch_id,
+            chunk_size=chunk_size
+        )
+        
+        # Get the full batch status after retrying
+        batch_status = batch_manager.get_batch_status(batch_id)
+        
+        # Create a success message
+        retried = result.get("retry_total", 0)
+        successful = result.get("retry_successful", 0)
+        still_failed = result.get("retry_failed", 0)
+        
+        message = f"Retried {retried} failed emails: {successful} successful, {still_failed} still failed"
+        
+        # Render the results page
+        return templates.TemplateResponse(
+            "batch_result.html", 
+            {
+                "request": request,
+                "org_id": org_id,
+                "org_name": org_details.get("name", f"Organization {org_id}"),
+                "batch_id": batch_id,
+                "batch_status": batch_status,
+                "result": result,
+                "message": message
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error retrying failed emails: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/email_batch/toggle_test_email")
 async def toggle_test_email(request: Request):
     """Toggle the test email field based on send mode."""
@@ -1641,11 +1964,18 @@ async def preview_email(
     org_id: int,
     contact_id: str,
     email_type: str,
-    email_date: str
+    email_date: Optional[str] = None
 ):
     """Preview an email template for a specific contact"""
     try:
         logger.debug(f"Previewing email for org_id={org_id}, contact_id={contact_id}, type={email_type}, date={email_date}")
+        
+        # Handle case where email_date is missing or needs parsing from query params
+        if not email_date:
+            # Try to get from query params directly
+            query_params = dict(request.query_params)
+            email_date = query_params.get("date", date.today().isoformat())
+            logger.debug(f"Using email_date from query params: {email_date}")
         
         # Get contact directly from the org database
         org_db_path = os.path.join(org_db_dir, f'org-{org_id}.db')
@@ -1687,13 +2017,33 @@ async def preview_email(
             logger.error(f"Error fetching organization details for org_id={org_id}: {e}")
             raise HTTPException(status_code=500, detail=f"Error fetching organization details: {e}")
         
-        # Parse email date
+        # Parse email date - handle flexible formats
         try:
-            parsed_email_date = datetime.strptime(email_date, "%Y-%m-%d").date()
+            # Handle various formats that might be passed in the URL
+            if email_date:
+                # Try strict ISO format first
+                try:
+                    parsed_email_date = datetime.strptime(email_date, "%Y-%m-%d").date()
+                except ValueError:
+                    # Try with time component
+                    try:
+                        parsed_email_date = datetime.fromisoformat(email_date).date()
+                    except ValueError:
+                        # Try with slashes
+                        try:
+                            parsed_email_date = datetime.strptime(email_date, "%Y/%m/%d").date()
+                        except ValueError:
+                            # Last fallback to today
+                            logger.warning(f"Could not parse date '{email_date}', using today instead")
+                            parsed_email_date = date.today()
+            else:
+                # Default to today if no date provided
+                parsed_email_date = date.today()
+                
             logger.debug(f"Parsed email date: {parsed_email_date}")
-        except ValueError as e:
-            logger.error(f"Invalid email date format: {email_date}")
-            raise HTTPException(status_code=400, detail=f"Invalid date format: {e}")
+        except Exception as e:
+            logger.error(f"Error handling email date: {e}, using today's date instead")
+            parsed_email_date = date.today()
         
         # Initialize template engine
         template_engine = EmailTemplateEngine()

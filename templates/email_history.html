@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>Email Sending History for {{ org_name }} (ID: {{ org_id }})</h1>
+    
+    <div class="row">
+        <div class="col-md-12">
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">Recent Email Batches</h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <button class="btn btn-sm btn-outline-primary filter-button" data-status="all">All</button>
+                        <button class="btn btn-sm btn-outline-success filter-button" data-status="sent">Sent</button>
+                        <button class="btn btn-sm btn-outline-danger filter-button" data-status="failed">Failed</button>
+                        <button class="btn btn-sm btn-outline-warning filter-button" data-status="pending">Pending</button>
+                    </div>
+                    
+                    <div class="table-responsive">
+                        <table class="table table-striped batch-table">
+                            <thead>
+                                <tr>
+                                    <th>Batch ID</th>
+                                    <th>Date</th>
+                                    <th>Mode</th>
+                                    <th>Status</th>
+                                    <th>Total</th>
+                                    <th>Sent</th>
+                                    <th>Failed</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for batch in batches %}
+                                <tr data-status="{{ batch.status }}">
+                                    <td>{{ batch.batch_id }}</td>
+                                    <td>{{ batch.created_at }}</td>
+                                    <td>
+                                        {% if batch.send_mode == 'test' %}
+                                        <span class="badge bg-info">Test</span>
+                                        {% else %}
+                                        <span class="badge bg-danger">Production</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if batch.is_complete %}
+                                        <span class="badge bg-success">Complete</span>
+                                        {% elif batch.has_failures %}
+                                        <span class="badge bg-warning">Partial</span>
+                                        {% else %}
+                                        <span class="badge bg-secondary">Pending</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ batch.total }}</td>
+                                    <td>{{ batch.sent }}</td>
+                                    <td>{{ batch.failed }}</td>
+                                    <td>
+                                        <a href="/email_details?batch_id={{ batch.batch_id }}&org_id={{ org_id }}" class="btn btn-sm btn-outline-primary">Details</a>
+                                        {% if batch.has_failures %}
+                                        <a href="/retry_failed_emails?batch_id={{ batch.batch_id }}&org_id={{ org_id }}" class="btn btn-sm btn-outline-danger">Retry Failed</a>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    {% if not batches %}
+                    <div class="alert alert-info">
+                        No email batches found for this organization.
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <div class="card mb-4">
+                <div class="card-header bg-info text-white">
+                    <h5 class="card-title mb-0">Email Sending Summary</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6>Overall Statistics</h6>
+                            <p><strong>Total Batches:</strong> {{ batches|length }}</p>
+                            <p><strong>Total Emails Sent:</strong> {{ total_sent }}</p>
+                            <p><strong>Total Failed:</strong> {{ total_failed }}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <h6>Email Types</h6>
+                            <p><strong>Birthday Emails:</strong> {{ email_types.birthday|default(0) }}</p>
+                            <p><strong>Effective Date Emails:</strong> {{ email_types.effective_date|default(0) }}</p>
+                            <p><strong>AEP Emails:</strong> {{ email_types.aep|default(0) }}</p>
+                            <p><strong>Post-Window Emails:</strong> {{ email_types.post_window|default(0) }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Handle filter buttons
+    const filterButtons = document.querySelectorAll('.filter-button');
+    const rows = document.querySelectorAll('.batch-table tbody tr');
+    
+    filterButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            // Remove active class from all buttons
+            filterButtons.forEach(btn => btn.classList.remove('active', 'btn-outline-primary', 'btn-primary', 
+                                                             'btn-outline-success', 'btn-success',
+                                                             'btn-outline-danger', 'btn-danger',
+                                                             'btn-outline-warning', 'btn-warning'));
+            
+            // Add active class to clicked button
+            button.classList.add('active');
+            
+            // Replace outline with solid for active button
+            if (button.classList.contains('btn-outline-primary')) {
+                button.classList.remove('btn-outline-primary');
+                button.classList.add('btn-primary');
+            } else if (button.classList.contains('btn-outline-success')) {
+                button.classList.remove('btn-outline-success');
+                button.classList.add('btn-success');
+            } else if (button.classList.contains('btn-outline-danger')) {
+                button.classList.remove('btn-outline-danger');
+                button.classList.add('btn-danger');
+            } else if (button.classList.contains('btn-outline-warning')) {
+                button.classList.remove('btn-outline-warning');
+                button.classList.add('btn-warning');
+            }
+            
+            // Get the status to filter by
+            const status = button.getAttribute('data-status');
+            
+            // Show/hide rows based on the filter
+            rows.forEach(row => {
+                if (status === 'all' || row.getAttribute('data-status') === status) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        });
+    });
+    
+    // Set "All" as the default active filter
+    filterButtons[0].click();
+});
+</script>
+{% endblock %}

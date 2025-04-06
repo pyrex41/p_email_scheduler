@@ -23,7 +23,8 @@ def get_email_content(email_type, contact, email_date):
 
 def get_email_html_content(email_type, contact, email_date):
     """Get HTML email content using the template engine"""
-    return template_engine.render_email(email_type, contact, email_date, html=True)
+    result = template_engine.render_email(email_type, contact, email_date, html=True)
+    return result['html']  # Return just the HTML string, not the whole dictionary
 
 def load_scheduled_emails(input_file: str) -> List[Dict[str, Any]]:
     """Load scheduled emails from JSON file"""
@@ -129,7 +130,7 @@ def send_scheduled_emails(
                     to_email=to_email,
                     subject=content['subject'],
                     content=content['body'],
-                    html_content=html_content,
+                    html_content=html_content,  # Already fixed by modifying get_email_html_content
                     dry_run=dry_run
                 )
                 

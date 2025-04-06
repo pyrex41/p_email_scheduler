@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>Resume Batch {{ batch_id }}</h1>
+    
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="/check?org_id={{ org_id }}">Contact Check</a></li>
+            <li class="breadcrumb-item"><a href="/email_history?org_id={{ org_id }}">Email History</a></li>
+            <li class="breadcrumb-item"><a href="/email_details?batch_id={{ batch_id }}&org_id={{ org_id }}">Batch Details</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Resume Batch</li>
+        </ol>
+    </nav>
+    
+    <div class="row">
+        <div class="col-md-12">
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">Batch Summary</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <p><strong>Batch ID:</strong> {{ batch_id }}</p>
+                            <p><strong>Created:</strong> {{ batch_details.created_at }}</p>
+                            <p><strong>Send Mode:</strong> 
+                                {% if batch_details.send_mode == 'test' %}
+                                <span class="badge bg-info">Test</span>
+                                {% else %}
+                                <span class="badge bg-danger">Production</span>
+                                {% endif %}
+                            </p>
+                            {% if batch_details.send_mode == 'test' and batch_details.test_email %}
+                            <p><strong>Test Email:</strong> {{ batch_details.test_email }}</p>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6">
+                            <p><strong>Total Emails:</strong> {{ batch_details.total }}</p>
+                            <p><strong>Sent:</strong> <span class="text-success">{{ batch_details.sent }}</span></p>
+                            <p><strong>Failed:</strong> <span class="text-danger">{{ batch_details.failed }}</span></p>
+                            <p><strong>Pending:</strong> <span class="text-warning">{{ batch_details.pending }}</span></p>
+                            
+                            <div class="progress mb-3" style="height: 20px;">
+                                {% set progress = (batch_details.sent + batch_details.failed) / batch_details.total * 100 if batch_details.total > 0 else 0 %}
+                                {% set success_percent = batch_details.sent / batch_details.total * 100 if batch_details.total > 0 else 0 %}
+                                {% set failed_percent = batch_details.failed / batch_details.total * 100 if batch_details.total > 0 else 0 %}
+                                
+                                <div class="progress-bar bg-success" role="progressbar" style="width: {{ success_percent|int }}%;"
+                                     aria-valuenow="{{ success_percent|int }}" aria-valuemin="0" aria-valuemax="100">{{ success_percent|int }}%</div>
+                                     
+                                <div class="progress-bar bg-danger" role="progressbar" style="width: {{ failed_percent|int }}%;"
+                                     aria-valuenow="{{ failed_percent|int }}" aria-valuemin="0" aria-valuemax="100">{{ failed_percent|int }}%</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card mb-4">
+                <div class="card-header bg-success text-white">
+                    <h5 class="card-title mb-0">Resume Batch Processing</h5>
+                </div>
+                <div class="card-body">
+                    {% if batch_details.pending == 0 %}
+                    <div class="alert alert-info">
+                        <p><strong>No pending emails to process.</strong> This batch has been fully processed.</p>
+                        <p>You might want to retry the {{ batch_details.failed }} failed emails instead.</p>
+                    </div>
+                    <a href="/retry_failed_emails?batch_id={{ batch_id }}&org_id={{ org_id }}" class="btn btn-danger">Retry Failed Emails</a>
+                    {% else %}
+                    <form action="/resume_batch" method="post">
+                        <input type="hidden" name="batch_id" value="{{ batch_id }}">
+                        <input type="hidden" name="org_id" value="{{ org_id }}">
+                        
+                        <div class="alert alert-warning">
+                            <p><strong>{{ batch_details.pending }} pending emails</strong> will be processed. This operation will:</p>
+                            <ul>
+                                <li>Send emails to recipients according to the batch's send mode</li>
+                                <li>Update the email tracking status in the database</li>
+                                <li>If in test mode, emails will be sent to the test address</li>
+                                <li>If in production mode, emails will be sent to actual contacts</li>
+                            </ul>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="chunk_size" class="form-label">Chunk Size</label>
+                            <input type="number" class="form-control" id="chunk_size" name="chunk_size" value="25" min="1" max="100">
+                            <div class="form-text">Number of emails to process in this batch (1-100). Use smaller numbers for better control.</div>
+                        </div>
+                        
+                        <div class="mt-4">
+                            <button type="submit" class="btn btn-success">Process {{ batch_details.pending }} Pending Emails</button>
+                            <a href="/email_details?batch_id={{ batch_id }}&org_id={{ org_id }}" class="btn btn-outline-secondary ms-2">Cancel</a>
+                        </div>
+                    </form>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

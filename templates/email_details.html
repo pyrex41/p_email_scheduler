@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>Email Details for Batch {{ batch_id }}</h1>
+    
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="/check?org_id={{ org_id }}">Contact Check</a></li>
+            <li class="breadcrumb-item"><a href="/email_history?org_id={{ org_id }}">Email History</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Batch Details</li>
+        </ol>
+    </nav>
+    
+    <div class="row">
+        <div class="col-md-12">
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">Batch Summary</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <p><strong>Batch ID:</strong> {{ batch_id }}</p>
+                            <p><strong>Created:</strong> {{ batch_details.created_at }}</p>
+                            <p><strong>Send Mode:</strong> 
+                                {% if batch_details.send_mode == 'test' %}
+                                <span class="badge bg-info">Test</span>
+                                {% else %}
+                                <span class="badge bg-danger">Production</span>
+                                {% endif %}
+                            </p>
+                            {% if batch_details.send_mode == 'test' and batch_details.test_email %}
+                            <p><strong>Test Email:</strong> {{ batch_details.test_email }}</p>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6">
+                            <p><strong>Total Emails:</strong> {{ batch_details.total }}</p>
+                            <p><strong>Sent:</strong> <span class="text-success">{{ batch_details.sent }}</span></p>
+                            <p><strong>Failed:</strong> <span class="text-danger">{{ batch_details.failed }}</span></p>
+                            <p><strong>Pending:</strong> <span class="text-secondary">{{ batch_details.pending }}</span></p>
+                            
+                            <div class="progress mb-3" style="height: 20px;">
+                                {% set progress = (batch_details.sent + batch_details.failed) / batch_details.total * 100 if batch_details.total > 0 else 0 %}
+                                {% set success_percent = batch_details.sent / batch_details.total * 100 if batch_details.total > 0 else 0 %}
+                                {% set failed_percent = batch_details.failed / batch_details.total * 100 if batch_details.total > 0 else 0 %}
+                                
+                                <div class="progress-bar bg-success" role="progressbar" style="width: {{ success_percent|int }}%;"
+                                     aria-valuenow="{{ success_percent|int }}" aria-valuemin="0" aria-valuemax="100">{{ success_percent|int }}%</div>
+                                     
+                                <div class="progress-bar bg-danger" role="progressbar" style="width: {{ failed_percent|int }}%;"
+                                     aria-valuenow="{{ failed_percent|int }}" aria-valuemin="0" aria-valuemax="100">{{ failed_percent|int }}%</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    {% if batch_details.pending > 0 or batch_details.failed > 0 %}
+                    <div class="mt-3">
+                        {% if batch_details.pending > 0 %}
+                        <a href="/resume_batch?batch_id={{ batch_id }}&org_id={{ org_id }}" class="btn btn-success me-2">Resume Batch</a>
+                        {% endif %}
+                        
+                        {% if batch_details.failed > 0 %}
+                        <a href="/retry_failed_emails?batch_id={{ batch_id }}&org_id={{ org_id }}" class="btn btn-danger">Retry Failed Emails</a>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <div class="card mb-4">
+                <div class="card-header bg-info text-white">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h5 class="card-title mb-0">Email Details</h5>
+                        <div>
+                            <button class="btn btn-sm btn-light me-2 filter-button" data-status="all">All</button>
+                            <button class="btn btn-sm btn-success me-2 filter-button" data-status="sent">Sent</button>
+                            <button class="btn btn-sm btn-danger me-2 filter-button" data-status="failed">Failed</button>
+                            <button class="btn btn-sm btn-secondary filter-button" data-status="pending">Pending</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-striped" id="emails-table">
+                            <thead>
+                                <tr>
+                                    <th>Contact</th>
+                                    <th>Email Type</th>
+                                    <th>Date</th>
+                                    <th>Status</th>
+                                    <th>Attempts</th>
+                                    <th>Last Attempt</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for email in emails %}
+                                <tr data-status="{{ email.send_status }}">
+                                    <td>
+                                        <a href="/check?org_id={{ org_id }}&contact_id={{ email.contact_id }}">
+                                            {{ email.contact_name }}
+                                        </a>
+                                    </td>
+                                    <td>
+                                        {% if email.email_type == 'birthday' %}
+                                        <span class="badge bg-primary">Birthday</span>
+                                        {% elif email.email_type == 'effective_date' %}
+                                        <span class="badge bg-success">Effective Date</span>
+                                        {% elif email.email_type == 'aep' %}
+                                        <span class="badge bg-warning">AEP</span>
+                                        {% elif email.email_type == 'post_window' %}
+                                        <span class="badge bg-info">Post Window</span>
+                                        {% else %}
+                                        <span class="badge bg-secondary">{{ email.email_type }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ email.scheduled_date }}</td>
+                                    <td>
+                                        {% if email.send_status == 'sent' %}
+                                        <span class="badge bg-success">Sent</span>
+                                        {% elif email.send_status == 'failed' %}
+                                        <span class="badge bg-danger">Failed</span>
+                                        {% elif email.send_status == 'pending' %}
+                                        <span class="badge bg-secondary">Pending</span>
+                                        {% elif email.send_status == 'skipped' %}
+                                        <span class="badge bg-warning">Skipped</span>
+                                        {% else %}
+                                        <span class="badge bg-dark">{{ email.send_status }}</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ email.send_attempt_count }}</td>
+                                    <td>{{ email.last_attempt_date or '-' }}</td>
+                                    <td>
+                                        <a href="/preview_email?org_id={{ org_id }}&contact_id={{ email.contact_id }}&email_type={{ email.email_type }}&email_date={{ email.scheduled_date }}" class="btn btn-sm btn-outline-primary" target="_blank">Preview</a>
+                                        
+                                        {% if email.send_status == 'failed' %}
+                                        <button class="btn btn-sm btn-outline-danger retry-email" data-email-id="{{ email.id }}">Retry</button>
+                                        {% endif %}
+                                        
+                                        {% if email.send_status == 'pending' %}
+                                        <button class="btn btn-sm btn-outline-secondary send-email" data-email-id="{{ email.id }}">Send Now</button>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    {% if not emails %}
+                    <div class="alert alert-info">
+                        No emails found for this batch.
+                    </div>
+                    {% endif %}
+                    
+                    <div class="mt-3">
+                        <a href="/email_history?org_id={{ org_id }}" class="btn btn-secondary">Back to Email History</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Handle filter buttons
+    const filterButtons = document.querySelectorAll('.filter-button');
+    const rows = document.querySelectorAll('#emails-table tbody tr');
+    
+    filterButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            // Remove active class from all buttons
+            filterButtons.forEach(btn => btn.classList.remove('active'));
+            
+            // Add active class to clicked button
+            button.classList.add('active');
+            
+            // Get the status to filter by
+            const status = button.getAttribute('data-status');
+            
+            // Show/hide rows based on the filter
+            rows.forEach(row => {
+                if (status === 'all' || row.getAttribute('data-status') === status) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        });
+    });
+    
+    // Set "All" as the default active filter
+    filterButtons[0].click();
+});
+</script>
+{% endblock %}
