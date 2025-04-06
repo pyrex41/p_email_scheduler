@@ -43,9 +43,17 @@
                         <div class="col-md-6">
                             <h6>Batch Status</h6>
                             <p><strong>Total Emails:</strong> {{ batch_status.total }}</p>
-                            <p><strong>Sent:</strong> <span class="text-success">{{ batch_status.sent }}</span></p>
+                            <p><strong>Sent:</strong> <span class="text-success">{{ batch_status.sent }}</span> <span class="text-muted">({{ batch_status.total - batch_status.pending - batch_status.failed }})</span></p>
                             <p><strong>Failed:</strong> <span class="text-danger">{{ batch_status.failed }}</span></p>
                             <p><strong>Pending:</strong> <span class="text-warning">{{ batch_status.pending }}</span></p>
+                            <div class="btn-group">
+                                <a href="/email_details?batch_id={{ batch_id }}&org_id={{ org_id }}" class="btn btn-sm btn-secondary">
+                                    <i class="fas fa-list"></i> Batch Details
+                                </a>
+                                <a href="/email_status?batch_id={{ batch_id }}&org_id={{ org_id }}" class="btn btn-sm btn-info">
+                                    <i class="fas fa-chart-bar"></i> Status Dashboard
+                                </a>
+                            </div>
                             
                             <div class="progress mb-3" style="height: 20px;">
                                 {% set progress = (batch_status.sent + batch_status.failed) / batch_status.total * 100 if batch_status.total > 0 else 0 %}

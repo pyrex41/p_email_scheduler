@@ -69,6 +69,12 @@
             <a href="/send_emails?org_id={{ org_id }}&show_all={{ 'true' if show_all else 'false' }}&sample_size={{ sample_size }}{% if state %}&state={{ state }}{% endif %}&special_rules_only={{ 'true' if special_rules_only else 'false' }}&effective_date_filter={{ effective_date_filter }}{% if effective_date_years %}&effective_date_years={{ effective_date_years }}{% endif %}{% if effective_date_start %}&effective_date_start={{ effective_date_start }}{% endif %}{% if effective_date_end %}&effective_date_end={{ effective_date_end }}{% endif %}{% for contact in contacts %}&contact_ids={{ contact.id }}{% endfor %}" class="btn btn-secondary ms-2">
                 <i class="fas fa-paper-plane me-2"></i>Send More Emails
             </a>
+            
+            {% if batch_id %}
+            <a href="/email_status?org_id={{ org_id }}&batch_id={{ batch_id }}" class="btn btn-info ms-2">
+                <i class="fas fa-chart-bar me-2"></i>View Email Status
+            </a>
+            {% endif %}
         </div>
     </div>
     

@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+
+{% block title %}Email Delivery Status{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1>Email Delivery Status</h1>
+            <p class="text-muted">
+                Check the delivery status of emails sent through SendGrid.
+            </p>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-12 col-md-6">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">Check Batch Status</h5>
+                </div>
+                <div class="card-body">
+                    <form id="batchStatusForm" hx-get="/api/email-status/batch/{{ batch_id }}" 
+                          hx-trigger="submit" hx-target="#batchStatusResult" hx-swap="outerHTML">
+                        <div class="mb-3">
+                            <label for="org_id" class="form-label">Organization ID</label>
+                            <input type="number" class="form-control" id="org_id" name="org_id" 
+                                   value="{{ org_id }}" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="batch_id" class="form-label">Batch ID</label>
+                            <input type="text" class="form-control" id="batch_id" name="batch_id" 
+                                   value="{{ batch_id }}" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-search me-2"></i>Check Batch Status
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-md-6">
+            <div class="card">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0">Update Batch Status</h5>
+                </div>
+                <div class="card-body">
+                    <form id="updateBatchForm" hx-post="/api/email-status/batch/update" 
+                          hx-trigger="submit" hx-target="#updateResult" hx-swap="outerHTML">
+                        <div class="mb-3">
+                            <label for="update_org_id" class="form-label">Organization ID</label>
+                            <input type="number" class="form-control" id="update_org_id" name="org_id" 
+                                   value="{{ org_id }}" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="update_batch_id" class="form-label">Batch ID (Optional)</label>
+                            <input type="text" class="form-control" id="update_batch_id" name="batch_id" 
+                                   value="{{ batch_id }}">
+                            <small class="form-text text-muted">
+                                Leave empty to update all pending emails for the organization.
+                            </small>
+                        </div>
+                        <div class="mb-3">
+                            <label for="limit" class="form-label">Limit</label>
+                            <input type="number" class="form-control" id="limit" name="limit" 
+                                   value="100" min="1" max="1000">
+                            <small class="form-text text-muted">
+                                Maximum number of emails to update (1-1000).
+                            </small>
+                        </div>
+                        <button type="submit" class="btn btn-success">
+                            <i class="fas fa-sync-alt me-2"></i>Update Status
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0">Check Individual Email Status</h5>
+                </div>
+                <div class="card-body">
+                    <form id="messageStatusForm" hx-get="/api/email-status/message" 
+                          hx-trigger="submit" hx-target="#messageStatusResult" hx-swap="outerHTML">
+                        <div class="mb-3">
+                            <label for="message_id" class="form-label">SendGrid Message ID</label>
+                            <input type="text" class="form-control" id="message_id" name="message_id" 
+                                   placeholder="Enter SendGrid Message ID" required>
+                            <small class="form-text text-muted">
+                                The message ID from SendGrid (stored in the email_send_tracking table).
+                            </small>
+                        </div>
+                        <button type="submit" class="btn btn-info">
+                            <i class="fas fa-envelope me-2"></i>Check Email Status
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Results Containers -->
+    <div id="batchStatusResult" class="mt-4" style="{% if not batch_status %}display: none;{% endif %}">
+        {% if batch_status %}
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0">Batch Status Results</h5>
+            </div>
+            <div class="card-body">
+                <h6>Batch ID: {{ batch_status.batch_id }}</h6>
+                
+                {% if batch_status.success %}
+                    <div class="alert alert-success">
+                        <h6>Delivery Statistics</h6>
+                        <div class="progress mb-3">
+                            <div class="progress-bar bg-success" role="progressbar" 
+                                 style="width: {{ batch_status.stats.delivery_percentage }}%" 
+                                 aria-valuenow="{{ batch_status.stats.delivery_percentage }}" 
+                                 aria-valuemin="0" aria-valuemax="100">
+                                {{ batch_status.stats.delivery_percentage }}% Delivered
+                            </div>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <ul class="list-group">
+                                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                                        Total Emails
+                                        <span class="badge bg-primary rounded-pill">{{ batch_status.stats.total }}</span>
+                                    </li>
+                                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                                        Delivered
+                                        <span class="badge bg-success rounded-pill">{{ batch_status.stats.delivered }}</span>
+                                    </li>
+                                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                                        Accepted/Processing
+                                        <span class="badge bg-info rounded-pill">{{ batch_status.stats.accepted }}</span>
+                                    </li>
+                                </ul>
+                            </div>
+                            <div class="col-md-6">
+                                <ul class="list-group">
+                                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                                        Deferred
+                                        <span class="badge bg-warning rounded-pill">{{ batch_status.stats.deferred }}</span>
+                                    </li>
+                                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                                        Bounced
+                                        <span class="badge bg-danger rounded-pill">{{ batch_status.stats.bounced }}</span>
+                                    </li>
+                                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                                        Failed
+                                        <span class="badge bg-danger rounded-pill">{{ batch_status.stats.failed }}</span>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+                        
+                        {% if batch_status.stats.needs_check > 0 %}
+                        <div class="alert alert-warning mt-3">
+                            <i class="fas fa-exclamation-triangle me-2"></i>
+                            {{ batch_status.stats.needs_check }} emails need status updates. Use the "Update Status" form to refresh.
+                        </div>
+                        {% endif %}
+                    </div>
+                {% else %}
+                    <div class="alert alert-danger">
+                        <i class="fas fa-exclamation-circle me-2"></i>
+                        Error: {{ batch_status.error }}
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <div id="updateResult" class="mt-4" style="{% if not update_result %}display: none;{% endif %}">
+        {% if update_result %}
+        <div class="card">
+            <div class="card-header bg-success text-white">
+                <h5 class="mb-0">Status Update Results</h5>
+            </div>
+            <div class="card-body">
+                {% if update_result.success %}
+                    <div class="alert alert-success">
+                        <h6>Status Update Completed</h6>
+                        <p>Successfully checked {{ update_result.stats.checked }} emails.</p>
+                        
+                        <div class="row mt-3">
+                            <div class="col-md-6">
+                                <ul class="list-group">
+                                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                                        Delivered
+                                        <span class="badge bg-success rounded-pill">{{ update_result.stats.delivered }}</span>
+                                    </li>
+                                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                                        Processing
+                                        <span class="badge bg-info rounded-pill">{{ update_result.stats.processing }}</span>
+                                    </li>
+                                </ul>
+                            </div>
+                            <div class="col-md-6">
+                                <ul class="list-group">
+                                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                                        Deferred
+                                        <span class="badge bg-warning rounded-pill">{{ update_result.stats.deferred }}</span>
+                                    </li>
+                                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                                        Failed/Errors
+                                        <span class="badge bg-danger rounded-pill">{{ update_result.stats.bounced + update_result.stats.dropped + update_result.stats.errors }}</span>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                {% else %}
+                    <div class="alert alert-danger">
+                        <i class="fas fa-exclamation-circle me-2"></i>
+                        Error: {{ update_result.error }}
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <div id="messageStatusResult" class="mt-4" style="{% if not message_status %}display: none;{% endif %}">
+        {% if message_status %}
+        <div class="card">
+            <div class="card-header bg-info text-white">
+                <h5 class="mb-0">Email Status Results</h5>
+            </div>
+            <div class="card-body">
+                <h6>Message ID: {{ message_status.message_id }}</h6>
+                
+                {% if message_status.success %}
+                    <div class="alert alert-info">
+                        <h6>Delivery Status: {{ message_status.status }}</h6>
+                        <pre class="mt-3 bg-light p-3 rounded"><code>{{ message_status.data | tojson(indent=2) }}</code></pre>
+                    </div>
+                {% else %}
+                    <div class="alert alert-danger">
+                        <i class="fas fa-exclamation-circle me-2"></i>
+                        Error: {{ message_status.error }}
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

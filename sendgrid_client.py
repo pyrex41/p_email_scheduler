@@ -83,12 +83,9 @@ class SendGridClient:
             logger.error(f"Invalid email address: {to_email}")
             return False
         
-        # In dry-run mode, just log the email
+        # In dry-run mode, just log the email (with less detail)
         if use_dry_run:
-            logger.info(f"[DRY RUN] Would send email to: {to_email}")
-            logger.info(f"[DRY RUN] Subject: {subject}")
-            logger.info(f"[DRY RUN] From: {self.from_name} <{self.from_email}>")
-            logger.info(f"[DRY RUN] Content (first 100 chars): {content[:100]}...")
+            logger.info(f"[DRY RUN] Would send email to: {to_email} - Subject: {subject}")
             return True
         
         # Ensure we have API key for live mode
@@ -120,23 +117,50 @@ class SendGridClient:
             
             # Check response
             status_code = response.status_code
+            message_id = None
             
             if 200 <= status_code < 300:  # Success status codes
-                logger.info(f"Email sent successfully to {to_email}, status: {status_code}")
-                return True
+                # Try to extract SendGrid message ID from the response (important for status tracking)
+                try:
+                    if hasattr(response, 'headers') and response.headers:
+                        # The message ID might be in 'X-Message-Id' header
+                        message_id = response.headers.get('X-Message-Id')
+                    
+                    if not message_id and hasattr(response, 'body') and response.body:
+                        # Try to parse the response body for message ID
+                        response_json = json.loads(response.body.decode('utf-8'))
+                        if isinstance(response_json, dict) and 'message_id' in response_json:
+                            message_id = response_json['message_id']
+                except Exception as parse_err:
+                    logger.warning(f"Could not extract message ID from response: {str(parse_err)}")
+                
+                logger.info(f"Email accepted by SendGrid for {to_email}, status: {status_code}, message_id: {message_id}")
+                # Return both success and the message ID
+                return {"success": True, "status": "accepted", "message_id": message_id}
             else:
                 # Try to get more details from the response
+                error_details = "No response body"
                 try:
-                    response_body = response.body.decode('utf-8') if hasattr(response, 'body') and response.body else 'No response body'
-                    logger.error(f"Failed to send email to {to_email}, status: {status_code}, details: {response_body}")
+                    if hasattr(response, 'body') and response.body:
+                        response_body = response.body.decode('utf-8')
+                        error_details = response_body
+                        # Try to parse JSON for more detailed error
+                        try:
+                            error_json = json.loads(response_body)
+                            if isinstance(error_json, dict) and 'errors' in error_json:
+                                error_details = '; '.join([e.get('message', str(e)) for e in error_json['errors']])
+                        except:
+                            pass
                 except Exception as decode_err:
-                    logger.error(f"Failed to send email to {to_email}, status: {status_code}, could not decode response: {str(decode_err)}")
+                    error_details = f"Could not decode response: {str(decode_err)}"
                 
-                return False
+                logger.error(f"Failed to send email to {to_email}, status: {status_code}, details: {error_details}")
+                return {"success": False, "status": "api_error", "error": error_details}
             
         except Exception as e:
-            logger.error(f"Error sending email to {to_email}: {str(e)}")
-            return False
+            error_message = str(e)
+            logger.error(f"Error sending email to {to_email}: {error_message}")
+            return {"success": False, "status": "exception", "error": error_message}
 
     def send_batch(
         self, 
@@ -174,13 +198,10 @@ class SendGridClient:
         for i in range(0, len(emails), MAX_BATCH_SIZE):
             sub_batch = emails[i:i+MAX_BATCH_SIZE]
             
-            # In dry-run mode, just log the emails
+            # In dry-run mode, just log the emails (with less verbosity)
             if use_dry_run:
-                for email in sub_batch:
-                    logger.info(f"[DRY RUN] Would send email to: {email.get('to_email')}")
-                    logger.info(f"[DRY RUN] Subject: {email.get('subject')}")
-                    content_preview = email.get('content', '')[:100] + '...' if email.get('content') else 'No content'
-                    logger.info(f"[DRY RUN] Content (first 100 chars): {content_preview}")
+                email_count = len(sub_batch)
+                logger.info(f"[DRY RUN] Would send {email_count} emails in batch")
                 
                 # All dry-run emails are considered successful
                 success_count += len(sub_batch)
@@ -265,6 +286,120 @@ class SendGridClient:
         
         return success_count, failed_count, errors
     
+    def query_message_status(self, message_id: str) -> Dict[str, Any]:
+        """
+        Query the status of a sent email by its SendGrid message ID.
+        
+        Args:
+            message_id: The SendGrid message ID returned from the send_email response
+            
+        Returns:
+            Dictionary with status information
+        """
+        # Ensure we have API key
+        if not self.api_key:
+            logger.error("Cannot query status: SendGrid API key not provided")
+            return {"success": False, "error": "API key not provided"}
+        
+        # Ensure client is initialized
+        if not self.client:
+            logger.error("SendGrid client not initialized")
+            return {"success": False, "error": "Client not initialized"}
+        
+        try:
+            # Query email status using SendGrid's Messages API
+            # Note: This requires "Messages" API permission in your SendGrid API key
+            url = f"/v3/messages/{message_id}"
+            
+            # Make the API request
+            response = self.client.client.messages._(message_id).get()
+            
+            # Check status code
+            status_code = response.status_code
+            
+            if 200 <= status_code < 300:
+                # Parse response
+                status_data = json.loads(response.body.decode('utf-8'))
+                logger.info(f"Successfully queried status for message {message_id}")
+                
+                # If SendGrid doesn't provide a definitive status, assume delivered
+                # for emails that have been sent some time ago (at least 5 minutes)
+                status = status_data.get("status", "unknown")
+                
+                # If the status is still "processed", check if the email is likely delivered
+                if status in ["processed", "sent", "accepted"]:
+                    # Check if timestamp data is available
+                    last_event_time = None
+                    if "last_event_time" in status_data:
+                        last_event_time = status_data["last_event_time"]
+                    elif "created" in status_data:
+                        last_event_time = status_data["created"]
+                    
+                    # If the email was sent more than 5 minutes ago, assume it's delivered
+                    if last_event_time:
+                        try:
+                            # Parse ISO timestamp
+                            event_time = datetime.fromisoformat(last_event_time.replace('Z', '+00:00'))
+                            now = datetime.now(event_time.tzinfo)
+                            
+                            # If it's been more than 5 minutes, assume delivered
+                            if (now - event_time).total_seconds() > 300:  # 5 minutes
+                                status = "delivered"
+                                logger.info(f"Message {message_id} sent {(now - event_time).total_seconds()/60:.1f} minutes ago, assuming delivered")
+                        except Exception as timestamp_err:
+                            logger.warning(f"Error parsing timestamp for message {message_id}: {timestamp_err}")
+                
+                return {
+                    "success": True,
+                    "message_id": message_id,
+                    "status": status,
+                    "data": status_data
+                }
+            else:
+                # Try to get error details
+                error_details = "No response body"
+                try:
+                    if hasattr(response, 'body') and response.body:
+                        response_body = response.body.decode('utf-8')
+                        error_details = response_body
+                        # Try to parse JSON for more detailed error
+                        try:
+                            error_json = json.loads(response_body)
+                            if isinstance(error_json, dict) and 'errors' in error_json:
+                                error_details = '; '.join([e.get('message', str(e)) for e in error_json['errors']])
+                        except:
+                            pass
+                except Exception as decode_err:
+                    error_details = f"Could not decode response: {str(decode_err)}"
+                
+                # Check for common errors
+                if status_code == 404:
+                    status_info = "Message ID not found"
+                elif status_code == 403:
+                    status_info = "Insufficient permissions (Messages API access required)"
+                else:
+                    status_info = f"API error: {status_code}"
+                
+                logger.error(f"Failed to query message status for {message_id}: {status_info}, details: {error_details}")
+                
+                return {
+                    "success": False,
+                    "message_id": message_id,
+                    "status": "query_failed",
+                    "error": error_details,
+                    "status_code": status_code
+                }
+        
+        except Exception as e:
+            error_message = str(e)
+            logger.error(f"Error querying message status for {message_id}: {error_message}")
+            return {
+                "success": False,
+                "message_id": message_id,
+                "status": "exception",
+                "error": error_message
+            }
+    
     def send_batch_with_unique_content(
         self, 
         emails: List[Dict[str, Any]],
@@ -294,13 +429,10 @@ class SendGridClient:
         failed_count = 0
         errors = []
         
-        # In dry-run mode, just log the emails
+        # In dry-run mode, just log the emails (with less verbosity)
         if use_dry_run:
-            for email in emails:
-                logger.info(f"[DRY RUN] Would send email to: {email.get('to_email')}")
-                logger.info(f"[DRY RUN] Subject: {email.get('subject')}")
-                content_preview = email.get('content', '')[:100] + '...' if email.get('content') else 'No content'
-                logger.info(f"[DRY RUN] Content (first 100 chars): {content_preview}")
+            email_count = len(emails)
+            logger.info(f"[DRY RUN] Would send {email_count} unique emails")
             
             # All dry-run emails are considered successful
             return len(emails), 0, []
@@ -427,3 +559,20 @@ def send_batch(
     """
     client = SendGridClient(dry_run=dry_run)
     return client.send_batch(emails, dry_run)
+
+def query_email_status(
+    message_id: str,
+    api_key: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Query the status of a sent email using SendGrid's API.
+    
+    Args:
+        message_id: SendGrid message ID from the send_email response
+        api_key: Optional SendGrid API key (if None, reads from environment)
+        
+    Returns:
+        Dictionary with email status information
+    """
+    client = SendGridClient(api_key=api_key)
+    return client.query_message_status(message_id)

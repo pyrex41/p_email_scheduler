@@ -1,5 +1,12 @@
 {% extends "base.html" %}
 
+{% block head %}
+<!-- Add auto-refresh meta tag to update the page every 5 seconds while there are pending emails -->
+{% if batch_details.pending > 0 %}
+<meta http-equiv="refresh" content="5">
+{% endif %}
+{% endblock %}
+
 {% block content %}
 <div class="container mt-4">
     <h1>Email Details for Batch {{ batch_id }}</h1>
@@ -36,9 +43,12 @@
                         </div>
                         <div class="col-md-6">
                             <p><strong>Total Emails:</strong> {{ batch_details.total }}</p>
-                            <p><strong>Sent:</strong> <span class="text-success">{{ batch_details.sent }}</span></p>
+                            <p><strong>Sent:</strong> <span class="text-success">{{ batch_details.sent }}</span> <span class="text-muted">({{ batch_details.total - batch_details.pending - batch_details.failed }})</span></p>
                             <p><strong>Failed:</strong> <span class="text-danger">{{ batch_details.failed }}</span></p>
                             <p><strong>Pending:</strong> <span class="text-secondary">{{ batch_details.pending }}</span></p>
+                            <p><a href="/email_details?batch_id={{ batch_id }}&org_id={{ org_id }}" class="btn btn-sm btn-secondary">
+                                <i class="fas fa-sync"></i> Refresh
+                            </a></p>
                             
                             <div class="progress mb-3" style="height: 20px;">
                                 {% set progress = (batch_details.sent + batch_details.failed) / batch_details.total * 100 if batch_details.total > 0 else 0 %}
@@ -61,7 +71,13 @@
                         {% endif %}
                         
                         {% if batch_details.failed > 0 %}
-                        <a href="/retry_failed_emails?batch_id={{ batch_id }}&org_id={{ org_id }}" class="btn btn-danger">Retry Failed Emails</a>
+                        <a href="/retry_failed_emails?batch_id={{ batch_id }}&org_id={{ org_id }}" class="btn btn-danger me-2">Retry Failed Emails</a>
+                        {% endif %}
+                        
+                        {% if batch_details.sent > 0 %}
+                        <a href="/email_status?batch_id={{ batch_id }}&org_id={{ org_id }}" class="btn btn-info" id="check-delivery-btn">
+                            <i class="fas fa-chart-bar me-1"></i> View Delivery Status
+                        </a>
                         {% endif %}
                     </div>
                     {% endif %}
@@ -117,8 +133,20 @@
                                     </td>
                                     <td>{{ email.scheduled_date }}</td>
                                     <td>
-                                        {% if email.send_status == 'sent' %}
-                                        <span class="badge bg-success">Sent</span>
+                                        {% if email.send_status == 'delivered' %}
+                                        <span class="badge bg-success">Delivered</span>
+                                        {% elif email.send_status == 'sent' %}
+                                          {% if email.delivery_status == 'delivered' %}
+                                          <span class="badge bg-success">Delivered</span>
+                                          {% elif email.delivery_status == 'deferred' %}
+                                          <span class="badge bg-warning">Deferred</span>
+                                          {% elif email.delivery_status == 'bounced' %}
+                                          <span class="badge bg-danger">Bounced</span>
+                                          {% elif email.delivery_status == 'dropped' %}
+                                          <span class="badge bg-danger">Dropped</span>
+                                          {% else %}
+                                          <span class="badge bg-info">Sent</span>
+                                          {% endif %}
                                         {% elif email.send_status == 'failed' %}
                                         <span class="badge bg-danger">Failed</span>
                                         {% elif email.send_status == 'pending' %}

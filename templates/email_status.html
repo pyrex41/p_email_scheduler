@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+
+{% block head %}
+<!-- Add auto-refresh meta tag to update the page every 10 seconds while there are pending emails -->
+{% if batch.stats.pending > 0 %}
+<meta http-equiv="refresh" content="10">
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <h1>Email Batch Status</h1>
+            <p class="lead">Organization: {{ batch.org_name }} (ID: {{ batch.org_id }})</p>
+            <p>Batch ID: <code>{{ batch.batch_id }}</code></p>
+        </div>
+        <div class="col-md-4 text-end">
+            <a href="/email_status?org_id={{ batch.org_id }}&batch_id={{ batch.batch_id }}&refresh=true" class="btn btn-primary">
+                <i class="fas fa-sync-alt me-2"></i>Refresh Status
+            </a>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">Email Status Summary</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-3">
+                            <div class="card bg-light">
+                                <div class="card-body text-center">
+                                    <h6 class="card-title">Total Emails</h6>
+                                    <h3>{{ batch.stats.total }}</h3>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card bg-success text-white">
+                                <div class="card-body text-center">
+                                    <h6 class="card-title">Sent</h6>
+                                    <h3>{{ batch.stats.sent }}</h3>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card bg-warning">
+                                <div class="card-body text-center">
+                                    <h6 class="card-title">Pending</h6>
+                                    <h3>{{ batch.stats.pending }}</h3>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card bg-danger text-white">
+                                <div class="card-body text-center">
+                                    <h6 class="card-title">Failed</h6>
+                                    <h3>{{ batch.stats.failed }}</h3>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-12">
+                            <h6>Progress</h6>
+                            <div class="progress mb-2" style="height: 25px;">
+                                {% set sent_percent = (batch.stats.sent / batch.stats.total * 100) if batch.stats.total > 0 else 0 %}
+                                {% set pending_percent = (batch.stats.pending / batch.stats.total * 100) if batch.stats.total > 0 else 0 %}
+                                {% set failed_percent = (batch.stats.failed / batch.stats.total * 100) if batch.stats.total > 0 else 0 %}
+                                
+                                <div class="progress-bar bg-success" role="progressbar" 
+                                    style="width: {{ sent_percent }}%;" 
+                                    aria-valuenow="{{ batch.stats.sent }}" aria-valuemin="0" aria-valuemax="{{ batch.stats.total }}">
+                                    {% if sent_percent > 10 %}
+                                    {{ batch.stats.sent }} Sent ({{ sent_percent | round(1) }}%)
+                                    {% endif %}
+                                </div>
+                                <div class="progress-bar bg-warning" role="progressbar" 
+                                    style="width: {{ pending_percent }}%;" 
+                                    aria-valuenow="{{ batch.stats.pending }}" aria-valuemin="0" aria-valuemax="{{ batch.stats.total }}">
+                                    {% if pending_percent > 10 %}
+                                    {{ batch.stats.pending }} Pending ({{ pending_percent | round(1) }}%)
+                                    {% endif %}
+                                </div>
+                                <div class="progress-bar bg-danger" role="progressbar" 
+                                    style="width: {{ failed_percent }}%;" 
+                                    aria-valuenow="{{ batch.stats.failed }}" aria-valuemin="0" aria-valuemax="{{ batch.stats.total }}">
+                                    {% if failed_percent > 10 %}
+                                    {{ batch.stats.failed }} Failed ({{ failed_percent | round(1) }}%)
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="text-end">
+                                <small class="text-muted">
+                                    Completion: {{ batch.stats.completion_percentage }}% | 
+                                    Sent: {{ batch.stats.sent }} / {{ batch.stats.total }}
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6>Detailed Status</h6>
+                            <ul class="list-group">
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    Sent
+                                    <span class="badge bg-success rounded-pill">{{ batch.stats.sent }}</span>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    Delivered
+                                    <span class="badge bg-info rounded-pill">{{ batch.stats.delivered }}</span>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    Deferred
+                                    <span class="badge bg-warning rounded-pill">{{ batch.stats.deferred }}</span>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    Bounced
+                                    <span class="badge bg-danger rounded-pill">{{ batch.stats.bounced }}</span>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    Dropped
+                                    <span class="badge bg-danger rounded-pill">{{ batch.stats.dropped }}</span>
+                                </li>
+                            </ul>
+                        </div>
+                        <div class="col-md-6">
+                            <h6>Timing Information</h6>
+                            <ul class="list-group">
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    Start Time
+                                    <span>{{ batch.stats.start_time }}</span>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    Last Activity
+                                    <span>{{ batch.stats.last_attempt }}</span>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    Emails Needing Status Check
+                                    <span class="badge bg-info rounded-pill">{{ batch.stats.needs_check }}</span>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    Send Mode
+                                    <span class="badge {% if batch.send_mode == 'production' %}bg-danger{% else %}bg-secondary{% endif %} rounded-pill">
+                                        {{ batch.send_mode }}
+                                    </span>
+                                </li>
+                                {% if batch.test_email %}
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    Test Email
+                                    <span>{{ batch.test_email }}</span>
+                                </li>
+                                {% endif %}
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">Email Status Actions</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <div class="d-grid">
+                                <a href="/email_status/update?org_id={{ batch.org_id }}&batch_id={{ batch.batch_id }}" class="btn btn-primary">
+                                    Update Status from SendGrid
+                                </a>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="d-grid">
+                                <a href="/resume_batch?org_id={{ batch.org_id }}&batch_id={{ batch.batch_id }}" class="btn btn-success">
+                                    {% if batch.stats.pending > 0 %}
+                                    Resume Sending ({{ batch.stats.pending }} Pending)
+                                    {% else %}
+                                    Batch Complete
+                                    {% endif %}
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <hr>
+                    
+                    <div class="d-flex justify-content-between">
+                        <a href="/send_emails?org_id={{ batch.org_id }}" class="btn btn-outline-primary">
+                            Start New Batch
+                        </a>
+                        <a href="/email_history?org_id={{ batch.org_id }}" class="btn btn-outline-secondary">
+                            View All Batches
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -17,6 +17,7 @@ import os
 from utils import generate_link
 from email_template_engine import EmailTemplateEngine
 from email_batch_manager import EmailBatchManager
+from email_status_checker import update_batch_statuses, get_batch_delivery_stats
 import aiosqlite
 import sqlite3
 import uuid
@@ -89,6 +90,9 @@ os.makedirs(org_db_dir, exist_ok=True)
 
 reload_db = False # set to True to refresh the database
 
+# Initialize email batch manager for status operations
+email_batch_manager = EmailBatchManager()
+
 async def refresh_databases(org_id: int) -> None:
     """
     Refresh databases by running dump_and_convert.sh script if reload is enabled
@@ -117,6 +121,156 @@ async def refresh_databases(org_id: int) -> None:
         print(f"Skipping database refresh for org {org_id}")
 
 app = FastAPI(title="Email Schedule Checker")
+
+# Import and include email status router
+try:
+    from email_status_endpoints import router as status_router
+    app.include_router(status_router)
+    logger.info("Email status API endpoints mounted successfully")
+except ImportError as e:
+    logger.warning(f"Could not import email status endpoints: {e}")
+
+# Add SendGrid webhook endpoint
+@app.post("/webhook/sendgrid")
+async def sendgrid_webhook(request: Request):
+    """Endpoint for receiving SendGrid webhook events."""
+    try:
+        # Get request body
+        body = await request.body()
+        
+        # Get signature headers if present
+        signature = request.headers.get("X-Twilio-Email-Event-Webhook-Signature")
+        timestamp = request.headers.get("X-Twilio-Email-Event-Webhook-Timestamp")
+        
+        # Process the webhook
+        from sendgrid_webhook import handle_sendgrid_webhook
+        result = handle_sendgrid_webhook(body, signature, timestamp)
+        
+        if not result["success"]:
+            logger.error(f"Error processing SendGrid webhook: {result.get('error')}")
+            return JSONResponse(content=result, status_code=400)
+            
+        logger.info(f"Processed {result.get('events_processed', 0)} SendGrid webhook events")
+        return JSONResponse(content=result)
+        
+    except Exception as e:
+        logger.error(f"Error handling SendGrid webhook: {e}")
+        return JSONResponse(
+            content={"success": False, "error": str(e)},
+            status_code=500
+        )
+
+# Add email status UI route
+@app.get("/email_status")
+async def email_status(
+    request: Request,
+    org_id: int,
+    batch_id: str,
+    refresh: bool = False
+):
+    """UI route for viewing email status with optional refresh."""
+    try:
+        # Check if refresh was requested
+        if refresh:
+            # Update status from SendGrid
+            update_results = update_batch_statuses(org_id, batch_id, limit=100)
+            logger.info(f"Email status refresh for batch {batch_id}: {update_results['stats']['checked']} checked")
+        
+        # Get batch status
+        batch_status = get_batch_delivery_stats(org_id, batch_id)
+        
+        if not batch_status["success"]:
+            return templates.TemplateResponse(
+                "error.html", 
+                {
+                    "request": request,
+                    "error_title": "Error Getting Batch Status",
+                    "error_message": batch_status.get("error", "Unknown error")
+                }
+            )
+        
+        # Get batch details from batch manager
+        batch_details = email_batch_manager.get_batch_status(batch_id)
+        
+        # Merge the data for a complete view
+        batch_data = {
+            "org_id": org_id,
+            "org_name": batch_details.get("org_name", f"Organization {org_id}"),
+            "batch_id": batch_id,
+            "send_mode": batch_details.get("send_mode", "unknown"),
+            "test_email": batch_details.get("test_email"),
+            "is_complete": batch_details.get("is_complete", False),
+            "stats": batch_status["stats"]
+        }
+        
+        return templates.TemplateResponse(
+            "email_status.html", 
+            {
+                "request": request, 
+                "batch": batch_data,
+                "refresh_requested": refresh
+            }
+        )
+    
+    except Exception as e:
+        logger.error(f"Error rendering email status page: {e}")
+        return templates.TemplateResponse(
+            "error.html", 
+            {
+                "request": request,
+                "error_title": "Error Viewing Email Status",
+                "error_message": str(e)
+            }
+        )
+
+# Add email status update UI route
+@app.get("/email_status/update")
+async def email_status_update(
+    request: Request,
+    org_id: int,
+    batch_id: str
+):
+    """UI route for updating email status from SendGrid."""
+    try:
+        # Update status from SendGrid
+        update_results = update_batch_statuses(org_id, batch_id, limit=100)
+        
+        # Redirect back to the status page
+        return RedirectResponse(
+            url=f"/email_status?org_id={org_id}&batch_id={batch_id}",
+            status_code=303
+        )
+    
+    except Exception as e:
+        logger.error(f"Error updating email status: {e}")
+        return templates.TemplateResponse(
+            "error.html", 
+            {
+                "request": request,
+                "error_title": "Error Updating Email Status",
+                "error_message": str(e)
+            }
+        )
+
+# Add email delivery status UI route
+@app.get("/email_delivery_status")
+async def email_delivery_status(
+    request: Request,
+    org_id: Optional[int] = None,
+    batch_id: Optional[str] = None
+):
+    """UI for checking email delivery status."""
+    return templates.TemplateResponse(
+        "email_delivery_status.html",
+        {
+            "request": request,
+            "org_id": org_id,
+            "batch_id": batch_id,
+            "batch_status": None,
+            "update_result": None,
+            "message_status": None
+        }
+    )
 
 # Initialize the Email Batch Manager
 batch_manager = EmailBatchManager()

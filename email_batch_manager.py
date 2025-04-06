@@ -445,16 +445,30 @@ class EmailBatchManager:
                     )
                     
                     if result:
-                        # Update record as sent
+                        # Mark as sent initially (regardless of delivery status)
+                        # This ensures the email count updates properly in the UI
+                        new_status = 'sent'  # IMPORTANT: Must be 'sent' for UI counters to work
+                        message_id = None
+                        delivery_status = 'accepted'  # Default delivery status
+                        
+                        # Extract message ID if available (for later delivery checking)
+                        if isinstance(result, dict):
+                            if result.get('success', False):
+                                # Keep API status in delivery_status field
+                                delivery_status = result.get('status', 'accepted')
+                                message_id = result.get('message_id')
+                        
                         cursor.execute(
                             """
                             UPDATE email_send_tracking
-                            SET send_status = 'sent', 
+                            SET send_status = ?, 
                                 send_attempt_count = send_attempt_count + 1,
-                                last_attempt_date = ?
+                                last_attempt_date = ?,
+                                message_id = ?,
+                                delivery_status = ?
                             WHERE id = ?
                             """,
-                            (datetime.now().isoformat(), email_id)
+                            (new_status, datetime.now().isoformat(), message_id, delivery_status, email_id)
                         )
                         successful_count += 1
                     else:
@@ -656,7 +670,7 @@ class EmailBatchManager:
                         }
                         
                         # Send the email (wrapped in to_thread to make the synchronous call non-blocking)
-                        success = await asyncio.to_thread(
+                        result = await asyncio.to_thread(
                             self.sendgrid_client.send_email,
                             to_email=to_email,
                             subject=subject,
@@ -665,10 +679,24 @@ class EmailBatchManager:
                             dry_run=not allow_send
                         )
                         
-                        if success:
+                        if result:
+                            # Mark as sent initially (regardless of delivery status)
+                            # This ensures the email count updates properly in the UI
+                            new_status = 'sent'  # IMPORTANT: Must be 'sent' for UI counters to work
+                            message_id = None
+                            delivery_status = 'accepted'  # Default delivery status
+                            
+                            if isinstance(result, dict):
+                                if result.get('success', False):
+                                    # Keep original API status in delivery_status field
+                                    delivery_status = result.get('status', 'accepted')
+                                    message_id = result.get('message_id')
+                            
                             return {
                                 'status': 'sent',
-                                'email_id': email_id
+                                'email_id': email_id,
+                                'message_id': message_id,
+                                'delivery_status': new_status
                             }
                         else:
                             return {
@@ -698,20 +726,34 @@ class EmailBatchManager:
             errors = [r.get('error', 'Unknown error') for r in failed_results]
             
             # Optimize database updates by doing them in batches
-            # First update all successful emails at once
+            # Update the successful emails one by one to track message IDs properly
             if successful_ids:
-                placeholders = ",".join(["?" for _ in successful_ids])
                 timestamp = datetime.now().isoformat()
-                await conn.execute(
-                    f"""
-                    UPDATE email_send_tracking
-                    SET send_status = 'sent', 
-                        send_attempt_count = send_attempt_count + 1,
-                        last_attempt_date = ?
-                    WHERE id IN ({placeholders})
-                    """,
-                    [timestamp] + successful_ids
-                )
+                
+                # Prepare update tasks for each successful email
+                update_tasks = []
+                
+                for successful_result in [r for r in results if r['status'] == 'sent']:
+                    email_id = successful_result['email_id']
+                    message_id = successful_result.get('message_id')
+                    delivery_status = successful_result.get('delivery_status', 'accepted')
+                    
+                    update_tasks.append(
+                        conn.execute(
+                            """
+                            UPDATE email_send_tracking
+                            SET send_status = ?, 
+                                send_attempt_count = send_attempt_count + 1,
+                                last_attempt_date = ?,
+                                message_id = ?
+                            WHERE id = ?
+                            """,
+                            (delivery_status, timestamp, message_id, email_id)
+                        )
+                    )
+                
+                # Execute all updates in parallel
+                await asyncio.gather(*update_tasks)
             
             # Then update all failed emails at once (with individual error messages)
             if failed_ids:
@@ -902,16 +944,27 @@ class EmailBatchManager:
                     )
                     
                     if result:
-                        # Update record as sent
+                        # Update record with correct status and message ID
+                        new_status = 'accepted'
+                        message_id = None
+                        
+                        # Extract message ID if available
+                        if isinstance(result, dict):
+                            if result.get('success', False):
+                                new_status = result.get('status', 'accepted')
+                                message_id = result.get('message_id')
+                        
                         cursor.execute(
                             """
                             UPDATE email_send_tracking
-                            SET send_status = 'sent', 
+                            SET send_status = ?, 
                                 send_attempt_count = send_attempt_count + 1,
-                                last_attempt_date = ?
+                                last_attempt_date = ?,
+                                message_id = ?,
+                                delivery_status = ?
                             WHERE id = ?
                             """,
-                            (datetime.now().isoformat(), email_id)
+                            (new_status, datetime.now().isoformat(), message_id, delivery_status, email_id)
                         )
                         successful_retries += 1
                     else:
@@ -1051,16 +1104,30 @@ class EmailBatchManager:
                     )
                     
                     if result:
-                        # Update record as sent
+                        # Mark as sent initially (regardless of delivery status)
+                        # This ensures the email count updates properly in the UI
+                        new_status = 'sent'  # IMPORTANT: Must be 'sent' for UI counters to work
+                        message_id = None
+                        delivery_status = 'accepted'  # Default delivery status
+                        
+                        # Extract message ID if available (for later delivery checking)
+                        if isinstance(result, dict):
+                            if result.get('success', False):
+                                # Keep API status in delivery_status field
+                                delivery_status = result.get('status', 'accepted')
+                                message_id = result.get('message_id')
+                        
                         await conn.execute(
                             """
                             UPDATE email_send_tracking
-                            SET send_status = 'sent', 
+                            SET send_status = ?, 
                                 send_attempt_count = send_attempt_count + 1,
-                                last_attempt_date = ?
+                                last_attempt_date = ?,
+                                message_id = ?,
+                                delivery_status = ?
                             WHERE id = ?
                             """,
-                            (datetime.now().isoformat(), email_id)
+                            (new_status, datetime.now().isoformat(), message_id, delivery_status, email_id)
                         )
                         successful_retries += 1
                     else:

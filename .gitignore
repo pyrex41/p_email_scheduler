@@ -13,7 +13,7 @@ build/
 *.egg-info/
 
 # Database files
-*.db
+# *.db
 dump.sql
 
 # Large data files

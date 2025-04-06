@@ -37,7 +37,7 @@
                         </div>
                         <div class="col-md-6">
                             <p><strong>Total Emails:</strong> {{ batch_details.total }}</p>
-                            <p><strong>Sent:</strong> <span class="text-success">{{ batch_details.sent }}</span></p>
+                            <p><strong>Sent:</strong> <span class="text-success">{{ batch_details.sent }}</span> <span class="text-muted">({{ batch_details.total - batch_details.pending - batch_details.failed }})</span></p>
                             <p><strong>Failed:</strong> <span class="text-danger">{{ batch_details.failed }}</span></p>
                             <p><strong>Pending:</strong> <span class="text-warning">{{ batch_details.pending }}</span></p>
                             
